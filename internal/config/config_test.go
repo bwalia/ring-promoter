@@ -86,3 +86,79 @@ func TestNegativeRetryCountRejected(t *testing.T) {
 		t.Fatal("expected error for negative retry count")
 	}
 }
+
+// A valid per-app github deployer must load and resolve to DeployerGitHub.
+const githubApp = `
+apps:
+  - name: wslproxy
+    deployer: github
+    github:
+      owner: bwalia
+      repo: wslproxy
+      workflow: deploy-wslproxy-delivery-pipeline.yml
+    rings:
+      ring0: { target_env: int,  health_url: "http://int/health" }
+      ring1: { target_env: test, health_url: "http://test/health" }
+      ring2: { target_env: prod, health_url: "http://prod/health" }
+`
+
+func TestGitHubDeployer_Valid(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	cfg, err := Load(writeConfig(t, githubApp))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	app, ok := cfg.App("wslproxy")
+	if !ok {
+		t.Fatal("wslproxy app missing")
+	}
+	if cfg.DeployerFor(app) != DeployerGitHub {
+		t.Fatalf("DeployerFor = %q, want github", cfg.DeployerFor(app))
+	}
+	if got := app.GitHub.TokenEnvName(); got != "RP_GITHUB_TOKEN" {
+		t.Fatalf("default token env = %q", got)
+	}
+}
+
+func TestGitHubDeployer_RequiresGitHubBlock(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	body := `
+apps:
+  - name: wslproxy
+    deployer: github
+    rings:
+      ring0: { target_env: int, health_url: "http://int/health" }
+`
+	if _, err := Load(writeConfig(t, body)); err == nil {
+		t.Fatal("expected error: github deployer without github block")
+	}
+}
+
+func TestGitHubDeployer_RequiresTargetEnvPerRing(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	body := `
+apps:
+  - name: wslproxy
+    deployer: github
+    github: { owner: bwalia, repo: wslproxy, workflow: wf.yml }
+    rings:
+      ring0: { health_url: "http://int/health" }
+`
+	if _, err := Load(writeConfig(t, body)); err == nil {
+		t.Fatal("expected error: ring missing target_env for github deployer")
+	}
+}
+
+func TestUnknownPerAppDeployerRejected(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	body := `
+apps:
+  - name: web
+    deployer: banana
+    rings:
+      ring0: { namespace: ring0, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
+`
+	if _, err := Load(writeConfig(t, body)); err == nil {
+		t.Fatal("expected error for unknown per-app deployer")
+	}
+}

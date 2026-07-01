@@ -100,6 +100,42 @@ the new SSH-based Deployer and the app's config entry).
 
 ---
 
+## Worked example: wslproxy (implemented)
+
+`wslproxy` (github.com/bwalia/wslproxy) was onboarded following this prompt. It
+runs on VMs (`int → test → prod`; `acc` decommissioned) and already has a mature
+GitHub Actions delivery pipeline. Rather than reinventing SSH+build in a new
+Deployer, we took the path this doc flags below — *"if CI already does it, the
+new Deployer can trigger that"* — and added a **`GitHubActionsDeployer`** that
+dispatches a per-environment workflow (`deploy-single-environment.yml`) and
+waits for the run.
+
+> The existing `deploy-wslproxy-delivery-pipeline.yml` turned out to be a
+> cumulative `int→test→prod` cascade gated on `TARGET_HOST` (its `TARGET_ENV`
+> input is cosmetic), so it can't deploy one environment in isolation. We added
+> `deploy-single-environment.yml` to the wslproxy repo (an `ENV`-parameterized
+> wrapper over the same reusable `deploy-environment.yml`) so each ring deploys
+> independently and auto-rollback affects only the target ring.
+
+What shipped in Ring Promoter:
+
+- `internal/deployer/github.go` — `GitHubActionsDeployer` (workflow-dispatch +
+  run polling; non-`success` conclusion → error, so auto-rollback still works).
+- A **per-app `deployer:` field** (`internal/config`) so one control plane runs
+  Kubernetes apps (`kubectl`) and VM/CI apps (`github`) together — the prompt's
+  recommended option (a). Selection happens per app in `cmd/ringpromoter/main.go`.
+- Per-ring `target_env` and a per-app `github:` block in config; token from
+  `RP_GITHUB_TOKEN` (Secret).
+- Ring mapping: `ring0=int`, `ring1=test`, `ring2=prod` (`ring3` unused).
+- Version = a git branch/tag/SHA (the pipeline's `DEPLOY_BRANCH`).
+
+See the [Deploy a VM/CI app](../README.md#deploy-a-vmci-app-eg-wslproxy) section
+of the README and the `wslproxy` entry in `deploy/k8s/configmap.yaml`.
+
+If a future OpenResty app has **no** usable CI and must be driven host-by-host,
+the SSH-based Deployer spec above still applies — it implements the same
+`Deployer` interface and slots in via the same per-app `deployer:` field.
+
 ## Good to decide up front
 
 - **How versions get onto the VMs today.** If Ansible/CI already does it, the new

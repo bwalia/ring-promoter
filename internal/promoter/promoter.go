@@ -65,29 +65,43 @@ type RingView struct {
 
 // Promoter orchestrates deployments across rings for all configured apps.
 type Promoter struct {
-	cfg        *config.Config
-	store      store.Store
-	deployer   deployer.Deployer
-	checker    health.Checker
-	log        *slog.Logger
-	retryCount int
-	retryDelay time.Duration
+	cfg   *config.Config
+	store store.Store
+	// deployers holds a per-application deployer; apps absent from the map use
+	// defaultDeployer. This lets one control plane manage Kubernetes apps and
+	// VM/CI-deployed apps (e.g. wslproxy) side by side.
+	deployers       map[string]deployer.Deployer
+	defaultDeployer deployer.Deployer
+	checker         health.Checker
+	log             *slog.Logger
+	retryCount      int
+	retryDelay      time.Duration
 }
 
-// New constructs a Promoter.
-func New(cfg *config.Config, st store.Store, dep deployer.Deployer, chk health.Checker, log *slog.Logger) *Promoter {
+// New constructs a Promoter. deployers maps an application name to its deployer;
+// apps not present fall back to defaultDeployer.
+func New(cfg *config.Config, st store.Store, deployers map[string]deployer.Deployer, defaultDeployer deployer.Deployer, chk health.Checker, log *slog.Logger) *Promoter {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Promoter{
-		cfg:        cfg,
-		store:      st,
-		deployer:   dep,
-		checker:    chk,
-		log:        log,
-		retryCount: cfg.Retry.RetryCount(),
-		retryDelay: cfg.Retry.RetryDelay(),
+		cfg:             cfg,
+		store:           st,
+		deployers:       deployers,
+		defaultDeployer: defaultDeployer,
+		checker:         chk,
+		log:             log,
+		retryCount:      cfg.Retry.RetryCount(),
+		retryDelay:      cfg.Retry.RetryDelay(),
 	}
+}
+
+// deployerFor returns the deployer for an application.
+func (p *Promoter) deployerFor(app string) deployer.Deployer {
+	if d, ok := p.deployers[app]; ok && d != nil {
+		return d
+	}
+	return p.defaultDeployer
 }
 
 // Apps returns the configured application names.
@@ -146,7 +160,7 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			} else {
 				views[idx].LiveHealthy = true
 			}
-			if lv, ok := p.deployer.(deployer.LiveVersioner); ok {
+			if lv, ok := p.deployerFor(app).(deployer.LiveVersioner); ok {
 				if ver, err := lv.LiveVersion(cctx, tgt); err == nil {
 					views[idx].LiveVersion = ver
 				}
@@ -177,7 +191,7 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 	prev := p.currentVersion(ctx, app, ringName)
 	res := Result{App: app, Action: store.ActionSeed, Ring: ringName, Version: version}
 
-	if err := p.deployer.Deploy(ctx, tgt, version); err != nil {
+	if err := p.deployerFor(app).Deploy(ctx, tgt, version); err != nil {
 		// The deploy never happened, so leave the stored state untouched.
 		res.Message = "deploy failed: " + err.Error()
 		res.State, _ = p.store.GetRingState(ctx, app, ringName)
@@ -244,7 +258,7 @@ func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, e
 	dstPrev := p.currentVersion(ctx, app, nextRing.Name)
 
 	// Deploy to the target ring.
-	if err := p.deployer.Deploy(ctx, dstTgt, version); err != nil {
+	if err := p.deployerFor(app).Deploy(ctx, dstTgt, version); err != nil {
 		res.Message = "deploy to target failed: " + err.Error()
 		p.record(ctx, app, nextRing.Name, store.ActionPromote, dstPrev, version, store.ResultFailure, res.Message)
 		res.State, _ = p.store.GetRingState(ctx, app, nextRing.Name)
@@ -332,7 +346,7 @@ func (p *Promoter) Rollback(ctx context.Context, app, ringName string) (Result, 
 // the resulting state, whether the rolled-back version is healthy, and a
 // non-nil error only if the rollback deploy itself failed.
 func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt deployer.Target, rc config.RingConfig, from, to string) (store.RingState, bool, error) {
-	if err := p.deployer.Deploy(ctx, tgt, to); err != nil {
+	if err := p.deployerFor(app).Deploy(ctx, tgt, to); err != nil {
 		msg := fmt.Sprintf("rollback deploy to %s failed: %s", to, err.Error())
 		p.record(ctx, app, ringName, store.ActionRollback, from, to, store.ResultFailure, msg)
 		st, _ := p.store.GetRingState(ctx, app, ringName)
@@ -433,5 +447,6 @@ func (p *Promoter) target(app, ringName string, rc config.RingConfig) deployer.T
 		Deployment: rc.Deployment,
 		Container:  rc.Container,
 		Image:      rc.Image,
+		TargetEnv:  rc.TargetEnv,
 	}
 }

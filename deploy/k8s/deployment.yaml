@@ -53,6 +53,16 @@ spec:
                 secretKeyRef:
                   name: ring-promoter
                   key: RP_DB_DSN
+            # Token used by the per-app "github" deployer (e.g. wslproxy) to
+            # dispatch its CI/CD workflow. Optional: only required if an app in
+            # the ConfigMap uses `deployer: github`. Marked optional so clusters
+            # with only Kubernetes apps need not provide it.
+            - name: RP_GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_GITHUB_TOKEN
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz

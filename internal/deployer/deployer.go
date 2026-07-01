@@ -6,7 +6,10 @@ package deployer
 import "context"
 
 // Target identifies what to deploy and where. It is derived from the
-// per-(app, ring) configuration.
+// per-(app, ring) configuration. The Kubernetes-oriented fields
+// (Namespace/Deployment/Container/Image) are used by KubectlDeployer; VM/CI
+// deployers such as GitHubActionsDeployer use TargetEnv instead. A given
+// deployer simply ignores the fields that do not apply to it.
 type Target struct {
 	App        string
 	Ring       string
@@ -15,6 +18,11 @@ type Target struct {
 	Container  string
 	// Image is the repository without a tag; the version is applied as the tag.
 	Image string
+	// TargetEnv is the deployment environment name a non-Kubernetes deployer
+	// ships to (e.g. "int", "test", "prod"). It maps a ring onto the real
+	// environment understood by the target system (for wslproxy, the
+	// TARGET_ENV input of its CI/CD pipeline).
+	TargetEnv string
 }
 
 // Deployer rolls a version out to a target.

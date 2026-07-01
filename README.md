@@ -20,6 +20,7 @@ full history **per (application, ring)**.
 - [Run locally](#run-locally)
 - [REST API](#rest-api)
 - [Add an application (config only)](#add-an-application-config-only)
+- [Deploy a VM/CI app (e.g. wslproxy)](#deploy-a-vmci-app-eg-wslproxy)
 - [Add a ring (single-place change)](#add-a-ring-single-place-change)
 - [Deploy on k3s](#deploy-on-k3s)
 - [How an app's CI calls the API](#how-an-apps-ci-calls-the-api)
@@ -50,15 +51,25 @@ in **configuration**, not code.
 
 ### Clean, swappable interfaces
 
-| Concern      | Interface            | Production impl      | Local/dev impl        |
-|--------------|----------------------|----------------------|-----------------------|
-| Deploy       | `deployer.Deployer`  | `KubectlDeployer`    | `LogDeployer` (no-op) |
-| Health check | `health.Checker`     | `HTTPChecker`        | `AlwaysHealthy`       |
-| Persistence  | `store.Store`        | `Postgres`           | `Memory`              |
+| Concern      | Interface            | Production impls                          | Local/dev impl        |
+|--------------|----------------------|-------------------------------------------|-----------------------|
+| Deploy       | `deployer.Deployer`  | `KubectlDeployer`, `GitHubActionsDeployer`| `LogDeployer` (no-op) |
+| Health check | `health.Checker`     | `HTTPChecker`                             | `AlwaysHealthy`       |
+| Persistence  | `store.Store`        | `Postgres`                                | `Memory`              |
 
 The `KubectlDeployer` shells out to `kubectl` (`set image` + `rollout status`),
 authenticating in-cluster via the pod's ServiceAccount. It keeps the binary and
 dependency tree small while getting battle-tested rollout semantics.
+
+The `GitHubActionsDeployer` targets applications that run on **VMs** (not
+Kubernetes) but already have a CI/CD pipeline — it triggers that pipeline via
+the GitHub Actions **workflow-dispatch** API and waits for the run to conclude,
+returning an error unless it succeeds (so the same health-check + auto-rollback
+logic applies). See [Deploy a VM/CI app](#deploy-a-vmci-app-e.g-wslproxy).
+
+The deployer is selected **per application** (via an optional `deployer:` field
+in the app's config), so a single control plane can promote Kubernetes apps and
+VM/CI apps side by side. Apps without the field use the global `deployer`.
 
 **Concurrency & reliability.**
 - Operations on the same application are serialized by a lock obtained from the
@@ -210,6 +221,92 @@ An app does not need to define every ring — only the ones it lives in.
 
 ---
 
+## Deploy a VM/CI app (e.g. wslproxy)
+
+Some applications don't run on Kubernetes — they run on **VMs** and are deployed
+by their own CI/CD. `wslproxy` is one: an OpenResty/Lua app rolled out to VM
+hosts (pipeline `int → test → prod`) by GitHub Actions that builds the requested
+ref and reloads OpenResty on each host.
+
+Such an app opts into the **`github` deployer** with a per-app `deployer:` field
+and a `github:` block. No code change — it is pure configuration:
+
+```yaml
+apps:
+  - name: wslproxy
+    deployer: github                      # override the global deployer
+    github:
+      owner: bwalia
+      repo: wslproxy
+      workflow: deploy-single-environment.yml   # per-env deploy, no cascade
+      ref: build                          # branch the workflow file runs from
+      deploy_mode: full                   # value sent as the DEPLOY_MODE input
+      token_env: RP_GITHUB_TOKEN          # env holding the API token (Secret)
+      poll_interval: 20s                  # how often the run is polled
+      run_lookup_timeout: 90s             # wait for the dispatched run to appear
+      # Dispatch input names default to ENV / DEPLOY_BRANCH / DEPLOY_MODE;
+      # override with env_input / version_input / mode_input for other workflows.
+    rings:                                # target_env is sent as the ENV input
+      ring0: { target_env: int,  health_url: "https://int-our.wslproxy.com/health" }
+      ring1: { target_env: test, health_url: "https://test.wslproxy.com/health" }
+      ring2: { target_env: prod, health_url: "https://prod-our-v1.wslproxy.com/health" }
+```
+
+How it maps onto Ring Promoter:
+
+- **A "version"** is a git **branch, tag or commit SHA** — passed as the
+  workflow's `DEPLOY_BRANCH` input (handed to `actions/checkout`). You `seed` it
+  into `ring0` and `promote` the exact same value onward.
+- **Each ring's `target_env`** becomes the workflow's `ENV` input, so `ring0/1/2`
+  deploy to `int/test/prod` respectively. `ring3` is left undefined for this app.
+  (Rings are consecutive so "never skip a ring" holds.)
+- **The workflow deploys exactly one environment** (`ENV=prod` fans out to all
+  three prod hosts). This independence matters: a plain `int` deploy must not
+  cascade to prod, and a prod auto-rollback must not revert `int`/`test`. See the
+  note below on why a dedicated single-environment workflow is required.
+- **Deploy** = dispatch the workflow, then poll the resulting run. A non-`success`
+  conclusion is an error, so a failed run (or a failed post-deploy health check)
+  triggers the usual **auto-rollback** — which re-dispatches the workflow for the
+  previous version, against that ring's environment only.
+- **Health** uses the standard `HTTPChecker` against each ring's `health_url`
+  (OpenResty serves `/health` via `api/ping.lua`, returning `200 {"status":"healthy"}`).
+
+> **Use a single-environment workflow, not the full delivery pipeline.**
+> wslproxy's `deploy-wslproxy-delivery-pipeline.yml` is a cumulative promotion
+> cascade: `deploy-int` runs on every dispatch and each later stage `needs:` the
+> previous, gated by `TARGET_HOST` (its `TARGET_ENV` input is cosmetic). Pointing
+> the deployer at it would make a single-ring deploy run the whole chain to
+> production. The companion `deploy-single-environment.yml`
+> ([wslproxy PR #1121](https://github.com/bwalia/wslproxy/pull/1121)) deploys one
+> `ENV` in isolation, reusing the same per-host settings — that is what this
+> config targets.
+
+**Token.** The `github` deployer authenticates with the token in the env var
+named by `token_env` (default `RP_GITHUB_TOKEN`), injected from the Secret. It
+needs `actions:write` (dispatch) and `contents:read` on the repo — a fine-grained
+PAT or a GitHub App token. It is never stored in the ConfigMap.
+
+**Drive it** exactly like any other app — the mechanism is transparent to the API:
+
+```bash
+RP=https://ring-promoter.example.com; APP=wslproxy; TOKEN=$RING_PROMOTER_TOKEN
+# Seed a ref into int, then promote int -> test -> prod.
+curl --fail -sS -X POST "$RP/api/apps/$APP/seed" \
+  -H "Authorization: Bearer $TOKEN" -d '{"ring":"ring0","version":"release-1.0.10"}'
+curl --fail -sS -X POST "$RP/api/apps/$APP/promote" \
+  -H "Authorization: Bearer $TOKEN" -d '{"from_ring":"ring0"}'   # -> test
+curl --fail -sS -X POST "$RP/api/apps/$APP/promote" \
+  -H "Authorization: Bearer $TOKEN" -d '{"from_ring":"ring1"}'   # -> prod (all hosts)
+```
+
+> One-instance caveat: matching the dispatched run relies on it being the newest
+> `workflow_dispatch` run for that workflow created after Ring Promoter fired it.
+> Ring Promoter serializes operations per app, so it never races itself; a human
+> manually dispatching the *same* workflow at the *same instant* is the only way
+> to confuse the match. The matched run's URL is logged so it can be verified.
+
+---
+
 ## Add a ring (single-place change)
 
 The ring pipeline is the single source of truth in
@@ -345,7 +442,8 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 |-------------------|---------------------|----------------|----------------------------------------|
 | `RP_LISTEN_ADDR`  | `listen_addr`       | `:8080`        | HTTP bind address.                     |
 | `RP_API_TOKEN`    | `api_token`         | – (required)   | Bearer token for `/api`.               |
-| `RP_DEPLOYER`     | `deployer`          | `log`          | `kubectl` or `log`.                    |
+| `RP_DEPLOYER`     | `deployer`          | `log`          | Global default: `kubectl`, `log` or `github`. Overridable per app via `deployer:`. |
+| `RP_GITHUB_TOKEN` | – (per-app `token_env`) | –          | API token for apps using the `github` deployer (needs `actions:write` + `contents:read`). From a Secret. |
 | `RP_HEALTH`       | `health`            | `always`       | `http` or `always`.                    |
 | `RP_DB_DRIVER`    | `database.driver`   | `memory`       | `postgres` or `memory`.                |
 | `RP_DB_DSN`       | `database.dsn`      | –              | Required for `postgres`.               |

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -52,7 +53,11 @@ func run(configPath string, logger *slog.Logger) error {
 	}
 	defer st.Close()
 
-	prom := promoter.New(cfg, st, buildDeployer(cfg, logger), buildChecker(cfg), logger)
+	deployers, defaultDeployer, err := buildDeployers(cfg, logger)
+	if err != nil {
+		return err
+	}
+	prom := promoter.New(cfg, st, deployers, defaultDeployer, buildChecker(cfg), logger)
 	srv := api.NewServer(prom, cfg.APIToken, web.Handler(), cfg.OperationTimeout.Std(), logger)
 
 	httpServer := &http.Server{
@@ -92,13 +97,76 @@ func buildStore(ctx context.Context, cfg *config.Config) (store.Store, error) {
 	}
 }
 
-func buildDeployer(cfg *config.Config, logger *slog.Logger) deployer.Deployer {
-	switch cfg.Deployer {
-	case config.DeployerKubectl:
-		return deployer.NewKubectlDeployer(logger, 2*time.Minute)
-	default:
-		return deployer.NewLogDeployer(logger)
+// buildDeployers constructs one deployer per application (honoring an app's
+// `deployer` override) plus a default deployer for anything unlisted. Shared
+// mechanisms (kubectl, log) are instantiated once; the github deployer is
+// per-app because each app dispatches its own workflow.
+func buildDeployers(cfg *config.Config, logger *slog.Logger) (map[string]deployer.Deployer, deployer.Deployer, error) {
+	var kubectlDep, logDep deployer.Deployer
+	shared := func(kind string) deployer.Deployer {
+		switch kind {
+		case config.DeployerKubectl:
+			if kubectlDep == nil {
+				kubectlDep = deployer.NewKubectlDeployer(logger, 2*time.Minute)
+			}
+			return kubectlDep
+		default:
+			if logDep == nil {
+				logDep = deployer.NewLogDeployer(logger)
+			}
+			return logDep
+		}
 	}
+
+	perApp := make(map[string]deployer.Deployer, len(cfg.Apps))
+	for _, app := range cfg.Apps {
+		switch cfg.DeployerFor(app) {
+		case config.DeployerGitHub:
+			d, err := buildGitHubDeployer(app, logger)
+			if err != nil {
+				return nil, nil, err
+			}
+			perApp[app.Name] = d
+		case config.DeployerKubectl:
+			perApp[app.Name] = shared(config.DeployerKubectl)
+		default:
+			perApp[app.Name] = shared(config.DeployerLog)
+		}
+	}
+
+	// Default for any app not explicitly mapped (defensive; every app is mapped
+	// above). A global "github" default has no per-app config, so fall back to
+	// the log deployer for the default slot.
+	def := shared(cfg.Deployer)
+	return perApp, def, nil
+}
+
+func buildGitHubDeployer(app config.AppConfig, logger *slog.Logger) (deployer.Deployer, error) {
+	g := app.GitHub // guaranteed non-nil by config validation
+	token := os.Getenv(g.TokenEnvName())
+	if token == "" {
+		return nil, fmt.Errorf("app %q uses the github deployer but env %s is empty", app.Name, g.TokenEnvName())
+	}
+	cfg := deployer.GitHubActionsConfig{
+		Owner:        g.Owner,
+		Repo:         g.Repo,
+		Workflow:     g.Workflow,
+		Ref:          g.Ref,
+		DeployMode:   g.DeployMode,
+		EnvInput:     g.EnvInput,
+		VersionInput: g.VersionInput,
+		ModeInput:    g.ModeInput,
+		ExtraInputs:  g.ExtraInputs,
+		Token:        token,
+		APIBaseURL:   g.APIBaseURL,
+	}
+	if g.PollInterval != nil {
+		cfg.PollInterval = g.PollInterval.Std()
+	}
+	if g.RunLookupTimeout != nil {
+		cfg.RunLookupTimeout = g.RunLookupTimeout.Std()
+	}
+	return deployer.NewGitHubActionsDeployer(logger, cfg, nil), nil
 }
 
 func buildChecker(cfg *config.Config) health.Checker {

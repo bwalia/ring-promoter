@@ -80,3 +80,50 @@ data:
             container: api
             image: registry.example.com/orders-api
             health_url: http://orders-api.ring3.svc.cluster.local/health
+
+      # wslproxy — an OpenResty/Lua app deployed to VMs (NOT Kubernetes) by its
+      # own GitHub Actions CI/CD. It uses the per-app `github` deployer, which
+      # dispatches deploy-single-environment.yml with the ring's environment as
+      # the `ENV` input and waits for the run to conclude. That workflow deploys
+      # exactly ONE environment (no cascade), so each ring is independent and
+      # auto-rollback only affects the ring it targets. It builds the requested
+      # ref and reloads OpenResty on each host of the environment.
+      #
+      # NOTE: requires deploy-single-environment.yml in the wslproxy repo
+      # (github.com/bwalia/wslproxy PR #1121). Do NOT point this at
+      # deploy-wslproxy-delivery-pipeline.yml — that is a cumulative int->test->
+      # prod cascade gated on TARGET_HOST, so a single-ring deploy would run the
+      # whole chain to production.
+      #
+      # Rings map onto the real int -> test -> prod pipeline (acc decommissioned);
+      # ring3 is intentionally unused for this app.
+      #
+      # The API token comes from the env var named by github.token_env
+      # (RP_GITHUB_TOKEN), injected from the Secret — never put it here.
+      #
+      # The health_url values return 2xx from OpenResty's /health (served by
+      # api/ping.lua) in each environment.
+      - name: wslproxy
+        deployer: github
+        github:
+          owner: bwalia
+          repo: wslproxy
+          workflow: deploy-single-environment.yml
+          ref: build            # branch the workflow file itself runs from
+          deploy_mode: full     # value sent as the DEPLOY_MODE input
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+          # Dispatch input names default to ENV / DEPLOY_BRANCH / DEPLOY_MODE
+          # (the deploy-single-environment.yml schema); override here for other
+          # workflows via env_input / version_input / mode_input.
+        rings:
+          ring0:                # Dev -> int (192.168.1.193)
+            target_env: int     # sent as the ENV input
+            health_url: https://int-our.wslproxy.com/health
+          ring1:                # Integration -> test (192.168.1.140)
+            target_env: test
+            health_url: https://test.wslproxy.com/health
+          ring2:                # Acceptance -> prod (pop0 + lon1 + pop1, 3 hosts)
+            target_env: prod
+            health_url: https://prod-our-v1.wslproxy.com/health
