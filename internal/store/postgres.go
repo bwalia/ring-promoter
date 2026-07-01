@@ -1,0 +1,121 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	_ "embed"
+	"errors"
+	"fmt"
+	"time"
+
+	_ "github.com/lib/pq"
+)
+
+//go:embed schema.sql
+var schemaSQL string
+
+// Postgres is a Store backed by PostgreSQL.
+type Postgres struct {
+	db *sql.DB
+}
+
+// NewPostgres opens a connection pool, verifies it, and applies the schema.
+func NewPostgres(ctx context.Context, dsn string) (*Postgres, error) {
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
+
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+
+	p := &Postgres{db: db}
+	if err := p.migrate(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return p, nil
+}
+
+func (p *Postgres) migrate(ctx context.Context) error {
+	if _, err := p.db.ExecContext(ctx, schemaSQL); err != nil {
+		return fmt.Errorf("apply schema: %w", err)
+	}
+	return nil
+}
+
+// GetRingState implements Store.
+func (p *Postgres) GetRingState(ctx context.Context, app, ring string) (RingState, error) {
+	const q = `
+		SELECT app, ring, current_version, previous_version, healthy, updated_at
+		FROM ring_state WHERE app = $1 AND ring = $2`
+	var s RingState
+	err := p.db.QueryRowContext(ctx, q, app, ring).Scan(
+		&s.App, &s.Ring, &s.CurrentVersion, &s.PreviousVersion, &s.Healthy, &s.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RingState{}, ErrNotFound
+	}
+	if err != nil {
+		return RingState{}, fmt.Errorf("get ring state: %w", err)
+	}
+	return s, nil
+}
+
+// UpsertRingState implements Store.
+func (p *Postgres) UpsertRingState(ctx context.Context, s RingState) error {
+	const q = `
+		INSERT INTO ring_state (app, ring, current_version, previous_version, healthy, updated_at)
+		VALUES ($1, $2, $3, $4, $5, now())
+		ON CONFLICT (app, ring) DO UPDATE SET
+			current_version  = EXCLUDED.current_version,
+			previous_version = EXCLUDED.previous_version,
+			healthy          = EXCLUDED.healthy,
+			updated_at       = now()`
+	if _, err := p.db.ExecContext(ctx, q, s.App, s.Ring, s.CurrentVersion, s.PreviousVersion, s.Healthy); err != nil {
+		return fmt.Errorf("upsert ring state: %w", err)
+	}
+	return nil
+}
+
+// AddHistory implements Store.
+func (p *Postgres) AddHistory(ctx context.Context, e HistoryEntry) error {
+	const q = `
+		INSERT INTO history (app, ring, action, from_version, to_version, result, message)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	if _, err := p.db.ExecContext(ctx, q, e.App, e.Ring, e.Action, e.FromVersion, e.ToVersion, e.Result, e.Message); err != nil {
+		return fmt.Errorf("add history: %w", err)
+	}
+	return nil
+}
+
+// ListHistory implements Store, newest first.
+func (p *Postgres) ListHistory(ctx context.Context, app string) ([]HistoryEntry, error) {
+	const q = `
+		SELECT id, app, ring, action, from_version, to_version, result, message, created_at
+		FROM history WHERE app = $1 ORDER BY id DESC`
+	rows, err := p.db.QueryContext(ctx, q, app)
+	if err != nil {
+		return nil, fmt.Errorf("list history: %w", err)
+	}
+	defer rows.Close()
+
+	var out []HistoryEntry
+	for rows.Next() {
+		var e HistoryEntry
+		if err := rows.Scan(&e.ID, &e.App, &e.Ring, &e.Action, &e.FromVersion, &e.ToVersion, &e.Result, &e.Message, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan history: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// Close implements Store.
+func (p *Postgres) Close() error { return p.db.Close() }

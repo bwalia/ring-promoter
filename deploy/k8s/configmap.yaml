@@ -1,0 +1,80 @@
+# Application registry + runtime settings, mounted at
+# /etc/ringpromoter/config.yaml. Secrets (api_token, database.dsn) are injected
+# via environment variables from the Secret and intentionally omitted here.
+#
+# ADD AN APPLICATION: append to `apps` and re-apply this ConfigMap, then restart
+# the deployment (kubectl rollout restart deploy/ring-promoter -n ring-system).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ring-promoter-config
+  namespace: ring-system
+data:
+  config.yaml: |
+    listen_addr: ":8080"
+
+    deployer: kubectl     # talk to k3s
+    health: http          # real HTTP health checks
+
+    retry:
+      count: 3
+      delay: 5s
+
+    database:
+      driver: postgres
+      # dsn comes from RP_DB_DSN (Secret)
+
+    apps:
+      - name: web-frontend
+        rings:
+          ring0:
+            namespace: ring0
+            deployment: web-frontend
+            container: web
+            image: registry.example.com/web-frontend
+            health_url: http://web-frontend.ring0.svc.cluster.local/health
+          ring1:
+            namespace: ring1
+            deployment: web-frontend
+            container: web
+            image: registry.example.com/web-frontend
+            health_url: http://web-frontend.ring1.svc.cluster.local/health
+          ring2:
+            namespace: ring2
+            deployment: web-frontend
+            container: web
+            image: registry.example.com/web-frontend
+            health_url: http://web-frontend.ring2.svc.cluster.local/health
+          ring3:
+            namespace: ring3
+            deployment: web-frontend
+            container: web
+            image: registry.example.com/web-frontend
+            health_url: http://web-frontend.ring3.svc.cluster.local/health
+
+      - name: orders-api
+        rings:
+          ring0:
+            namespace: ring0
+            deployment: orders-api
+            container: api
+            image: registry.example.com/orders-api
+            health_url: http://orders-api.ring0.svc.cluster.local/health
+          ring1:
+            namespace: ring1
+            deployment: orders-api
+            container: api
+            image: registry.example.com/orders-api
+            health_url: http://orders-api.ring1.svc.cluster.local/health
+          ring2:
+            namespace: ring2
+            deployment: orders-api
+            container: api
+            image: registry.example.com/orders-api
+            health_url: http://orders-api.ring2.svc.cluster.local/health
+          ring3:
+            namespace: ring3
+            deployment: orders-api
+            container: api
+            image: registry.example.com/orders-api
+            health_url: http://orders-api.ring3.svc.cluster.local/health

@@ -1,0 +1,85 @@
+# The Ring Promoter control-plane service.
+#
+# replicas is 1 on purpose: promotion operations are serialized by in-process
+# per-application locks, so a single active instance keeps ordering guarantees
+# simple. State/history live in Postgres and survive restarts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ring-promoter
+  namespace: ring-system
+  labels:
+    app: ring-promoter
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ring-promoter
+  template:
+    metadata:
+      labels:
+        app: ring-promoter
+      annotations:
+        # Roll the pod when the config changes: bump this or use
+        # `kubectl rollout restart`.
+        ring-promoter/config-revision: "1"
+    spec:
+      serviceAccountName: ring-promoter
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ring-promoter
+          image: registry.example.com/ring-promoter:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: RP_CONFIG_FILE
+              value: /etc/ringpromoter/config.yaml
+            - name: RP_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_API_TOKEN
+            - name: RP_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_DB_DSN
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/ringpromoter
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: ring-promoter-config

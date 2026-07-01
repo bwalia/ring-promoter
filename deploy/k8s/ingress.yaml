@@ -1,0 +1,24 @@
+# Optional Ingress for the web UI + API, using the Traefik controller that
+# ships with k3s. Adjust the host to something that resolves to your cluster
+# (or add it to /etc/hosts pointing at the node IP).
+#
+# NOTE: the API is protected by the bearer token, but consider adding TLS and
+# an auth middleware in front of the UI for production exposure.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ring-promoter
+  namespace: ring-system
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ring-promoter.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ring-promoter
+                port:
+                  number: 80

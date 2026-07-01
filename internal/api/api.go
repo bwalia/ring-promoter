@@ -1,0 +1,204 @@
+// Package api exposes the app-scoped REST API and mounts the embedded web UI.
+// All /api routes are protected by a bearer token; /healthz and the UI are not.
+package api
+
+import (
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/example/ring-promoter/internal/promoter"
+	"github.com/example/ring-promoter/internal/ring"
+)
+
+// Server wires the promoter, auth token and UI into an http.Handler.
+type Server struct {
+	prom  *promoter.Promoter
+	token string
+	log   *slog.Logger
+	ui    http.Handler
+}
+
+// NewServer constructs an API server. ui serves the embedded web assets.
+func NewServer(prom *promoter.Promoter, token string, ui http.Handler, log *slog.Logger) *Server {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Server{prom: prom, token: token, ui: ui, log: log}
+}
+
+// Handler returns the fully-assembled HTTP handler.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+
+	// Service liveness — unauthenticated.
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
+
+	// App-scoped REST API — authenticated.
+	api := http.NewServeMux()
+	api.HandleFunc("GET /api/apps", s.handleListApps)
+	api.HandleFunc("GET /api/apps/{app}/rings", s.handleRings)
+	api.HandleFunc("GET /api/apps/{app}/history", s.handleHistory)
+	api.HandleFunc("POST /api/apps/{app}/seed", s.handleSeed)
+	api.HandleFunc("POST /api/apps/{app}/promote", s.handlePromote)
+	api.HandleFunc("POST /api/apps/{app}/rollback", s.handleRollback)
+	mux.Handle("/api/", s.authenticate(api))
+
+	// Web UI (single-page app) — served at the root.
+	mux.Handle("/", s.ui)
+
+	return s.logRequests(mux)
+}
+
+// ---- middleware ----
+
+func (s *Server) authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		const prefix = "Bearer "
+		h := r.Header.Get("Authorization")
+		if len(h) <= len(prefix) || h[:len(prefix)] != prefix ||
+			subtle.ConstantTimeCompare([]byte(h[len(prefix):]), []byte(s.token)) != 1 {
+			writeError(w, http.StatusUnauthorized, errors.New("missing or invalid bearer token"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (s *Server) logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		s.log.Info("http",
+			"method", r.Method, "path", r.URL.Path,
+			"status", rec.status, "duration_ms", time.Since(start).Milliseconds())
+	})
+}
+
+// ---- handlers ----
+
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleListApps(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"apps":  s.prom.Apps(),
+		"rings": ring.All(),
+	})
+}
+
+func (s *Server) handleRings(w http.ResponseWriter, r *http.Request) {
+	views, err := s.prom.Rings(r.Context(), r.PathValue("app"))
+	if err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rings": views})
+}
+
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	hist, err := s.prom.History(r.Context(), r.PathValue("app"))
+	if err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"history": hist})
+}
+
+func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Ring    string `json:"ring"`
+		Version string `json:"version"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	res, err := s.prom.Seed(r.Context(), r.PathValue("app"), body.Ring, body.Version)
+	writeResult(w, res, err)
+}
+
+func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		FromRing string `json:"from_ring"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	res, err := s.prom.Promote(r.Context(), r.PathValue("app"), body.FromRing)
+	writeResult(w, res, err)
+}
+
+func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Ring string `json:"ring"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	res, err := s.prom.Rollback(r.Context(), r.PathValue("app"), body.Ring)
+	writeResult(w, res, err)
+}
+
+// ---- helpers ----
+
+// writeResult maps a promoter outcome to an HTTP response: 4xx for precondition
+// errors, 422 when the operation ran but did not succeed, 200 on success.
+func writeResult(w http.ResponseWriter, res promoter.Result, err error) {
+	if err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	if !res.Success {
+		writeJSON(w, http.StatusUnprocessableEntity, res)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func statusForErr(err error) int {
+	switch {
+	case errors.Is(err, promoter.ErrAppNotFound), errors.Is(err, promoter.ErrRingNotConfigured):
+		return http.StatusNotFound
+	case errors.Is(err, promoter.ErrNoNextRing), errors.Is(err, promoter.ErrEmptyVersion):
+		return http.StatusBadRequest
+	case errors.Is(err, promoter.ErrNothingToPromote), errors.Is(err, promoter.ErrNothingToRollback):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body: "+err.Error()))
+		return false
+	}
+	return true
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
