@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -16,18 +17,32 @@ import (
 
 // Server wires the promoter, auth token and UI into an http.Handler.
 type Server struct {
-	prom  *promoter.Promoter
-	token string
-	log   *slog.Logger
-	ui    http.Handler
+	prom      *promoter.Promoter
+	token     string
+	log       *slog.Logger
+	ui        http.Handler
+	opTimeout time.Duration
 }
 
-// NewServer constructs an API server. ui serves the embedded web assets.
-func NewServer(prom *promoter.Promoter, token string, ui http.Handler, log *slog.Logger) *Server {
+// NewServer constructs an API server. ui serves the embedded web assets and
+// opTimeout bounds each mutating operation.
+func NewServer(prom *promoter.Promoter, token string, ui http.Handler, opTimeout time.Duration, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{prom: prom, token: token, ui: ui, log: log}
+	if opTimeout <= 0 {
+		opTimeout = 10 * time.Minute
+	}
+	return &Server{prom: prom, token: token, ui: ui, opTimeout: opTimeout, log: log}
+}
+
+// opContext returns a context for a mutating operation that is DETACHED from the
+// request lifecycle: a client disconnect or load-balancer idle-timeout must not
+// abort an in-flight deploy or — critically — its auto-rollback. It keeps the
+// request's values but drops its cancellation, and bounds the work with an
+// explicit server-side timeout.
+func (s *Server) opContext(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), s.opTimeout)
 }
 
 // Handler returns the fully-assembled HTTP handler.
@@ -128,7 +143,9 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	res, err := s.prom.Seed(r.Context(), r.PathValue("app"), body.Ring, body.Version)
+	ctx, cancel := s.opContext(r)
+	defer cancel()
+	res, err := s.prom.Seed(ctx, r.PathValue("app"), body.Ring, body.Version)
 	writeResult(w, res, err)
 }
 
@@ -139,7 +156,9 @@ func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	res, err := s.prom.Promote(r.Context(), r.PathValue("app"), body.FromRing)
+	ctx, cancel := s.opContext(r)
+	defer cancel()
+	res, err := s.prom.Promote(ctx, r.PathValue("app"), body.FromRing)
 	writeResult(w, res, err)
 }
 
@@ -150,7 +169,9 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	res, err := s.prom.Rollback(r.Context(), r.PathValue("app"), body.Ring)
+	ctx, cancel := s.opContext(r)
+	defer cancel()
+	res, err := s.prom.Rollback(ctx, r.PathValue("app"), body.Ring)
 	writeResult(w, res, err)
 }
 

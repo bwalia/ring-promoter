@@ -26,6 +26,13 @@ const (
 	StoreMemory   = "memory"
 )
 
+// Defaults applied when a value is not set.
+const (
+	defaultRetryCount = 3
+	defaultRetryDelay = 5 * time.Second
+	defaultOpTimeout  = 10 * time.Minute
+)
+
 // Config is the fully-resolved runtime configuration.
 type Config struct {
 	// ListenAddr is the HTTP bind address, e.g. ":8080".
@@ -39,17 +46,44 @@ type Config struct {
 	// Health selects the health backend: "http" or "always".
 	Health string `yaml:"health"`
 
+	// OperationTimeout bounds a single seed/promote/rollback end-to-end
+	// (deploy + rollout wait + health retries + any auto-rollback). The
+	// operation runs detached from the HTTP request, so a client disconnect or
+	// load-balancer idle-timeout cannot abort an in-flight deploy or rollback.
+	OperationTimeout Duration `yaml:"operation_timeout"`
+
 	Retry    RetryConfig    `yaml:"retry"`
 	Database DatabaseConfig `yaml:"database"`
 	Apps     []AppConfig    `yaml:"apps"`
 }
 
 // RetryConfig controls the post-deploy health-check retry loop.
+//
+// Count and Delay are pointers so that an explicit 0 (e.g. `count: 0`, meaning
+// "one health check, no retries before rollback") is honored and not confused
+// with an unset value that should receive the default.
 type RetryConfig struct {
 	// Count is the number of additional attempts after the first check.
-	Count int `yaml:"count"`
-	// Delay is the wait between attempts.
-	Delay Duration `yaml:"delay"`
+	// nil = unset (defaulted); 0 = exactly one check, no retries.
+	Count *int `yaml:"count"`
+	// Delay is the wait between attempts. nil = unset (defaulted).
+	Delay *Duration `yaml:"delay"`
+}
+
+// RetryCount returns the resolved retry count (default if unset).
+func (r RetryConfig) RetryCount() int {
+	if r.Count != nil {
+		return *r.Count
+	}
+	return defaultRetryCount
+}
+
+// RetryDelay returns the resolved delay between attempts (default if unset).
+func (r RetryConfig) RetryDelay() time.Duration {
+	if r.Delay != nil {
+		return r.Delay.Std()
+	}
+	return defaultRetryDelay
 }
 
 // DatabaseConfig selects and configures the persistence backend.
@@ -159,12 +193,18 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("RP_RETRY_COUNT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
-			c.Retry.Count = n
+			c.Retry.Count = &n
 		}
 	}
 	if v := os.Getenv("RP_RETRY_DELAY"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
-			c.Retry.Delay = Duration(d)
+			dd := Duration(d)
+			c.Retry.Delay = &dd
+		}
+	}
+	if v := os.Getenv("RP_OP_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			c.OperationTimeout = Duration(d)
 		}
 	}
 }
@@ -183,11 +223,16 @@ func (c *Config) applyDefaults() {
 	if c.Database.Driver == "" {
 		c.Database.Driver = StoreMemory
 	}
-	if c.Retry.Count == 0 {
-		c.Retry.Count = 3
+	if c.Retry.Count == nil {
+		n := defaultRetryCount
+		c.Retry.Count = &n
 	}
-	if c.Retry.Delay == 0 {
-		c.Retry.Delay = Duration(5 * time.Second)
+	if c.Retry.Delay == nil {
+		d := Duration(defaultRetryDelay)
+		c.Retry.Delay = &d
+	}
+	if c.OperationTimeout == 0 {
+		c.OperationTimeout = Duration(defaultOpTimeout)
 	}
 }
 
@@ -205,6 +250,15 @@ func (c *Config) Validate() error {
 	case HealthHTTP, HealthAlways:
 	default:
 		return fmt.Errorf("unknown health checker %q (want %q or %q)", c.Health, HealthHTTP, HealthAlways)
+	}
+	if c.Retry.RetryCount() < 0 {
+		return fmt.Errorf("retry count must not be negative")
+	}
+	if c.Retry.RetryDelay() < 0 {
+		return fmt.Errorf("retry delay must not be negative")
+	}
+	if c.OperationTimeout.Std() <= 0 {
+		return fmt.Errorf("operation timeout must be positive")
 	}
 	switch c.Database.Driver {
 	case StoreMemory:

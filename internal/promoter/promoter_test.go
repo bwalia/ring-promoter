@@ -61,6 +61,12 @@ func (f *fakeDeployer) deployCount() int {
 	return len(f.deploys)
 }
 
+func (f *fakeDeployer) failVersion(v string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failVer[v] = true
+}
+
 // scriptedChecker reports a (ring, version) combination unhealthy when marked.
 // Health URLs are of the form "health://<app>/<ring>"; the version consulted is
 // whatever the fakeDeployer currently has live in that ring.
@@ -115,11 +121,12 @@ func testConfig(retryCount int) *config.Config {
 			HealthURL:  "health://" + key(testApp, r),
 		}
 	}
+	delay := config.Duration(time.Millisecond)
 	return &config.Config{
 		APIToken: "test-token",
 		Deployer: config.DeployerLog,
 		Health:   config.HealthAlways,
-		Retry:    config.RetryConfig{Count: retryCount, Delay: config.Duration(time.Millisecond)},
+		Retry:    config.RetryConfig{Count: &retryCount, Delay: &delay},
 		Database: config.DatabaseConfig{Driver: config.StoreMemory},
 		Apps:     []config.AppConfig{{Name: testApp, Rings: rings}},
 	}
@@ -303,6 +310,69 @@ func TestPromote_RetryThenAutoRollback(t *testing.T) {
 	}
 	if !containsHistory(hist, store.ActionRollback, store.ResultSuccess) {
 		t.Fatalf("missing successful rollback in history")
+	}
+}
+
+// With retry count 0 there must be exactly ONE health check on the failing
+// version before the auto-rollback (proving count:0 is honored, not defaulted).
+func TestPromote_ZeroRetries_SingleCheckThenRollback(t *testing.T) {
+	p, _, chk, st := newHarness(t, 0)
+	ctx := context.Background()
+
+	mustSeed(t, p, "ring0", "v1")
+	if res, err := p.Promote(ctx, testApp, "ring0"); err != nil || !res.Success {
+		t.Fatalf("baseline promote failed: %+v %v", res, err)
+	}
+	mustSeed(t, p, "ring0", "v2")
+	chk.markUnhealthy(testApp, "ring1", "v2")
+
+	checksBefore := chk.checkCount(testApp, "ring1")
+	res, err := p.Promote(ctx, testApp, "ring0")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if res.Success || !res.RolledBack {
+		t.Fatalf("expected failed promote with rollback: %+v", res)
+	}
+	// Exactly one check for the bad v2 + one for the rolled-back v1.
+	if got := chk.checkCount(testApp, "ring1") - checksBefore; got != 2 {
+		t.Fatalf("expected exactly 2 checks (v2 once, then v1), got %d", got)
+	}
+	if s := mustState(t, st, testApp, "ring1"); s.CurrentVersion != "v1" {
+		t.Fatalf("expected rollback to v1, got %q", s.CurrentVersion)
+	}
+}
+
+// When the promote health check fails AND the auto-rollback deploy also fails,
+// the cluster is stuck on the bad version — the stored state must reflect that,
+// not the old healthy version.
+func TestPromote_HealthFailsAndRollbackFails_StoreMatchesCluster(t *testing.T) {
+	p, dep, chk, st := newHarness(t, 0)
+	ctx := context.Background()
+
+	mustSeed(t, p, "ring0", "v1")
+	if res, err := p.Promote(ctx, testApp, "ring0"); err != nil || !res.Success {
+		t.Fatalf("baseline promote: %+v %v", res, err)
+	}
+	mustSeed(t, p, "ring0", "v2")
+	chk.markUnhealthy(testApp, "ring1", "v2") // v2 unhealthy in ring1
+	dep.failVersion("v1")                     // rolling back to v1 will fail to deploy
+
+	res, err := p.Promote(ctx, testApp, "ring0")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if res.Success || res.RolledBack {
+		t.Fatalf("expected failed promote with failed rollback: %+v", res)
+	}
+	// Cluster is stuck on v2; the store must agree (not report the old good v1).
+	if cluster := dep.version(key(testApp, "ring1")); cluster != "v2" {
+		t.Fatalf("cluster should still run v2, got %q", cluster)
+	}
+	s := mustState(t, st, testApp, "ring1")
+	if s.CurrentVersion != "v2" || s.Healthy {
+		t.Fatalf("store must reflect cluster (current=v2 unhealthy), got current=%q healthy=%v",
+			s.CurrentVersion, s.Healthy)
 	}
 }
 

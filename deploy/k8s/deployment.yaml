@@ -1,8 +1,10 @@
 # The Ring Promoter control-plane service.
 #
-# replicas is 1 on purpose: promotion operations are serialized by in-process
-# per-application locks, so a single active instance keeps ordering guarantees
-# simple. State/history live in Postgres and survive restarts.
+# replicas is 1 by recommendation (simplest reasoning). It is not a hard
+# correctness requirement with the Postgres store: promotion operations are
+# serialized via a Postgres *session advisory lock*, so even an accidental
+# scale-up cannot run two concurrent promotions on the same application. Do NOT
+# attach an HPA. State/history live in Postgres and survive restarts.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

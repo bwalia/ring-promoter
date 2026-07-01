@@ -53,7 +53,7 @@ func run(configPath string, logger *slog.Logger) error {
 	defer st.Close()
 
 	prom := promoter.New(cfg, st, buildDeployer(cfg, logger), buildChecker(cfg), logger)
-	srv := api.NewServer(prom, cfg.APIToken, web.Handler(), logger)
+	srv := api.NewServer(prom, cfg.APIToken, web.Handler(), cfg.OperationTimeout.Std(), logger)
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
