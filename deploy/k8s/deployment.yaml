@@ -31,6 +31,10 @@ spec:
       serviceAccountName: ring-promoter
       securityContext:
         runAsNonRoot: true
+        # Numeric UID/GID of the distroless 'nonroot' user. Required so the
+        # kubelet can verify runAsNonRoot (a non-numeric USER fails that check).
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
