@@ -42,6 +42,12 @@ database:
 #   container  - container within the Deployment whose image tag is set
 #   image      - image repository (without tag); the version is applied as tag
 #   health_url - URL returning 2xx when the app is healthy in that ring
+#
+# An app may set `deployer:` to override the global one (kubectl | log | github).
+# The "github" deployer targets apps deployed to VMs by their own CI/CD: it
+# dispatches a GitHub Actions workflow and waits for it to conclude. See the
+# commented `wslproxy` example at the end of this file, and deploy/k8s/configmap.yaml
+# for the production version.
 # ---------------------------------------------------------------------------
 apps:
   - name: web-frontend
@@ -97,3 +103,26 @@ apps:
         container: api
         image: registry.example.com/orders-api
         health_url: http://orders-api.ring3.svc.cluster.local/health
+
+  # ---------------------------------------------------------------------------
+  # Example: a VM/OpenResty app (wslproxy) deployed via its own GitHub Actions
+  # CI/CD, using the per-app "github" deployer. Commented out because this local
+  # config runs offline (deployer: log, health: always); enabling it would make
+  # `seed` actually dispatch a real workflow. Use the copy in
+  # deploy/k8s/configmap.yaml for production.
+  #
+  # Requires the token env var (RP_GITHUB_TOKEN) to be set when active.
+  # ---------------------------------------------------------------------------
+  # - name: wslproxy
+  #     deployer: github
+  #     github:
+  #       owner: bwalia
+  #       repo: wslproxy
+  #       workflow: deploy-single-environment.yml   # per-env, no cascade
+  #       ref: build           # branch the workflow file runs from
+  #       deploy_mode: full    # value sent as the DEPLOY_MODE input
+  #       token_env: RP_GITHUB_TOKEN
+  #     rings:                 # target_env is sent as the ENV input
+  #       ring0: { target_env: int,  health_url: "https://int-our.wslproxy.com/health" }
+  #       ring1: { target_env: test, health_url: "https://test.wslproxy.com/health" }
+  #       ring2: { target_env: prod, health_url: "https://prod-our-v1.wslproxy.com/health" }

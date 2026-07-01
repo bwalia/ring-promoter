@@ -137,7 +137,8 @@ func newHarness(t *testing.T, retryCount int) (*Promoter, *fakeDeployer, *script
 	dep := newFakeDeployer()
 	chk := newScriptedChecker(dep)
 	st := store.NewMemory()
-	p := New(testConfig(retryCount), st, dep, chk, nil)
+	// nil per-app map: every app falls back to the single default deployer.
+	p := New(testConfig(retryCount), st, nil, dep, chk, nil)
 	return p, dep, chk, st
 }
 

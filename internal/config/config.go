@@ -18,6 +18,10 @@ import (
 const (
 	DeployerKubectl = "kubectl"
 	DeployerLog     = "log"
+	// DeployerGitHub triggers an existing GitHub Actions workflow (for apps
+	// deployed to VMs by their own CI/CD, e.g. wslproxy) rather than talking
+	// to Kubernetes. It requires a per-app `github:` block.
+	DeployerGitHub = "github"
 
 	HealthHTTP   = "http"
 	HealthAlways = "always"
@@ -98,8 +102,50 @@ type DatabaseConfig struct {
 // each ring.
 type AppConfig struct {
 	Name string `yaml:"name"`
+	// Deployer selects the deploy mechanism for THIS app, overriding the global
+	// `deployer`. One of "kubectl", "log" or "github". Empty means "use the
+	// global deployer". This lets one control plane manage Kubernetes apps and
+	// VM/CI-deployed apps (e.g. wslproxy) side by side.
+	Deployer string `yaml:"deployer"`
+	// GitHub configures the CI-dispatch deployer; required when Deployer is
+	// "github", ignored otherwise.
+	GitHub *GitHubDeployConfig `yaml:"github"`
 	// Rings maps a ring name (see package ring) to its deploy target.
 	Rings map[string]RingConfig `yaml:"rings"`
+}
+
+// GitHubDeployConfig configures the "github" deployer for one application: it
+// triggers a workflow-dispatch on the app's own CI/CD pipeline. The API token
+// itself is NOT stored here — it comes from the environment variable named by
+// TokenEnv (populated from a Secret).
+type GitHubDeployConfig struct {
+	// Owner and Repo identify the repository hosting the workflow.
+	Owner string `yaml:"owner"`
+	Repo  string `yaml:"repo"`
+	// Workflow is the workflow file name or numeric id to dispatch.
+	Workflow string `yaml:"workflow"`
+	// Ref is the git ref the workflow runs FROM (branch/tag). Default "build".
+	Ref string `yaml:"ref"`
+	// DeployMode is the value sent as the mode input. Default "full".
+	DeployMode string `yaml:"deploy_mode"`
+	// Input-name overrides for the dispatch payload. They default to the
+	// wslproxy deploy-single-environment.yml schema (ENV / DEPLOY_BRANCH /
+	// DEPLOY_MODE) but are configurable for other workflows.
+	EnvInput     string `yaml:"env_input"`
+	VersionInput string `yaml:"version_input"`
+	ModeInput    string `yaml:"mode_input"`
+	// ExtraInputs are additional static dispatch inputs sent verbatim.
+	ExtraInputs map[string]string `yaml:"extra_inputs"`
+	// TokenEnv names the environment variable holding the API token. Default
+	// "RP_GITHUB_TOKEN".
+	TokenEnv string `yaml:"token_env"`
+	// APIBaseURL overrides the GitHub API base (e.g. for GitHub Enterprise).
+	APIBaseURL string `yaml:"api_base_url"`
+	// PollInterval is how often the dispatched run is polled. Default 15s.
+	PollInterval *Duration `yaml:"poll_interval"`
+	// RunLookupTimeout bounds how long to wait for the dispatched run to appear.
+	// Default 60s.
+	RunLookupTimeout *Duration `yaml:"run_lookup_timeout"`
 }
 
 // RingConfig describes how to deploy and health-check one application in one
@@ -115,6 +161,10 @@ type RingConfig struct {
 	Image string `yaml:"image"`
 	// HealthURL is the URL whose 2xx response means the ring is healthy.
 	HealthURL string `yaml:"health_url"`
+	// TargetEnv is the environment name a non-Kubernetes deployer ships this
+	// ring to (e.g. "int", "test", "prod"). Required for the "github" deployer;
+	// ignored by the kubectl deployer.
+	TargetEnv string `yaml:"target_env"`
 }
 
 // Duration is a time.Duration that unmarshals from a YAML string like "5s".
@@ -242,9 +292,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("api token is required (set RP_API_TOKEN or api_token)")
 	}
 	switch c.Deployer {
-	case DeployerKubectl, DeployerLog:
+	case DeployerKubectl, DeployerLog, DeployerGitHub:
 	default:
-		return fmt.Errorf("unknown deployer %q (want %q or %q)", c.Deployer, DeployerKubectl, DeployerLog)
+		return fmt.Errorf("unknown deployer %q (want %q, %q or %q)", c.Deployer, DeployerKubectl, DeployerLog, DeployerGitHub)
 	}
 	switch c.Health {
 	case HealthHTTP, HealthAlways:
@@ -290,6 +340,53 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("application %q references unknown ring %q", a.Name, rname)
 			}
 		}
+		if err := c.validateAppDeployer(a); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// DeployerFor returns the effective deployer kind for an app: its own override
+// if set, otherwise the global deployer.
+func (c *Config) DeployerFor(a AppConfig) string {
+	if a.Deployer != "" {
+		return a.Deployer
+	}
+	return c.Deployer
+}
+
+// validateAppDeployer checks an app's deployer selection and any deployer-
+// specific requirements (e.g. github needs a github block + per-ring env).
+func (c *Config) validateAppDeployer(a AppConfig) error {
+	switch a.Deployer {
+	case "", DeployerKubectl, DeployerLog, DeployerGitHub:
+	default:
+		return fmt.Errorf("application %q has unknown deployer %q", a.Name, a.Deployer)
+	}
+	if c.DeployerFor(a) != DeployerGitHub {
+		return nil
+	}
+	// github deployer requirements.
+	g := a.GitHub
+	if g == nil {
+		return fmt.Errorf("application %q uses the github deployer but has no `github` block", a.Name)
+	}
+	if g.Owner == "" || g.Repo == "" || g.Workflow == "" {
+		return fmt.Errorf("application %q github block requires owner, repo and workflow", a.Name)
+	}
+	for rname, rc := range a.Rings {
+		if rc.TargetEnv == "" {
+			return fmt.Errorf("application %q ring %q needs target_env for the github deployer", a.Name, rname)
+		}
+	}
+	return nil
+}
+
+// TokenEnvName returns the environment variable holding the API token.
+func (g *GitHubDeployConfig) TokenEnvName() string {
+	if g.TokenEnv != "" {
+		return g.TokenEnv
+	}
+	return "RP_GITHUB_TOKEN"
 }

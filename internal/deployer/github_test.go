@@ -1,0 +1,202 @@
+package deployer
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// ghFake is an in-memory stand-in for the GitHub Actions REST API sufficient to
+// exercise the dispatch → find-run → poll-run flow.
+type ghFake struct {
+	mu sync.Mutex
+
+	// dispatched captures the inputs from the last dispatch call.
+	dispatched   bool
+	dispatchRef  string
+	dispatchBody map[string]string
+
+	// run status served by the run endpoint.
+	conclusion string // "success" | "failure"
+	// completeAfter is how many status polls return "in_progress" before
+	// the run reports "completed".
+	completeAfter int
+	statusPolls   int
+	// omitRun makes the runs list empty (simulating the run never appearing).
+	omitRun bool
+}
+
+func newGHServer(t *testing.T, f *ghFake) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/repos/o/r/actions/workflows/wf.yml/dispatches", func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Ref    string            `json:"ref"`
+			Inputs map[string]string `json:"inputs"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &payload)
+		f.mu.Lock()
+		f.dispatched = true
+		f.dispatchRef = payload.Ref
+		f.dispatchBody = payload.Inputs
+		f.mu.Unlock()
+		if r.Header.Get("Authorization") != "Bearer secret-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("/repos/o/r/actions/workflows/wf.yml/runs", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		omit := f.omitRun
+		f.mu.Unlock()
+		resp := ghRunsResponse{}
+		if !omit {
+			resp.WorkflowRuns = []ghRun{{
+				ID:        42,
+				Status:    "queued",
+				Event:     "workflow_dispatch",
+				CreatedAt: time.Now(),
+				HTMLURL:   "https://github.com/o/r/actions/runs/42",
+			}}
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+
+	mux.HandleFunc("/repos/o/r/actions/runs/42", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.statusPolls++
+		status := "completed"
+		if f.statusPolls <= f.completeAfter {
+			status = "in_progress"
+		}
+		concl := ""
+		if status == "completed" {
+			concl = f.conclusion
+		}
+		f.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(ghRun{
+			ID: 42, Status: status, Conclusion: concl,
+			HTMLURL: "https://github.com/o/r/actions/runs/42",
+		})
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func testGHDeployer(t *testing.T, baseURL string) *GitHubActionsDeployer {
+	return NewGitHubActionsDeployer(nil, GitHubActionsConfig{
+		Owner: "o", Repo: "r", Workflow: "wf.yml",
+		Ref: "build", DeployMode: "full",
+		Token:            "secret-token",
+		APIBaseURL:       baseURL,
+		PollInterval:     time.Millisecond,
+		RunLookupTimeout: 2 * time.Second,
+		ClockSkew:        time.Minute,
+	}, nil)
+}
+
+func TestGitHub_Deploy_HappyPath(t *testing.T) {
+	f := &ghFake{conclusion: "success", completeAfter: 2}
+	srv := newGHServer(t, f)
+	d := testGHDeployer(t, srv.URL)
+
+	tgt := Target{App: "wslproxy", Ring: "ring2", TargetEnv: "prod"}
+	if err := d.Deploy(context.Background(), tgt, "release-1.0.10"); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.dispatched {
+		t.Fatal("workflow was not dispatched")
+	}
+	if f.dispatchRef != "build" {
+		t.Fatalf("dispatch ref = %q, want build", f.dispatchRef)
+	}
+	if f.dispatchBody["DEPLOY_BRANCH"] != "release-1.0.10" {
+		t.Fatalf("DEPLOY_BRANCH = %q", f.dispatchBody["DEPLOY_BRANCH"])
+	}
+	if f.dispatchBody["ENV"] != "prod" {
+		t.Fatalf("ENV = %q, want prod", f.dispatchBody["ENV"])
+	}
+	if f.dispatchBody["DEPLOY_MODE"] != "full" {
+		t.Fatalf("unexpected inputs: %+v", f.dispatchBody)
+	}
+	if _, ok := f.dispatchBody["TARGET_HOST"]; ok {
+		t.Fatalf("TARGET_HOST should not be sent: %+v", f.dispatchBody)
+	}
+	if f.statusPolls < 3 {
+		t.Fatalf("expected the run to be polled to completion, polls=%d", f.statusPolls)
+	}
+}
+
+func TestGitHub_Deploy_FailedRunReturnsError(t *testing.T) {
+	f := &ghFake{conclusion: "failure"}
+	srv := newGHServer(t, f)
+	d := testGHDeployer(t, srv.URL)
+
+	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "ring0", TargetEnv: "int"}, "abc123")
+	if err == nil {
+		t.Fatal("expected an error when the run concludes failure")
+	}
+	if !strings.Contains(err.Error(), "failure") {
+		t.Fatalf("error should mention the conclusion: %v", err)
+	}
+}
+
+func TestGitHub_Deploy_MissingTargetEnv(t *testing.T) {
+	d := testGHDeployer(t, "http://unused.invalid")
+	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "ring0"}, "v1")
+	if err == nil || !strings.Contains(err.Error(), "target_env") {
+		t.Fatalf("expected target_env error, got %v", err)
+	}
+}
+
+func TestGitHub_Deploy_MissingToken(t *testing.T) {
+	d := NewGitHubActionsDeployer(nil, GitHubActionsConfig{
+		Owner: "o", Repo: "r", Workflow: "wf.yml", APIBaseURL: "http://unused.invalid",
+	}, nil)
+	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "ring0", TargetEnv: "int"}, "v1")
+	if err == nil || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("expected token error, got %v", err)
+	}
+}
+
+func TestGitHub_Deploy_RunNeverAppears(t *testing.T) {
+	f := &ghFake{omitRun: true}
+	srv := newGHServer(t, f)
+	d := NewGitHubActionsDeployer(nil, GitHubActionsConfig{
+		Owner: "o", Repo: "r", Workflow: "wf.yml",
+		Token: "secret-token", APIBaseURL: srv.URL,
+		PollInterval: time.Millisecond, RunLookupTimeout: 50 * time.Millisecond,
+	}, nil)
+	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "ring0", TargetEnv: "int"}, "v1")
+	if err == nil || !strings.Contains(err.Error(), "locate dispatched run") {
+		t.Fatalf("expected run-lookup timeout error, got %v", err)
+	}
+}
+
+func TestGitHub_Deploy_ContextCancelled(t *testing.T) {
+	f := &ghFake{conclusion: "success", completeAfter: 1_000_000} // never completes
+	srv := newGHServer(t, f)
+	d := testGHDeployer(t, srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	err := d.Deploy(ctx, Target{App: "wslproxy", Ring: "ring0", TargetEnv: "int"}, "v1")
+	if err == nil {
+		t.Fatal("expected an error when the context is cancelled mid-poll")
+	}
+}
