@@ -14,6 +14,9 @@ type Memory struct {
 	history []HistoryEntry
 	nextID  int64
 	now     func() time.Time
+
+	lockMu sync.Mutex
+	locks  map[string]*sync.Mutex
 }
 
 // NewMemory returns an empty in-memory store.
@@ -22,7 +25,24 @@ func NewMemory() *Memory {
 		states: make(map[string]RingState),
 		nextID: 1,
 		now:    time.Now,
+		locks:  make(map[string]*sync.Mutex),
 	}
+}
+
+// Lock implements Store with a per-key in-process mutex. This is only correct
+// within a single process; production multi-replica correctness comes from the
+// Postgres implementation's advisory locks.
+func (m *Memory) Lock(_ context.Context, key string) (func(), error) {
+	m.lockMu.Lock()
+	l, ok := m.locks[key]
+	if !ok {
+		l = &sync.Mutex{}
+		m.locks[key] = l
+	}
+	m.lockMu.Unlock()
+
+	l.Lock()
+	return l.Unlock, nil
 }
 
 func stateKey(app, ring string) string { return app + "\x00" + ring }

@@ -65,13 +65,13 @@ type RingView struct {
 
 // Promoter orchestrates deployments across rings for all configured apps.
 type Promoter struct {
-	cfg      *config.Config
-	store    store.Store
-	deployer deployer.Deployer
-	checker  health.Checker
-	log      *slog.Logger
-	retry    config.RetryConfig
-	locks    *keyedMutex
+	cfg        *config.Config
+	store      store.Store
+	deployer   deployer.Deployer
+	checker    health.Checker
+	log        *slog.Logger
+	retryCount int
+	retryDelay time.Duration
 }
 
 // New constructs a Promoter.
@@ -80,13 +80,13 @@ func New(cfg *config.Config, st store.Store, dep deployer.Deployer, chk health.C
 		log = slog.Default()
 	}
 	return &Promoter{
-		cfg:      cfg,
-		store:    st,
-		deployer: dep,
-		checker:  chk,
-		log:      log,
-		retry:    cfg.Retry,
-		locks:    newKeyedMutex(),
+		cfg:        cfg,
+		store:      st,
+		deployer:   dep,
+		checker:    chk,
+		log:        log,
+		retryCount: cfg.Retry.RetryCount(),
+		retryDelay: cfg.Retry.RetryDelay(),
 	}
 }
 
@@ -167,7 +167,10 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	unlock := p.locks.lock(app)
+	unlock, err := p.store.Lock(ctx, "app:"+app)
+	if err != nil {
+		return Result{}, fmt.Errorf("lock application: %w", err)
+	}
 	defer unlock()
 
 	tgt := p.target(app, ringName, rc)
@@ -212,7 +215,10 @@ func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, e
 		return Result{}, fmt.Errorf("target %s: %w", nextRing.Name, err)
 	}
 
-	unlock := p.locks.lock(app)
+	unlock, err := p.store.Lock(ctx, "app:"+app)
+	if err != nil {
+		return Result{}, fmt.Errorf("lock application: %w", err)
+	}
 	defer unlock()
 
 	res := Result{App: app, Action: store.ActionPromote, Ring: nextRing.Name, FromRing: fromRing}
@@ -244,6 +250,11 @@ func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, e
 		res.State, _ = p.store.GetRingState(ctx, app, nextRing.Name)
 		return res, nil
 	}
+
+	// The deploy succeeded, so the cluster now runs `version`. Persist that
+	// immediately (health not yet confirmed) so the stored state never lags the
+	// cluster — even if the health check AND the auto-rollback below both fail.
+	p.saveState(ctx, app, nextRing.Name, dstPrev, version, false)
 
 	// Health-check the target with retries.
 	if healthErr := p.checkWithRetries(ctx, dstRC.HealthURL); healthErr == nil {
@@ -286,7 +297,10 @@ func (p *Promoter) Rollback(ctx context.Context, app, ringName string) (Result, 
 	if err != nil {
 		return Result{}, err
 	}
-	unlock := p.locks.lock(app)
+	unlock, err := p.store.Lock(ctx, "app:"+app)
+	if err != nil {
+		return Result{}, fmt.Errorf("lock application: %w", err)
+	}
 	defer unlock()
 
 	st, err := p.store.GetRingState(ctx, app, ringName)
@@ -339,7 +353,7 @@ func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt dep
 // checkWithRetries runs the health check up to retry.Count+1 times, waiting
 // retry.Delay between attempts.
 func (p *Promoter) checkWithRetries(ctx context.Context, url string) error {
-	attempts := p.retry.Count + 1
+	attempts := p.retryCount + 1
 	if attempts < 1 {
 		attempts = 1
 	}
@@ -349,7 +363,7 @@ func (p *Promoter) checkWithRetries(ctx context.Context, url string) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(p.retry.Delay.Std()):
+			case <-time.After(p.retryDelay):
 			}
 		}
 		if err = p.checker.Check(ctx, url); err == nil {
@@ -420,25 +434,4 @@ func (p *Promoter) target(app, ringName string, rc config.RingConfig) deployer.T
 		Container:  rc.Container,
 		Image:      rc.Image,
 	}
-}
-
-// keyedMutex provides one lock per key so operations on the same application are
-// serialized while different applications proceed concurrently.
-type keyedMutex struct {
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex
-}
-
-func newKeyedMutex() *keyedMutex { return &keyedMutex{locks: make(map[string]*sync.Mutex)} }
-
-func (k *keyedMutex) lock(key string) func() {
-	k.mu.Lock()
-	m, ok := k.locks[key]
-	if !ok {
-		m = &sync.Mutex{}
-		k.locks[key] = m
-	}
-	k.mu.Unlock()
-	m.Lock()
-	return m.Unlock
 }

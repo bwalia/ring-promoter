@@ -20,7 +20,13 @@ health: always    # always | http
 
 retry:
   count: 3        # health-check attempts after the first, before rolling back
+                  # (0 is valid and means: one check, no retries)
   delay: 5s       # wait between attempts
+
+# Max time for a single seed/promote/rollback end-to-end (deploy + rollout wait
+# + health retries + any auto-rollback). Runs detached from the HTTP request so
+# a client disconnect can't abort a rollback.
+operation_timeout: 10m
 
 database:
   driver: memory  # memory | postgres

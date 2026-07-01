@@ -60,6 +60,12 @@ type Store interface {
 	AddHistory(ctx context.Context, entry HistoryEntry) error
 	// ListHistory returns the history for an application, newest first.
 	ListHistory(ctx context.Context, app string) ([]HistoryEntry, error)
+	// Lock acquires an exclusive lock for key, blocking until it is held or ctx
+	// is done. The returned function releases it. This serializes mutating
+	// operations for one application. The Postgres implementation uses a session
+	// advisory lock so the guarantee holds across multiple service replicas, not
+	// just within one process.
+	Lock(ctx context.Context, key string) (unlock func(), err error)
 	// Close releases any underlying resources.
 	Close() error
 }

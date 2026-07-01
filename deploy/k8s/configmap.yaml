@@ -17,8 +17,10 @@ data:
     health: http          # real HTTP health checks
 
     retry:
-      count: 3
+      count: 3        # 0 = one check, no retries before rollback
       delay: 5s
+
+    operation_timeout: 10m
 
     database:
       driver: postgres

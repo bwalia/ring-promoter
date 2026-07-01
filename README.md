@@ -60,8 +60,22 @@ The `KubectlDeployer` shells out to `kubectl` (`set image` + `rollout status`),
 authenticating in-cluster via the pod's ServiceAccount. It keeps the binary and
 dependency tree small while getting battle-tested rollout semantics.
 
-Operations on the same application are serialized by an in-process per-app lock,
-so concurrent API calls are safe.
+**Concurrency & reliability.**
+- Operations on the same application are serialized by a lock obtained from the
+  `Store`. The Postgres store uses a **session advisory lock**, so serialization
+  holds **across replicas** — an accidental scale-up cannot run two concurrent
+  promotions on the same app. (The in-memory store's lock is process-local, which
+  is fine because it is single-process by nature.)
+- A seed/promote/rollback runs under a context **detached from the HTTP request**
+  and bounded by `operation_timeout`. A client disconnect or load-balancer idle
+  timeout can therefore never abort an in-flight deploy or, critically, its
+  automatic rollback.
+- The stored state is updated as soon as a deploy lands, so it never lags the
+  cluster even if a subsequent health check and rollback both fail.
+
+`replicas: 1` is still the recommended default (simplest reasoning), but the
+advisory lock means correctness no longer silently depends on it when using
+Postgres.
 
 ---
 
@@ -335,8 +349,9 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 | `RP_HEALTH`       | `health`            | `always`       | `http` or `always`.                    |
 | `RP_DB_DRIVER`    | `database.driver`   | `memory`       | `postgres` or `memory`.                |
 | `RP_DB_DSN`       | `database.dsn`      | –              | Required for `postgres`.               |
-| `RP_RETRY_COUNT`  | `retry.count`       | `3`            | Health retries after the first check.  |
+| `RP_RETRY_COUNT`  | `retry.count`       | `3`            | Health retries after the first check. `0` = one check, no retries. |
 | `RP_RETRY_DELAY`  | `retry.delay`       | `5s`           | Wait between retries.                   |
+| `RP_OP_TIMEOUT`   | `operation_timeout` | `10m`          | Max time for one seed/promote/rollback (deploy + health + rollback). |
 | `RP_CONFIG_FILE`  | – (flag `--config`) | `config.yaml`  | Path to the config file.               |
 
 The application registry (`apps:`) lives in the file only.

@@ -117,5 +117,30 @@ func (p *Postgres) ListHistory(ctx context.Context, app string) ([]HistoryEntry,
 	return out, rows.Err()
 }
 
+// Lock implements Store using a PostgreSQL session-level advisory lock, held on
+// a dedicated connection. This serializes operations for a key across ALL
+// service replicas — not just within one process — so an accidental scale-up
+// cannot run two concurrent promotions on the same application. If the process
+// dies, the session ends and Postgres releases the lock automatically.
+func (p *Postgres) Lock(ctx context.Context, key string) (func(), error) {
+	conn, err := p.db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire lock connection: %w", err)
+	}
+	// hashtextextended maps the namespaced key to the bigint pg_advisory_lock wants.
+	const ns = "ringpromoter:"
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock(hashtextextended($1, 0))", ns+key); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("acquire advisory lock: %w", err)
+	}
+	return func() {
+		// Best effort: explicitly unlock, then close. Closing the connection ends
+		// the session, which releases the advisory lock regardless. Use a fresh
+		// context so shutdown cancellation cannot strand the lock.
+		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock(hashtextextended($1, 0))", ns+key)
+		_ = conn.Close()
+	}, nil
+}
+
 // Close implements Store.
 func (p *Postgres) Close() error { return p.db.Close() }

@@ -17,6 +17,38 @@ async function api(path, method = "GET", body = null) {
   return { ok: resp.ok, status: resp.status, data };
 }
 
+// ---- auth gate ----
+// Validate a token by making a real authenticated request.
+async function tokenIsValid(token) {
+  try {
+    const resp = await fetch("/api/apps", { headers: { Authorization: "Bearer " + token } });
+    return resp.ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+function showGate(message) {
+  $("#app-root").hidden = true;
+  $("#gate").hidden = false;
+  const err = $("#gate-error");
+  if (message) { err.textContent = message; err.hidden = false; } else { err.hidden = true; }
+  $("#gate-token").focus();
+}
+
+function unlock() {
+  $("#gate").hidden = true;
+  $("#app-root").hidden = false;
+  loadApps();
+}
+
+function signOut() {
+  state.token = "";
+  localStorage.removeItem("rp_token");
+  $("#gate-token").value = "";
+  showGate();
+}
+
 // ---- feedback ----
 function feedback(msg, ok) {
   const el = $("#feedback");
@@ -27,7 +59,7 @@ function feedback(msg, ok) {
 
 function showResult(res) {
   const d = res.data || {};
-  if (res.status === 401) return feedback("Unauthorized — check your API token.", false);
+  if (res.status === 401) { signOut(); return; } // token no longer valid -> re-lock
   if (d.message) return feedback(d.message, res.ok);
   if (d.error) return feedback(d.error, false);
   feedback(res.ok ? "Done." : "Request failed (" + res.status + ").", res.ok);
@@ -110,22 +142,24 @@ function actionCell(v) {
   seedBtn.onclick = () => act("seed", { ring: v.ring.name, version: seedInput.value.trim() });
   wrap.append(seedInput, seedBtn);
 
-  // Promote (from this ring to the next)
-  const promoteBtn = document.createElement("button");
-  promoteBtn.textContent = "Promote →";
-  promoteBtn.className = "primary";
-  promoteBtn.disabled = !v.can_promote_from;
-  promoteBtn.title = v.can_promote_from ? "Promote to the next ring" : "Nothing to promote or last ring";
-  promoteBtn.onclick = () => act("promote", { from_ring: v.ring.name });
-  wrap.append(promoteBtn);
+  // Promote — only shown when this ring has a version and a next ring to go to.
+  if (v.can_promote_from) {
+    const promoteBtn = document.createElement("button");
+    promoteBtn.textContent = "Promote →";
+    promoteBtn.className = "primary";
+    promoteBtn.title = "Promote to the next ring";
+    promoteBtn.onclick = () => act("promote", { from_ring: v.ring.name });
+    wrap.append(promoteBtn);
+  }
 
-  // Rollback
-  const rbBtn = document.createElement("button");
-  rbBtn.textContent = "Rollback";
-  rbBtn.className = "danger";
-  rbBtn.disabled = !v.previous_version;
-  rbBtn.onclick = () => act("rollback", { ring: v.ring.name });
-  wrap.append(rbBtn);
+  // Rollback — only shown when there is a previous version to return to.
+  if (v.previous_version) {
+    const rbBtn = document.createElement("button");
+    rbBtn.textContent = "Rollback";
+    rbBtn.className = "danger";
+    rbBtn.onclick = () => act("rollback", { ring: v.ring.name });
+    wrap.append(rbBtn);
+  }
 
   return wrap;
 }
@@ -154,20 +188,32 @@ async function act(kind, body) {
   if (kind === "seed" && !body.version) return feedback("Enter a version to seed.", false);
   const res = await api(`/api/apps/${encodeURIComponent(state.app)}/${kind}`, "POST", body);
   showResult(res);
-  await loadApp();
+  if (res.status !== 401) await loadApp();
 }
 
 // ---- wiring ----
-$("#save-token").onclick = () => {
-  state.token = $("#token").value.trim();
-  localStorage.setItem("rp_token", state.token);
-  feedback("Token saved.", true);
-  loadApps();
-};
+$("#gate-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const token = $("#gate-token").value.trim();
+  if (!token) return showGate("Please enter a token.");
+  if (await tokenIsValid(token)) {
+    state.token = token;
+    localStorage.setItem("rp_token", token);
+    unlock();
+  } else {
+    showGate("Invalid token. Please try again.");
+  }
+});
+$("#signout").onclick = signOut;
 $("#app").onchange = (e) => { state.app = e.target.value; loadApp(); };
 $("#refresh").onclick = () => loadApp();
 
 // ---- init ----
-$("#token").value = state.token;
 state.app = localStorage.getItem("rp_app") || "";
-loadApps();
+(async () => {
+  if (state.token && (await tokenIsValid(state.token))) {
+    unlock();
+  } else {
+    showGate();
+  }
+})();
