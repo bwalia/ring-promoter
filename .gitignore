@@ -1,0 +1,5 @@
+/ringpromoter
+/bin/
+*.out
+*.test
+.env

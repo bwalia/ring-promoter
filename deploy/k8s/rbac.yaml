@@ -1,0 +1,83 @@
+# ServiceAccount the pod runs as.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ring-promoter
+  namespace: ring-system
+---
+# Permissions required to roll application versions out:
+#   - patch/update Deployments   (kubectl set image)
+#   - read Deployments/ReplicaSets/Pods  (kubectl rollout status, live version)
+# Defined once as a ClusterRole; granted per ring namespace via RoleBindings.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ring-promoter-deployer
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+# One RoleBinding per ring namespace scopes the ClusterRole to that namespace.
+# ADDING A RING: copy a block below and change the namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-promoter-deployer
+  namespace: ring0
+subjects:
+  - kind: ServiceAccount
+    name: ring-promoter
+    namespace: ring-system
+roleRef:
+  kind: ClusterRole
+  name: ring-promoter-deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-promoter-deployer
+  namespace: ring1
+subjects:
+  - kind: ServiceAccount
+    name: ring-promoter
+    namespace: ring-system
+roleRef:
+  kind: ClusterRole
+  name: ring-promoter-deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-promoter-deployer
+  namespace: ring2
+subjects:
+  - kind: ServiceAccount
+    name: ring-promoter
+    namespace: ring-system
+roleRef:
+  kind: ClusterRole
+  name: ring-promoter-deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-promoter-deployer
+  namespace: ring3
+subjects:
+  - kind: ServiceAccount
+    name: ring-promoter
+    namespace: ring-system
+roleRef:
+  kind: ClusterRole
+  name: ring-promoter-deployer
+  apiGroup: rbac.authorization.k8s.io

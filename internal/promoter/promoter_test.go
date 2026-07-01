@@ -1,0 +1,386 @@
+package promoter
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/example/ring-promoter/internal/config"
+	"github.com/example/ring-promoter/internal/deployer"
+	"github.com/example/ring-promoter/internal/ring"
+	"github.com/example/ring-promoter/internal/store"
+)
+
+// ---- test doubles ----
+
+// fakeDeployer records deploys and tracks the "live" version per (app, ring).
+// It can be told to fail deploying specific versions.
+type fakeDeployer struct {
+	mu      sync.Mutex
+	live    map[string]string // app/ring -> version
+	failVer map[string]bool   // version -> Deploy returns error
+	deploys []string          // "app/ring=version" in order
+}
+
+func newFakeDeployer() *fakeDeployer {
+	return &fakeDeployer{live: map[string]string{}, failVer: map[string]bool{}}
+}
+
+func key(app, r string) string { return app + "/" + r }
+
+func (f *fakeDeployer) Deploy(_ context.Context, t deployer.Target, version string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deploys = append(f.deploys, fmt.Sprintf("%s=%s", key(t.App, t.Ring), version))
+	if f.failVer[version] {
+		return fmt.Errorf("deploy failed for version %s", version)
+	}
+	f.live[key(t.App, t.Ring)] = version
+	return nil
+}
+
+func (f *fakeDeployer) LiveVersion(_ context.Context, t deployer.Target) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.live[key(t.App, t.Ring)], nil
+}
+
+func (f *fakeDeployer) version(k string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.live[k]
+}
+
+func (f *fakeDeployer) deployCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.deploys)
+}
+
+// scriptedChecker reports a (ring, version) combination unhealthy when marked.
+// Health URLs are of the form "health://<app>/<ring>"; the version consulted is
+// whatever the fakeDeployer currently has live in that ring.
+type scriptedChecker struct {
+	dep       *fakeDeployer
+	mu        sync.Mutex
+	unhealthy map[string]bool // "app/ring|version" -> unhealthy
+	checks    map[string]int  // "app/ring" -> number of checks
+}
+
+func newScriptedChecker(dep *fakeDeployer) *scriptedChecker {
+	return &scriptedChecker{dep: dep, unhealthy: map[string]bool{}, checks: map[string]int{}}
+}
+
+func (c *scriptedChecker) Check(_ context.Context, url string) error {
+	k := strings.TrimPrefix(url, "health://")
+	ver := c.dep.version(k)
+	c.mu.Lock()
+	c.checks[k]++
+	bad := c.unhealthy[k+"|"+ver]
+	c.mu.Unlock()
+	if bad {
+		return fmt.Errorf("unhealthy: %s running %s", k, ver)
+	}
+	return nil
+}
+
+func (c *scriptedChecker) markUnhealthy(app, r, version string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.unhealthy[key(app, r)+"|"+version] = true
+}
+
+func (c *scriptedChecker) checkCount(app, r string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.checks[key(app, r)]
+}
+
+// ---- harness ----
+
+const testApp = "web"
+
+func testConfig(retryCount int) *config.Config {
+	rings := map[string]config.RingConfig{}
+	for _, r := range ring.Names() {
+		rings[r] = config.RingConfig{
+			Namespace:  r,
+			Deployment: testApp,
+			Container:  testApp,
+			Image:      "repo/" + testApp,
+			HealthURL:  "health://" + key(testApp, r),
+		}
+	}
+	return &config.Config{
+		APIToken: "test-token",
+		Deployer: config.DeployerLog,
+		Health:   config.HealthAlways,
+		Retry:    config.RetryConfig{Count: retryCount, Delay: config.Duration(time.Millisecond)},
+		Database: config.DatabaseConfig{Driver: config.StoreMemory},
+		Apps:     []config.AppConfig{{Name: testApp, Rings: rings}},
+	}
+}
+
+func newHarness(t *testing.T, retryCount int) (*Promoter, *fakeDeployer, *scriptedChecker, store.Store) {
+	t.Helper()
+	dep := newFakeDeployer()
+	chk := newScriptedChecker(dep)
+	st := store.NewMemory()
+	p := New(testConfig(retryCount), st, dep, chk, nil)
+	return p, dep, chk, st
+}
+
+func mustState(t *testing.T, st store.Store, app, r string) store.RingState {
+	t.Helper()
+	s, err := st.GetRingState(context.Background(), app, r)
+	if err != nil {
+		t.Fatalf("get state %s/%s: %v", app, r, err)
+	}
+	return s
+}
+
+// ---- tests ----
+
+func TestSeed_Healthy(t *testing.T) {
+	p, dep, _, st := newHarness(t, 2)
+	res, err := p.Seed(context.Background(), testApp, "ring0", "v1")
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got %+v", res)
+	}
+	s := mustState(t, st, testApp, "ring0")
+	if s.CurrentVersion != "v1" || s.PreviousVersion != "" || !s.Healthy {
+		t.Fatalf("bad state: %+v", s)
+	}
+	if dep.deployCount() != 1 {
+		t.Fatalf("expected 1 deploy, got %d", dep.deployCount())
+	}
+}
+
+func TestSeed_UnhealthyDoesNotRollBack(t *testing.T) {
+	p, dep, chk, st := newHarness(t, 1)
+	chk.markUnhealthy(testApp, "ring0", "v1")
+	res, err := p.Seed(context.Background(), testApp, "ring0", "v1")
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected failure, got success")
+	}
+	// State should still record the seeded version (nothing to roll back to).
+	s := mustState(t, st, testApp, "ring0")
+	if s.CurrentVersion != "v1" || s.Healthy {
+		t.Fatalf("bad state: %+v", s)
+	}
+	if dep.deployCount() != 1 {
+		t.Fatalf("expected exactly 1 deploy (no rollback), got %d", dep.deployCount())
+	}
+}
+
+func TestSeed_EmptyVersion(t *testing.T) {
+	p, _, _, _ := newHarness(t, 1)
+	if _, err := p.Seed(context.Background(), testApp, "ring0", ""); !errors.Is(err, ErrEmptyVersion) {
+		t.Fatalf("expected ErrEmptyVersion, got %v", err)
+	}
+}
+
+func TestPromote_HappyPath_OneRingAtATime(t *testing.T) {
+	p, _, _, st := newHarness(t, 2)
+	ctx := context.Background()
+	mustSeed(t, p, "ring0", "v1")
+
+	res, err := p.Promote(ctx, testApp, "ring0")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if !res.Success || res.Ring != "ring1" || res.Version != "v1" {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	// ring1 got v1; ring2 untouched (no skipping).
+	if s := mustState(t, st, testApp, "ring1"); s.CurrentVersion != "v1" {
+		t.Fatalf("ring1 current = %q, want v1", s.CurrentVersion)
+	}
+	if _, err := st.GetRingState(ctx, testApp, "ring2"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("ring2 should be untouched, got %v", err)
+	}
+}
+
+func TestPromote_LastRingHasNoNext(t *testing.T) {
+	p, _, _, _ := newHarness(t, 1)
+	last := ring.Names()[len(ring.Names())-1]
+	mustSeed(t, p, last, "v1")
+	if _, err := p.Promote(context.Background(), testApp, last); !errors.Is(err, ErrNoNextRing) {
+		t.Fatalf("expected ErrNoNextRing, got %v", err)
+	}
+}
+
+func TestPromote_NothingToPromote(t *testing.T) {
+	p, _, _, _ := newHarness(t, 1)
+	if _, err := p.Promote(context.Background(), testApp, "ring0"); !errors.Is(err, ErrNothingToPromote) {
+		t.Fatalf("expected ErrNothingToPromote, got %v", err)
+	}
+}
+
+func TestPromote_SourceMustBeHealthy(t *testing.T) {
+	p, dep, chk, st := newHarness(t, 1)
+	ctx := context.Background()
+	mustSeed(t, p, "ring0", "v1")
+	chk.markUnhealthy(testApp, "ring0", "v1") // source becomes unhealthy
+	before := dep.deployCount()
+
+	res, err := p.Promote(ctx, testApp, "ring0")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected failure due to unhealthy source")
+	}
+	if dep.deployCount() != before {
+		t.Fatalf("target should not have been deployed when source unhealthy")
+	}
+	if _, err := st.GetRingState(ctx, testApp, "ring1"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("ring1 should be untouched")
+	}
+}
+
+func TestPromote_RetryThenAutoRollback(t *testing.T) {
+	const retry = 3
+	p, dep, chk, st := newHarness(t, retry)
+	ctx := context.Background()
+
+	// Establish a good baseline in ring1 (v1) via seed+promote.
+	mustSeed(t, p, "ring0", "v1")
+	if res, err := p.Promote(ctx, testApp, "ring0"); err != nil || !res.Success {
+		t.Fatalf("baseline promote failed: %+v %v", res, err)
+	}
+
+	// New version v2 is healthy in ring0 but unhealthy in ring1.
+	mustSeed(t, p, "ring0", "v2")
+	chk.markUnhealthy(testApp, "ring1", "v2")
+
+	deploysBefore := dep.deployCount()
+	checksBefore := chk.checkCount(testApp, "ring1")
+
+	res, err := p.Promote(ctx, testApp, "ring0")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected promote to fail")
+	}
+	if !res.RolledBack {
+		t.Fatalf("expected rollback to have happened: %+v", res)
+	}
+
+	// ring1 must be back on v1 and healthy, with v2 remembered as previous.
+	s := mustState(t, st, testApp, "ring1")
+	if s.CurrentVersion != "v1" || s.PreviousVersion != "v2" || !s.Healthy {
+		t.Fatalf("bad ring1 state after rollback: %+v", s)
+	}
+
+	// The health checker should have retried on ring1: retry+1 failed attempts
+	// for v2, plus at least one for the rolled-back v1.
+	targetChecks := chk.checkCount(testApp, "ring1") - checksBefore
+	if targetChecks < retry+1+1 {
+		t.Fatalf("expected >= %d ring1 checks, got %d", retry+2, targetChecks)
+	}
+
+	// Two deploys on the target: v2 (failed health) then v1 (rollback).
+	if got := dep.deployCount() - deploysBefore; got != 2 {
+		t.Fatalf("expected 2 target deploys (promote + rollback), got %d", got)
+	}
+
+	// History records both a failed promote and a successful rollback.
+	hist, _ := st.ListHistory(ctx, testApp)
+	if !containsHistory(hist, store.ActionPromote, store.ResultFailure) {
+		t.Fatalf("missing failed promote in history")
+	}
+	if !containsHistory(hist, store.ActionRollback, store.ResultSuccess) {
+		t.Fatalf("missing successful rollback in history")
+	}
+}
+
+func TestRollback_Manual(t *testing.T) {
+	p, _, _, st := newHarness(t, 1)
+	ctx := context.Background()
+	mustSeed(t, p, "ring0", "v1")
+	mustSeed(t, p, "ring0", "v2")
+
+	res, err := p.Rollback(ctx, testApp, "ring0")
+	if err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if !res.Success || res.Version != "v1" {
+		t.Fatalf("unexpected rollback result: %+v", res)
+	}
+	s := mustState(t, st, testApp, "ring0")
+	if s.CurrentVersion != "v1" || s.PreviousVersion != "v2" {
+		t.Fatalf("bad state after rollback: %+v", s)
+	}
+}
+
+func TestRollback_NothingToRollBack(t *testing.T) {
+	p, _, _, _ := newHarness(t, 1)
+	mustSeed(t, p, "ring0", "v1") // only one version -> no previous
+	if _, err := p.Rollback(context.Background(), testApp, "ring0"); !errors.Is(err, ErrNothingToRollback) {
+		t.Fatalf("expected ErrNothingToRollback, got %v", err)
+	}
+}
+
+func TestErrors_UnknownAppAndRing(t *testing.T) {
+	p, _, _, _ := newHarness(t, 1)
+	ctx := context.Background()
+	if _, err := p.Seed(ctx, "nope", "ring0", "v1"); !errors.Is(err, ErrAppNotFound) {
+		t.Fatalf("expected ErrAppNotFound, got %v", err)
+	}
+	if _, err := p.Seed(ctx, testApp, "ring99", "v1"); !errors.Is(err, ErrRingNotConfigured) {
+		t.Fatalf("expected ErrRingNotConfigured, got %v", err)
+	}
+}
+
+func TestConcurrent_SameAppSerialized(t *testing.T) {
+	// Exercises the per-app lock; run with -race to detect data races.
+	p, _, _, _ := newHarness(t, 0)
+	ctx := context.Background()
+	mustSeed(t, p, "ring0", "v1")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, _ = p.Seed(ctx, testApp, "ring0", fmt.Sprintf("v%d", i))
+			_, _ = p.Rings(ctx, testApp)
+			_, _ = p.Promote(ctx, testApp, "ring0")
+		}(i)
+	}
+	wg.Wait()
+}
+
+// ---- helpers ----
+
+func mustSeed(t *testing.T, p *Promoter, r, version string) {
+	t.Helper()
+	res, err := p.Seed(context.Background(), testApp, r, version)
+	if err != nil {
+		t.Fatalf("seed %s %s: %v", r, version, err)
+	}
+	if !res.Success {
+		t.Fatalf("seed %s %s not healthy: %s", r, version, res.Message)
+	}
+}
+
+func containsHistory(hist []store.HistoryEntry, action, result string) bool {
+	for _, h := range hist {
+		if h.Action == action && h.Result == result {
+			return true
+		}
+	}
+	return false
+}

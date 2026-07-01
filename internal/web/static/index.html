@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ring Promoter</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Ring Promoter</h1>
+    <div class="token">
+      <label for="token">API token</label>
+      <input id="token" type="password" placeholder="bearer token" autocomplete="off" />
+      <button id="save-token">Save</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="controls">
+      <label for="app">Application</label>
+      <select id="app"></select>
+      <button id="refresh">Refresh</button>
+    </section>
+
+    <div id="feedback" class="feedback" hidden></div>
+
+    <section>
+      <h2>Rings</h2>
+      <table id="rings">
+        <thead>
+          <tr>
+            <th>Ring</th>
+            <th>Current</th>
+            <th>Live</th>
+            <th>Previous</th>
+            <th>Health</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>History</h2>
+      <table id="history">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Ring</th>
+            <th>Action</th>
+            <th>From → To</th>
+            <th>Result</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

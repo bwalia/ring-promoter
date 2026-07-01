@@ -1,0 +1,30 @@
+# The control-plane namespace for the Ring Promoter service itself.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ring-system
+  labels:
+    app.kubernetes.io/name: ring-promoter
+---
+# Ring namespaces that host the managed applications. Create them here if they
+# do not already exist. ADDING A RING: add its namespace here and a matching
+# RoleBinding in rbac.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ring0
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ring1
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ring2
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ring3

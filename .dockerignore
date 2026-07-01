@@ -1,0 +1,6 @@
+.git
+.gitignore
+*.md
+deploy/
+scratchpad/
+**/*_test.go

@@ -1,0 +1,93 @@
+# Ring Promoter configuration (local-development defaults).
+#
+# Everything here can be overridden by environment variables (see README):
+#   RP_LISTEN_ADDR, RP_API_TOKEN, RP_DEPLOYER, RP_HEALTH,
+#   RP_DB_DRIVER, RP_DB_DSN, RP_RETRY_COUNT, RP_RETRY_DELAY
+#
+# In production the `apps` block is mounted from a ConfigMap and secrets
+# (api_token, database.dsn) come from a Secret via environment variables.
+
+listen_addr: ":8080"
+
+# For local dev only. In production leave this unset and provide RP_API_TOKEN
+# from a Kubernetes Secret.
+api_token: "local-dev-token"
+
+# Backends. Local dev uses the no-op deployer + always-healthy checker + memory
+# store so the whole thing runs without a cluster or database.
+deployer: log     # log | kubectl
+health: always    # always | http
+
+retry:
+  count: 3        # health-check attempts after the first, before rolling back
+  delay: 5s       # wait between attempts
+
+database:
+  driver: memory  # memory | postgres
+  # dsn: "postgres://ringpromoter:secret@postgres:5432/ringpromoter?sslmode=disable"
+
+# ---------------------------------------------------------------------------
+# Application registry. Add a new managed app by adding an entry here — no code
+# change and no rebuild required (edit the ConfigMap in k3s).
+#
+# For each app, define each ring it lives in:
+#   namespace  - k8s namespace of that ring
+#   deployment - Deployment to update
+#   container  - container within the Deployment whose image tag is set
+#   image      - image repository (without tag); the version is applied as tag
+#   health_url - URL returning 2xx when the app is healthy in that ring
+# ---------------------------------------------------------------------------
+apps:
+  - name: web-frontend
+    rings:
+      ring0:
+        namespace: ring0
+        deployment: web-frontend
+        container: web
+        image: registry.example.com/web-frontend
+        health_url: http://web-frontend.ring0.svc.cluster.local/health
+      ring1:
+        namespace: ring1
+        deployment: web-frontend
+        container: web
+        image: registry.example.com/web-frontend
+        health_url: http://web-frontend.ring1.svc.cluster.local/health
+      ring2:
+        namespace: ring2
+        deployment: web-frontend
+        container: web
+        image: registry.example.com/web-frontend
+        health_url: http://web-frontend.ring2.svc.cluster.local/health
+      ring3:
+        namespace: ring3
+        deployment: web-frontend
+        container: web
+        image: registry.example.com/web-frontend
+        health_url: http://web-frontend.ring3.svc.cluster.local/health
+
+  - name: orders-api
+    rings:
+      ring0:
+        namespace: ring0
+        deployment: orders-api
+        container: api
+        image: registry.example.com/orders-api
+        health_url: http://orders-api.ring0.svc.cluster.local/health
+      ring1:
+        namespace: ring1
+        deployment: orders-api
+        container: api
+        image: registry.example.com/orders-api
+        health_url: http://orders-api.ring1.svc.cluster.local/health
+      ring2:
+        namespace: ring2
+        deployment: orders-api
+        container: api
+        image: registry.example.com/orders-api
+        health_url: http://orders-api.ring2.svc.cluster.local/health
+      ring3:
+        namespace: ring3
+        deployment: orders-api
+        container: api
+        image: registry.example.com/orders-api
+        health_url: http://orders-api.ring3.svc.cluster.local/health
