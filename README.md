@@ -157,9 +157,17 @@ are unauthenticated.
 | `GET  /api/apps`                 | –                     | List apps and the ring pipeline.          |
 | `GET  /api/apps/{app}/rings`     | –                     | Per-ring state + live version & health.   |
 | `GET  /api/apps/{app}/history`   | –                     | History, newest first.                    |
+| `GET  /api/apps/{app}/jobs/{id}` | –                     | Live job status (steps, logs, result).    |
 | `POST /api/apps/{app}/seed`      | `{"ring","version"}`  | Set an initial version for a ring.        |
 | `POST /api/apps/{app}/promote`   | `{"from_ring"}`       | Promote to the next ring.                 |
 | `POST /api/apps/{app}/rollback`  | `{"ring"}`            | Roll a ring back to its previous version. |
+
+**Sync vs async.** `seed`/`promote`/`rollback` run **synchronously** by default and
+return the final `Result` (200 success / 422 ran-but-failed) — ideal for CI
+(`curl --fail`). Add `?async=1` to run in the background: the call returns **202**
+with `{"job_id": "..."}` immediately, and you poll `GET /api/apps/{app}/jobs/{id}`
+for live step-by-step progress (per-step status + logs and the final result). The
+web UI uses the async path to render its live deployment view.
 
 **Status codes.** `seed`/`promote`/`rollback` return **200** when the operation
 succeeded (deployed and healthy), **422** when it ran but failed (e.g. health
