@@ -1,0 +1,31 @@
+# Public, always-on Ingress for the Ring Promoter web UI + API.
+#
+# Targets the k3s1 cluster, which ships the k3s built-in Traefik ingress
+# controller. Plain HTTP — no TLS. Exposes:
+#
+#     http://ring-promoter.diytaxreturn.co.uk
+#
+# DNS: point ring-promoter.diytaxreturn.co.uk at the Traefik LoadBalancer IP.
+#
+# NOTE: the API is protected by the bearer token (RP_API_TOKEN), but the UI
+# itself has no auth of its own. If you want to gate the UI, put a basic-auth
+# (or SSO) layer in front — the way longhorn-ui-ingress.yaml does in the infra
+# repo.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ring-promoter
+  namespace: ring-system
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ring-promoter.diytaxreturn.co.uk
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ring-promoter
+                port:
+                  number: 80
