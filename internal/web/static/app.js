@@ -174,7 +174,7 @@ function stageEl(v) {
   const actions = d.querySelector(".stage-actions");
   if (isTarget) {
     actions.className = "stage-running";
-    actions.innerHTML = '<span class="spinner"></span> deploying…';
+    actions.innerHTML = '<span class="dot accent"></span> deploying…'; // card already pulses; no spinner here
   } else if (configured) {
     fillActions(actions, v, busy);
   } else {
@@ -234,7 +234,7 @@ function stepIcon(st) {
 function runIcon(st) {
   if (st === "success") return '<span class="ic success">✓</span>';
   if (st === "failed") return '<span class="ic failed">✕</span>';
-  return '<span class="spinner"></span>';
+  return '<span class="dot accent"></span>'; // static (the active step shows the only spinner)
 }
 function renderProgress() {
   const wrap = $("#progress-wrap"), a = state.activeJob;
