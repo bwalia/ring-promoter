@@ -4,7 +4,7 @@ A small, production-grade control plane that promotes versions of **multiple
 applications** through an ordered set of deployment **rings**:
 
 ```
-ring0 (Dev) → ring1 (Integration) → ring2 (Acceptance) → ring3 (Production)
+int (Integration) → test (Test) → acc (Acceptance) → prod (Production)
 ```
 
 It runs as a long-lived service on [k3s](https://k3s.io/), exposes a JSON REST
@@ -131,11 +131,11 @@ BASE=http://localhost:8080
 
 curl -s -H "Authorization: Bearer $TOKEN" $BASE/api/apps | jq
 
-# seed ring0, then promote it up the pipeline
+# seed int, then promote it up the pipeline
 curl -s -H "Authorization: Bearer $TOKEN" -X POST \
-  -d '{"ring":"ring0","version":"1.4.2"}' $BASE/api/apps/web-frontend/seed | jq
+  -d '{"ring":"int","version":"1.4.2"}' $BASE/api/apps/web-frontend/seed | jq
 curl -s -H "Authorization: Bearer $TOKEN" -X POST \
-  -d '{"from_ring":"ring0"}' $BASE/api/apps/web-frontend/promote | jq
+  -d '{"from_ring":"int"}' $BASE/api/apps/web-frontend/promote | jq
 
 curl -s -H "Authorization: Bearer $TOKEN" $BASE/api/apps/web-frontend/rings   | jq
 curl -s -H "Authorization: Bearer $TOKEN" $BASE/api/apps/web-frontend/history | jq
@@ -174,12 +174,12 @@ Every mutating call returns a `Result` object:
 {
   "app": "web-frontend",
   "action": "promote",
-  "ring": "ring1",
-  "from_ring": "ring0",
+  "ring": "test",
+  "from_ring": "int",
   "version": "1.4.2",
   "success": true,
   "rolled_back": false,
-  "message": "promoted 1.4.2 from ring0 to ring1 and healthy",
+  "message": "promoted 1.4.2 from int to test and healthy",
   "state": { "current_version": "1.4.2", "previous_version": "", "healthy": true }
 }
 ```
@@ -195,19 +195,19 @@ in production in the `ring-promoter-config` ConfigMap:
 apps:
   - name: billing-worker
     rings:
-      ring0:
-        namespace: ring0
+      int:
+        namespace: int
         deployment: billing-worker      # k8s Deployment to update
         container: worker               # container whose image tag is set
         image: registry.example.com/billing-worker
-        health_url: http://billing-worker.ring0.svc.cluster.local/health
-      ring1:
-        namespace: ring1
+        health_url: http://billing-worker.int.svc.cluster.local/health
+      test:
+        namespace: test
         deployment: billing-worker
         container: worker
         image: registry.example.com/billing-worker
-        health_url: http://billing-worker.ring1.svc.cluster.local/health
-      # ...ring2, ring3
+        health_url: http://billing-worker.test.svc.cluster.local/health
+      # ...acc, prod
 ```
 
 Apply and roll the pod:
@@ -247,18 +247,19 @@ apps:
       # Dispatch input names default to ENV / DEPLOY_BRANCH / DEPLOY_MODE;
       # override with env_input / version_input / mode_input for other workflows.
     rings:                                # target_env is sent as the ENV input
-      ring0: { target_env: int,  health_url: "https://int-our.wslproxy.com/health" }
-      ring1: { target_env: test, health_url: "https://test.wslproxy.com/health" }
-      ring2: { target_env: prod, health_url: "https://prod-our-v1.wslproxy.com/health" }
+      int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
+      test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
+      acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }  # pop0
+      prod: { target_env: prod, health_url: "http://18.133.126.242:7691/healthz" }        # pop1
 ```
 
 How it maps onto Ring Promoter:
 
 - **A "version"** is a git **branch, tag or commit SHA** — passed as the
   workflow's `DEPLOY_BRANCH` input (handed to `actions/checkout`). You `seed` it
-  into `ring0` and `promote` the exact same value onward.
-- **Each ring's `target_env`** becomes the workflow's `ENV` input, so `ring0/1/2`
-  deploy to `int/test/prod` respectively. `ring3` is left undefined for this app.
+  into `int` and `promote` the exact same value onward.
+- **Each ring's `target_env`** becomes the workflow's `ENV` input, so `int/1/2`
+  deploy to `int/test/prod` respectively. `prod` is left undefined for this app.
   (Rings are consecutive so "never skip a ring" holds.)
 - **The workflow deploys exactly one environment** (`ENV=prod` fans out to all
   three prod hosts). This independence matters: a plain `int` deploy must not
@@ -292,11 +293,11 @@ PAT or a GitHub App token. It is never stored in the ConfigMap.
 RP=https://ring-promoter.example.com; APP=wslproxy; TOKEN=$RING_PROMOTER_TOKEN
 # Seed a ref into int, then promote int -> test -> prod.
 curl --fail -sS -X POST "$RP/api/apps/$APP/seed" \
-  -H "Authorization: Bearer $TOKEN" -d '{"ring":"ring0","version":"release-1.0.10"}'
+  -H "Authorization: Bearer $TOKEN" -d '{"ring":"int","version":"release-1.0.10"}'
 curl --fail -sS -X POST "$RP/api/apps/$APP/promote" \
-  -H "Authorization: Bearer $TOKEN" -d '{"from_ring":"ring0"}'   # -> test
+  -H "Authorization: Bearer $TOKEN" -d '{"from_ring":"int"}'   # -> test
 curl --fail -sS -X POST "$RP/api/apps/$APP/promote" \
-  -H "Authorization: Bearer $TOKEN" -d '{"from_ring":"ring1"}'   # -> prod (all hosts)
+  -H "Authorization: Bearer $TOKEN" -d '{"from_ring":"test"}'   # -> prod (all hosts)
 ```
 
 > One-instance caveat: matching the dispatched run relies on it being the newest
@@ -314,11 +315,11 @@ The ring pipeline is the single source of truth in
 
 ```go
 var ordered = []Ring{
-    {Name: "ring0", Label: "Dev"},
-    {Name: "ring1", Label: "Integration"},
-    {Name: "ring2", Label: "Acceptance"},
-    {Name: "ring2.5", Label: "Canary"},   // <-- new ring
-    {Name: "ring3", Label: "Production"},
+    {Name: "int", Label: "Integration"},
+    {Name: "test", Label: "Test"},
+    {Name: "acc", Label: "Acceptance"},
+    {Name: "canary", Label: "Canary"},   // <-- new ring
+    {Name: "prod", Label: "Production"},
 }
 ```
 
@@ -371,7 +372,7 @@ root filesystem. State/history live in Postgres, so restarts are safe.
 
 ## How an app's CI calls the API
 
-After an application's CI builds and pushes a new image tag, it seeds ring0 and
+After an application's CI builds and pushes a new image tag, it seeds int and
 lets the platform (or a human, via the UI) promote it onward. Example
 (GitHub Actions style):
 
@@ -385,12 +386,12 @@ VERSION=$GITHUB_SHA            # the image tag you just pushed
 curl --fail -sS -X POST "$RP/api/apps/$APP/seed" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"ring\":\"ring0\",\"version\":\"$VERSION\"}"
+  -d "{\"ring\":\"int\",\"version\":\"$VERSION\"}"
 
 # (Optional) auto-promote to Integration once Dev is healthy.
 curl --fail -sS -X POST "$RP/api/apps/$APP/promote" \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"from_ring":"ring0"}'
+  -d '{"from_ring":"int"}'
 ```
 
 Because a failed promotion returns a non-2xx status (with the target

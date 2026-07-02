@@ -30,7 +30,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: ring-promoter-deployer
-  namespace: ring0
+  namespace: int
 subjects:
   - kind: ServiceAccount
     name: ring-promoter
@@ -44,7 +44,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: ring-promoter-deployer
-  namespace: ring1
+  namespace: test
 subjects:
   - kind: ServiceAccount
     name: ring-promoter
@@ -58,7 +58,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: ring-promoter-deployer
-  namespace: ring2
+  namespace: acc
 subjects:
   - kind: ServiceAccount
     name: ring-promoter
@@ -72,7 +72,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: ring-promoter-deployer
-  namespace: ring3
+  namespace: prod
 subjects:
   - kind: ServiceAccount
     name: ring-promoter

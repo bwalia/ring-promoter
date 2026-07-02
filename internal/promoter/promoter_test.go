@@ -155,14 +155,14 @@ func mustState(t *testing.T, st store.Store, app, r string) store.RingState {
 
 func TestSeed_Healthy(t *testing.T) {
 	p, dep, _, st := newHarness(t, 2)
-	res, err := p.Seed(context.Background(), testApp, "ring0", "v1")
+	res, err := p.Seed(context.Background(), testApp, "int", "v1")
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if !res.Success {
 		t.Fatalf("expected success, got %+v", res)
 	}
-	s := mustState(t, st, testApp, "ring0")
+	s := mustState(t, st, testApp, "int")
 	if s.CurrentVersion != "v1" || s.PreviousVersion != "" || !s.Healthy {
 		t.Fatalf("bad state: %+v", s)
 	}
@@ -173,8 +173,8 @@ func TestSeed_Healthy(t *testing.T) {
 
 func TestSeed_UnhealthyDoesNotRollBack(t *testing.T) {
 	p, dep, chk, st := newHarness(t, 1)
-	chk.markUnhealthy(testApp, "ring0", "v1")
-	res, err := p.Seed(context.Background(), testApp, "ring0", "v1")
+	chk.markUnhealthy(testApp, "int", "v1")
+	res, err := p.Seed(context.Background(), testApp, "int", "v1")
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestSeed_UnhealthyDoesNotRollBack(t *testing.T) {
 		t.Fatalf("expected failure, got success")
 	}
 	// State should still record the seeded version (nothing to roll back to).
-	s := mustState(t, st, testApp, "ring0")
+	s := mustState(t, st, testApp, "int")
 	if s.CurrentVersion != "v1" || s.Healthy {
 		t.Fatalf("bad state: %+v", s)
 	}
@@ -193,7 +193,7 @@ func TestSeed_UnhealthyDoesNotRollBack(t *testing.T) {
 
 func TestSeed_EmptyVersion(t *testing.T) {
 	p, _, _, _ := newHarness(t, 1)
-	if _, err := p.Seed(context.Background(), testApp, "ring0", ""); !errors.Is(err, ErrEmptyVersion) {
+	if _, err := p.Seed(context.Background(), testApp, "int", ""); !errors.Is(err, ErrEmptyVersion) {
 		t.Fatalf("expected ErrEmptyVersion, got %v", err)
 	}
 }
@@ -201,20 +201,20 @@ func TestSeed_EmptyVersion(t *testing.T) {
 func TestPromote_HappyPath_OneRingAtATime(t *testing.T) {
 	p, _, _, st := newHarness(t, 2)
 	ctx := context.Background()
-	mustSeed(t, p, "ring0", "v1")
+	mustSeed(t, p, "int", "v1")
 
-	res, err := p.Promote(ctx, testApp, "ring0")
+	res, err := p.Promote(ctx, testApp, "int")
 	if err != nil {
 		t.Fatalf("promote: %v", err)
 	}
-	if !res.Success || res.Ring != "ring1" || res.Version != "v1" {
+	if !res.Success || res.Ring != "test" || res.Version != "v1" {
 		t.Fatalf("unexpected result: %+v", res)
 	}
 	// ring1 got v1; ring2 untouched (no skipping).
-	if s := mustState(t, st, testApp, "ring1"); s.CurrentVersion != "v1" {
+	if s := mustState(t, st, testApp, "test"); s.CurrentVersion != "v1" {
 		t.Fatalf("ring1 current = %q, want v1", s.CurrentVersion)
 	}
-	if _, err := st.GetRingState(ctx, testApp, "ring2"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.GetRingState(ctx, testApp, "acc"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("ring2 should be untouched, got %v", err)
 	}
 }
@@ -230,7 +230,7 @@ func TestPromote_LastRingHasNoNext(t *testing.T) {
 
 func TestPromote_NothingToPromote(t *testing.T) {
 	p, _, _, _ := newHarness(t, 1)
-	if _, err := p.Promote(context.Background(), testApp, "ring0"); !errors.Is(err, ErrNothingToPromote) {
+	if _, err := p.Promote(context.Background(), testApp, "int"); !errors.Is(err, ErrNothingToPromote) {
 		t.Fatalf("expected ErrNothingToPromote, got %v", err)
 	}
 }
@@ -238,11 +238,11 @@ func TestPromote_NothingToPromote(t *testing.T) {
 func TestPromote_SourceMustBeHealthy(t *testing.T) {
 	p, dep, chk, st := newHarness(t, 1)
 	ctx := context.Background()
-	mustSeed(t, p, "ring0", "v1")
-	chk.markUnhealthy(testApp, "ring0", "v1") // source becomes unhealthy
+	mustSeed(t, p, "int", "v1")
+	chk.markUnhealthy(testApp, "int", "v1") // source becomes unhealthy
 	before := dep.deployCount()
 
-	res, err := p.Promote(ctx, testApp, "ring0")
+	res, err := p.Promote(ctx, testApp, "int")
 	if err != nil {
 		t.Fatalf("promote: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestPromote_SourceMustBeHealthy(t *testing.T) {
 	if dep.deployCount() != before {
 		t.Fatalf("target should not have been deployed when source unhealthy")
 	}
-	if _, err := st.GetRingState(ctx, testApp, "ring1"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.GetRingState(ctx, testApp, "test"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("ring1 should be untouched")
 	}
 }
@@ -263,19 +263,19 @@ func TestPromote_RetryThenAutoRollback(t *testing.T) {
 	ctx := context.Background()
 
 	// Establish a good baseline in ring1 (v1) via seed+promote.
-	mustSeed(t, p, "ring0", "v1")
-	if res, err := p.Promote(ctx, testApp, "ring0"); err != nil || !res.Success {
+	mustSeed(t, p, "int", "v1")
+	if res, err := p.Promote(ctx, testApp, "int"); err != nil || !res.Success {
 		t.Fatalf("baseline promote failed: %+v %v", res, err)
 	}
 
 	// New version v2 is healthy in ring0 but unhealthy in ring1.
-	mustSeed(t, p, "ring0", "v2")
-	chk.markUnhealthy(testApp, "ring1", "v2")
+	mustSeed(t, p, "int", "v2")
+	chk.markUnhealthy(testApp, "test", "v2")
 
 	deploysBefore := dep.deployCount()
-	checksBefore := chk.checkCount(testApp, "ring1")
+	checksBefore := chk.checkCount(testApp, "test")
 
-	res, err := p.Promote(ctx, testApp, "ring0")
+	res, err := p.Promote(ctx, testApp, "int")
 	if err != nil {
 		t.Fatalf("promote: %v", err)
 	}
@@ -287,14 +287,14 @@ func TestPromote_RetryThenAutoRollback(t *testing.T) {
 	}
 
 	// ring1 must be back on v1 and healthy, with v2 remembered as previous.
-	s := mustState(t, st, testApp, "ring1")
+	s := mustState(t, st, testApp, "test")
 	if s.CurrentVersion != "v1" || s.PreviousVersion != "v2" || !s.Healthy {
 		t.Fatalf("bad ring1 state after rollback: %+v", s)
 	}
 
 	// The health checker should have retried on ring1: retry+1 failed attempts
 	// for v2, plus at least one for the rolled-back v1.
-	targetChecks := chk.checkCount(testApp, "ring1") - checksBefore
+	targetChecks := chk.checkCount(testApp, "test") - checksBefore
 	if targetChecks < retry+1+1 {
 		t.Fatalf("expected >= %d ring1 checks, got %d", retry+2, targetChecks)
 	}
@@ -320,15 +320,15 @@ func TestPromote_ZeroRetries_SingleCheckThenRollback(t *testing.T) {
 	p, _, chk, st := newHarness(t, 0)
 	ctx := context.Background()
 
-	mustSeed(t, p, "ring0", "v1")
-	if res, err := p.Promote(ctx, testApp, "ring0"); err != nil || !res.Success {
+	mustSeed(t, p, "int", "v1")
+	if res, err := p.Promote(ctx, testApp, "int"); err != nil || !res.Success {
 		t.Fatalf("baseline promote failed: %+v %v", res, err)
 	}
-	mustSeed(t, p, "ring0", "v2")
-	chk.markUnhealthy(testApp, "ring1", "v2")
+	mustSeed(t, p, "int", "v2")
+	chk.markUnhealthy(testApp, "test", "v2")
 
-	checksBefore := chk.checkCount(testApp, "ring1")
-	res, err := p.Promote(ctx, testApp, "ring0")
+	checksBefore := chk.checkCount(testApp, "test")
+	res, err := p.Promote(ctx, testApp, "int")
 	if err != nil {
 		t.Fatalf("promote: %v", err)
 	}
@@ -336,10 +336,10 @@ func TestPromote_ZeroRetries_SingleCheckThenRollback(t *testing.T) {
 		t.Fatalf("expected failed promote with rollback: %+v", res)
 	}
 	// Exactly one check for the bad v2 + one for the rolled-back v1.
-	if got := chk.checkCount(testApp, "ring1") - checksBefore; got != 2 {
+	if got := chk.checkCount(testApp, "test") - checksBefore; got != 2 {
 		t.Fatalf("expected exactly 2 checks (v2 once, then v1), got %d", got)
 	}
-	if s := mustState(t, st, testApp, "ring1"); s.CurrentVersion != "v1" {
+	if s := mustState(t, st, testApp, "test"); s.CurrentVersion != "v1" {
 		t.Fatalf("expected rollback to v1, got %q", s.CurrentVersion)
 	}
 }
@@ -351,15 +351,15 @@ func TestPromote_HealthFailsAndRollbackFails_StoreMatchesCluster(t *testing.T) {
 	p, dep, chk, st := newHarness(t, 0)
 	ctx := context.Background()
 
-	mustSeed(t, p, "ring0", "v1")
-	if res, err := p.Promote(ctx, testApp, "ring0"); err != nil || !res.Success {
+	mustSeed(t, p, "int", "v1")
+	if res, err := p.Promote(ctx, testApp, "int"); err != nil || !res.Success {
 		t.Fatalf("baseline promote: %+v %v", res, err)
 	}
-	mustSeed(t, p, "ring0", "v2")
-	chk.markUnhealthy(testApp, "ring1", "v2") // v2 unhealthy in ring1
-	dep.failVersion("v1")                     // rolling back to v1 will fail to deploy
+	mustSeed(t, p, "int", "v2")
+	chk.markUnhealthy(testApp, "test", "v2") // v2 unhealthy in ring1
+	dep.failVersion("v1")                    // rolling back to v1 will fail to deploy
 
-	res, err := p.Promote(ctx, testApp, "ring0")
+	res, err := p.Promote(ctx, testApp, "int")
 	if err != nil {
 		t.Fatalf("promote: %v", err)
 	}
@@ -367,10 +367,10 @@ func TestPromote_HealthFailsAndRollbackFails_StoreMatchesCluster(t *testing.T) {
 		t.Fatalf("expected failed promote with failed rollback: %+v", res)
 	}
 	// Cluster is stuck on v2; the store must agree (not report the old good v1).
-	if cluster := dep.version(key(testApp, "ring1")); cluster != "v2" {
+	if cluster := dep.version(key(testApp, "test")); cluster != "v2" {
 		t.Fatalf("cluster should still run v2, got %q", cluster)
 	}
-	s := mustState(t, st, testApp, "ring1")
+	s := mustState(t, st, testApp, "test")
 	if s.CurrentVersion != "v2" || s.Healthy {
 		t.Fatalf("store must reflect cluster (current=v2 unhealthy), got current=%q healthy=%v",
 			s.CurrentVersion, s.Healthy)
@@ -380,17 +380,17 @@ func TestPromote_HealthFailsAndRollbackFails_StoreMatchesCluster(t *testing.T) {
 func TestRollback_Manual(t *testing.T) {
 	p, _, _, st := newHarness(t, 1)
 	ctx := context.Background()
-	mustSeed(t, p, "ring0", "v1")
-	mustSeed(t, p, "ring0", "v2")
+	mustSeed(t, p, "int", "v1")
+	mustSeed(t, p, "int", "v2")
 
-	res, err := p.Rollback(ctx, testApp, "ring0")
+	res, err := p.Rollback(ctx, testApp, "int")
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
 	if !res.Success || res.Version != "v1" {
 		t.Fatalf("unexpected rollback result: %+v", res)
 	}
-	s := mustState(t, st, testApp, "ring0")
+	s := mustState(t, st, testApp, "int")
 	if s.CurrentVersion != "v1" || s.PreviousVersion != "v2" {
 		t.Fatalf("bad state after rollback: %+v", s)
 	}
@@ -398,8 +398,8 @@ func TestRollback_Manual(t *testing.T) {
 
 func TestRollback_NothingToRollBack(t *testing.T) {
 	p, _, _, _ := newHarness(t, 1)
-	mustSeed(t, p, "ring0", "v1") // only one version -> no previous
-	if _, err := p.Rollback(context.Background(), testApp, "ring0"); !errors.Is(err, ErrNothingToRollback) {
+	mustSeed(t, p, "int", "v1") // only one version -> no previous
+	if _, err := p.Rollback(context.Background(), testApp, "int"); !errors.Is(err, ErrNothingToRollback) {
 		t.Fatalf("expected ErrNothingToRollback, got %v", err)
 	}
 }
@@ -407,7 +407,7 @@ func TestRollback_NothingToRollBack(t *testing.T) {
 func TestErrors_UnknownAppAndRing(t *testing.T) {
 	p, _, _, _ := newHarness(t, 1)
 	ctx := context.Background()
-	if _, err := p.Seed(ctx, "nope", "ring0", "v1"); !errors.Is(err, ErrAppNotFound) {
+	if _, err := p.Seed(ctx, "nope", "int", "v1"); !errors.Is(err, ErrAppNotFound) {
 		t.Fatalf("expected ErrAppNotFound, got %v", err)
 	}
 	if _, err := p.Seed(ctx, testApp, "ring99", "v1"); !errors.Is(err, ErrRingNotConfigured) {
@@ -419,16 +419,16 @@ func TestConcurrent_SameAppSerialized(t *testing.T) {
 	// Exercises the per-app lock; run with -race to detect data races.
 	p, _, _, _ := newHarness(t, 0)
 	ctx := context.Background()
-	mustSeed(t, p, "ring0", "v1")
+	mustSeed(t, p, "int", "v1")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, _ = p.Seed(ctx, testApp, "ring0", fmt.Sprintf("v%d", i))
+			_, _ = p.Seed(ctx, testApp, "int", fmt.Sprintf("v%d", i))
 			_, _ = p.Rings(ctx, testApp)
-			_, _ = p.Promote(ctx, testApp, "ring0")
+			_, _ = p.Promote(ctx, testApp, "int")
 		}(i)
 	}
 	wg.Wait()

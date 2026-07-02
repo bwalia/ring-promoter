@@ -19,7 +19,7 @@ const baseApps = `
 apps:
   - name: web
     rings:
-      ring0: { namespace: ring0, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
+      int: { namespace: ring0, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
 `
 
 // An explicit retry.count: 0 must be honored (one check, no retries), not
@@ -97,9 +97,10 @@ apps:
       repo: wslproxy
       workflow: deploy-wslproxy-delivery-pipeline.yml
     rings:
-      ring0: { target_env: int,  health_url: "http://int/health" }
-      ring1: { target_env: test, health_url: "http://test/health" }
-      ring2: { target_env: prod, health_url: "http://prod/health" }
+      int: { target_env: int,  health_url: "http://int/health" }
+      test: { target_env: test, health_url: "http://test/health" }
+      acc: { target_env: acc,  health_url: "http://acc/health" }
+      prod: { target_env: prod, health_url: "http://prod/health" }
 `
 
 func TestGitHubDeployer_Valid(t *testing.T) {
@@ -127,7 +128,7 @@ apps:
   - name: wslproxy
     deployer: github
     rings:
-      ring0: { target_env: int, health_url: "http://int/health" }
+      int: { target_env: int, health_url: "http://int/health" }
 `
 	if _, err := Load(writeConfig(t, body)); err == nil {
 		t.Fatal("expected error: github deployer without github block")
@@ -142,7 +143,7 @@ apps:
     deployer: github
     github: { owner: bwalia, repo: wslproxy, workflow: wf.yml }
     rings:
-      ring0: { health_url: "http://int/health" }
+      int: { health_url: "http://int/health" }
 `
 	if _, err := Load(writeConfig(t, body)); err == nil {
 		t.Fatal("expected error: ring missing target_env for github deployer")
@@ -156,7 +157,7 @@ apps:
   - name: web
     deployer: banana
     rings:
-      ring0: { namespace: ring0, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
+      int: { namespace: ring0, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
 `
 	if _, err := Load(writeConfig(t, body)); err == nil {
 		t.Fatal("expected error for unknown per-app deployer")

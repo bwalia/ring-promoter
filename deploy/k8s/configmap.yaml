@@ -1,9 +1,11 @@
 # Application registry + runtime settings, mounted at
-# /etc/ringpromoter/config.yaml. Secrets (api_token, database.dsn) are injected
-# via environment variables from the Secret and intentionally omitted here.
+# /etc/ringpromoter/config.yaml. Secrets (api_token, database.dsn, github token)
+# are injected via environment variables from the Secret and omitted here.
 #
-# ADD AN APPLICATION: append to `apps` and re-apply this ConfigMap, then restart
-# the deployment (kubectl rollout restart deploy/ring-promoter -n ring-system).
+# Rings are the shared pipeline int -> test -> acc -> prod (defined in
+# internal/ring/ring.go). ADD AN APPLICATION: append to `apps` and re-apply this
+# ConfigMap, then restart the deployment
+# (kubectl rollout restart deploy/ring-promoter -n ring-system).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,118 +14,47 @@ metadata:
 data:
   config.yaml: |
     listen_addr: ":8080"
-
-    deployer: kubectl     # talk to k3s
-    health: http          # real HTTP health checks
-
-    retry:
-      count: 3        # 0 = one check, no retries before rollback
-      delay: 5s
-
-    operation_timeout: 10m
-
+    deployer: log         # global default: sample k8s apps stay inert (no-op)
+    health: http          # real HTTP health checks (needed for wslproxy gating)
     database:
-      driver: postgres
-      # dsn comes from RP_DB_DSN (Secret)
-
+      driver: postgres    # DSN comes from RP_DB_DSN (Secret)
+    retry:
+      count: 3
+      delay: 5s
+    operation_timeout: 30m
     apps:
       - name: web-frontend
         rings:
-          ring0:
-            namespace: ring0
-            deployment: web-frontend
-            container: web
-            image: registry.example.com/web-frontend
-            health_url: http://web-frontend.ring0.svc.cluster.local/health
-          ring1:
-            namespace: ring1
-            deployment: web-frontend
-            container: web
-            image: registry.example.com/web-frontend
-            health_url: http://web-frontend.ring1.svc.cluster.local/health
-          ring2:
-            namespace: ring2
-            deployment: web-frontend
-            container: web
-            image: registry.example.com/web-frontend
-            health_url: http://web-frontend.ring2.svc.cluster.local/health
-          ring3:
-            namespace: ring3
-            deployment: web-frontend
-            container: web
-            image: registry.example.com/web-frontend
-            health_url: http://web-frontend.ring3.svc.cluster.local/health
-
+          int:  { namespace: int,  deployment: web-frontend, container: web, image: registry.example.com/web-frontend, health_url: "http://web-frontend.int.svc.cluster.local/health" }
+          test: { namespace: test, deployment: web-frontend, container: web, image: registry.example.com/web-frontend, health_url: "http://web-frontend.test.svc.cluster.local/health" }
+          acc:  { namespace: acc,  deployment: web-frontend, container: web, image: registry.example.com/web-frontend, health_url: "http://web-frontend.acc.svc.cluster.local/health" }
+          prod: { namespace: prod, deployment: web-frontend, container: web, image: registry.example.com/web-frontend, health_url: "http://web-frontend.prod.svc.cluster.local/health" }
       - name: orders-api
         rings:
-          ring0:
-            namespace: ring0
-            deployment: orders-api
-            container: api
-            image: registry.example.com/orders-api
-            health_url: http://orders-api.ring0.svc.cluster.local/health
-          ring1:
-            namespace: ring1
-            deployment: orders-api
-            container: api
-            image: registry.example.com/orders-api
-            health_url: http://orders-api.ring1.svc.cluster.local/health
-          ring2:
-            namespace: ring2
-            deployment: orders-api
-            container: api
-            image: registry.example.com/orders-api
-            health_url: http://orders-api.ring2.svc.cluster.local/health
-          ring3:
-            namespace: ring3
-            deployment: orders-api
-            container: api
-            image: registry.example.com/orders-api
-            health_url: http://orders-api.ring3.svc.cluster.local/health
+          int:  { namespace: int,  deployment: orders-api, container: api, image: registry.example.com/orders-api, health_url: "http://orders-api.int.svc.cluster.local/health" }
+          test: { namespace: test, deployment: orders-api, container: api, image: registry.example.com/orders-api, health_url: "http://orders-api.test.svc.cluster.local/health" }
 
-      # wslproxy — an OpenResty/Lua app deployed to VMs (NOT Kubernetes) by its
-      # own GitHub Actions CI/CD. It uses the per-app `github` deployer, which
-      # dispatches deploy-single-environment.yml with the ring's environment as
-      # the `ENV` input and waits for the run to conclude. That workflow deploys
-      # exactly ONE environment (no cascade), so each ring is independent and
-      # auto-rollback only affects the ring it targets. It builds the requested
-      # ref and reloads OpenResty on each host of the environment.
-      #
-      # NOTE: requires deploy-single-environment.yml in the wslproxy repo
-      # (github.com/bwalia/wslproxy PR #1121). Do NOT point this at
-      # deploy-wslproxy-delivery-pipeline.yml — that is a cumulative int->test->
-      # prod cascade gated on TARGET_HOST, so a single-ring deploy would run the
-      # whole chain to production.
-      #
-      # Rings map onto the real int -> test -> prod pipeline (acc decommissioned);
-      # ring3 is intentionally unused for this app.
-      #
-      # The API token comes from the env var named by github.token_env
-      # (RP_GITHUB_TOKEN), injected from the Secret — never put it here.
-      #
-      # The health_url values return 2xx from OpenResty's /health (served by
-      # api/ping.lua) in each environment.
+      # wslproxy — OpenResty/Lua app on VMs, deployed via its own GitHub Actions
+      # per-environment workflow (deploy-single-environment.yml). Rings are the
+      # real pipeline Integration -> Test -> Acceptance -> Production; target_env
+      # is sent as the workflow ENV input (acc=pop0, prod=pop1). Do NOT point this
+      # at deploy-wslproxy-delivery-pipeline.yml (cumulative cascade to prod).
+      # Token from RP_GITHUB_TOKEN (Secret).
       - name: wslproxy
         deployer: github
         github:
           owner: bwalia
           repo: wslproxy
           workflow: deploy-single-environment.yml
-          ref: main             # branch hosting the workflow (its default branch)
-          deploy_mode: full     # value sent as the DEPLOY_MODE input
+          ref: main
+          deploy_mode: full
           token_env: RP_GITHUB_TOKEN
           poll_interval: 20s
           run_lookup_timeout: 90s
-          # Dispatch input names default to ENV / DEPLOY_BRANCH / DEPLOY_MODE
-          # (the deploy-single-environment.yml schema); override here for other
-          # workflows via env_input / version_input / mode_input.
         rings:
-          ring0:                # Dev -> int (192.168.1.193)
-            target_env: int     # sent as the ENV input
-            health_url: https://int-our.wslproxy.com/health
-          ring1:                # Integration -> test (192.168.1.140)
-            target_env: test
-            health_url: https://test.wslproxy.com/health
-          ring2:                # Acceptance -> prod (pop0 + lon1 + pop1, 3 hosts)
-            target_env: prod
-            health_url: https://prod-our-v1.wslproxy.com/health
+          int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
+          test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
+          acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }   # pop0
+          # production = pop1 (18.133.126.242). Public health hostname pending;
+          # using the IP endpoint the workflow itself checks in the interim.
+          prod: { target_env: prod, health_url: "http://18.133.126.242:7691/healthz" }         # pop1

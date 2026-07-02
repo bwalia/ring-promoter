@@ -17,10 +17,10 @@ type Ring struct {
 // ordered is the single source of truth for the ring pipeline, lowest
 // environment first. Promotion always moves from index i to index i+1.
 var ordered = []Ring{
-	{Name: "ring0", Label: "Dev"},
-	{Name: "ring1", Label: "Integration"},
-	{Name: "ring2", Label: "Acceptance"},
-	{Name: "ring3", Label: "Production"},
+	{Name: "int", Label: "Integration"},
+	{Name: "test", Label: "Test"},
+	{Name: "acc", Label: "Acceptance"},
+	{Name: "prod", Label: "Production"},
 }
 
 // All returns a copy of the ordered ring list.
