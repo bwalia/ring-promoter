@@ -22,6 +22,7 @@ type Server struct {
 	log       *slog.Logger
 	ui        http.Handler
 	opTimeout time.Duration
+	jobs      *JobManager
 }
 
 // NewServer constructs an API server. ui serves the embedded web assets and
@@ -33,7 +34,7 @@ func NewServer(prom *promoter.Promoter, token string, ui http.Handler, opTimeout
 	if opTimeout <= 0 {
 		opTimeout = 10 * time.Minute
 	}
-	return &Server{prom: prom, token: token, ui: ui, opTimeout: opTimeout, log: log}
+	return &Server{prom: prom, token: token, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager()}
 }
 
 // opContext returns a context for a mutating operation that is DETACHED from the
@@ -57,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/apps", s.handleListApps)
 	api.HandleFunc("GET /api/apps/{app}/rings", s.handleRings)
 	api.HandleFunc("GET /api/apps/{app}/history", s.handleHistory)
+	api.HandleFunc("GET /api/apps/{app}/jobs/{id}", s.handleGetJob)
 	api.HandleFunc("POST /api/apps/{app}/seed", s.handleSeed)
 	api.HandleFunc("POST /api/apps/{app}/promote", s.handlePromote)
 	api.HandleFunc("POST /api/apps/{app}/rollback", s.handleRollback)
@@ -143,9 +145,17 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
+	app := r.PathValue("app")
+	if wantsAsync(r) {
+		job := s.jobs.run(r.Context(), s.opTimeout, app, "seed", func(ctx context.Context) (promoter.Result, error) {
+			return s.prom.Seed(ctx, app, body.Ring, body.Version)
+		})
+		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.id()})
+		return
+	}
 	ctx, cancel := s.opContext(r)
 	defer cancel()
-	res, err := s.prom.Seed(ctx, r.PathValue("app"), body.Ring, body.Version)
+	res, err := s.prom.Seed(ctx, app, body.Ring, body.Version)
 	writeResult(w, res, err)
 }
 
@@ -156,9 +166,17 @@ func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
+	app := r.PathValue("app")
+	if wantsAsync(r) {
+		job := s.jobs.run(r.Context(), s.opTimeout, app, "promote", func(ctx context.Context) (promoter.Result, error) {
+			return s.prom.Promote(ctx, app, body.FromRing)
+		})
+		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.id()})
+		return
+	}
 	ctx, cancel := s.opContext(r)
 	defer cancel()
-	res, err := s.prom.Promote(ctx, r.PathValue("app"), body.FromRing)
+	res, err := s.prom.Promote(ctx, app, body.FromRing)
 	writeResult(w, res, err)
 }
 
@@ -169,10 +187,33 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
+	app := r.PathValue("app")
+	if wantsAsync(r) {
+		job := s.jobs.run(r.Context(), s.opTimeout, app, "rollback", func(ctx context.Context) (promoter.Result, error) {
+			return s.prom.Rollback(ctx, app, body.Ring)
+		})
+		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.id()})
+		return
+	}
 	ctx, cancel := s.opContext(r)
 	defer cancel()
-	res, err := s.prom.Rollback(ctx, r.PathValue("app"), body.Ring)
+	res, err := s.prom.Rollback(ctx, app, body.Ring)
 	writeResult(w, res, err)
+}
+
+func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	job, ok := s.jobs.get(r.PathValue("id"))
+	if !ok || job.snapshot().App != r.PathValue("app") {
+		writeError(w, http.StatusNotFound, errors.New("job not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, job.snapshot())
+}
+
+// wantsAsync reports whether the caller requested async (job-based) execution.
+func wantsAsync(r *http.Request) bool {
+	v := r.URL.Query().Get("async")
+	return v == "1" || v == "true"
 }
 
 // ---- helpers ----

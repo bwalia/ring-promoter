@@ -7,65 +7,54 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Login gate: shown until a valid API token is entered -->
+  <!-- Login gate -->
   <div id="gate" class="gate">
     <form id="gate-form" class="gate-card">
+      <div class="gate-logo">◎</div>
       <h1>Ring Promoter</h1>
       <p class="muted">Enter your API token to continue.</p>
       <input id="gate-token" type="password" placeholder="API token" autocomplete="off" />
-      <button type="submit" class="primary">Unlock</button>
+      <button type="submit" class="btn btn-primary">Unlock</button>
       <div id="gate-error" class="gate-error" hidden></div>
     </form>
   </div>
 
-  <!-- App: hidden until authenticated -->
+  <!-- App -->
   <div id="app-root" hidden>
-    <header>
-      <h1>Ring Promoter</h1>
-      <button id="signout">Sign out</button>
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">◎</span> Ring Promoter</div>
+      <div class="topbar-right">
+        <label class="app-picker">
+          <span class="muted">App</span>
+          <select id="app"></select>
+        </label>
+        <button id="refresh" class="btn btn-ghost" title="Refresh">↻ Refresh</button>
+        <button id="signout" class="btn btn-ghost">Sign out</button>
+      </div>
     </header>
 
     <main>
-      <section class="controls">
-        <label for="app">Application</label>
-        <select id="app"></select>
-        <button id="refresh">Refresh</button>
+      <div id="toast" class="toast" hidden></div>
+
+      <!-- Summary status cards -->
+      <section id="summary" class="summary"></section>
+
+      <!-- Live deployment progress (injected when a job runs) -->
+      <section id="progress-wrap"></section>
+
+      <!-- Pipeline -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Pipeline</h2>
+          <span class="muted" id="pipeline-sub"></span>
+        </div>
+        <div id="pipeline" class="pipeline"></div>
       </section>
 
-      <div id="feedback" class="feedback" hidden></div>
-
-      <section>
-        <h2>Rings</h2>
-        <table id="rings">
-          <thead>
-            <tr>
-              <th>Ring</th>
-              <th>Current</th>
-              <th>Live</th>
-              <th>Previous</th>
-              <th>Health</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </section>
-
-      <section>
-        <h2>History</h2>
-        <table id="history">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Ring</th>
-              <th>Action</th>
-              <th>From → To</th>
-              <th>Result</th>
-              <th>Message</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+      <!-- Activity / history -->
+      <section class="panel">
+        <div class="panel-head"><h2>Activity</h2></div>
+        <div id="history" class="history"></div>
       </section>
     </main>
   </div>

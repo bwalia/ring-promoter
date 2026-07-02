@@ -187,26 +187,33 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 	}
 	defer unlock()
 
+	rep := reporterFrom(ctx)
 	tgt := p.target(app, ringName, rc)
 	prev := p.currentVersion(ctx, app, ringName)
 	res := Result{App: app, Action: store.ActionSeed, Ring: ringName, Version: version}
 
+	rep.StartStep("deploy", fmt.Sprintf("Deploy %s to %s", version, ringName))
 	if err := p.deployerFor(app).Deploy(ctx, tgt, version); err != nil {
 		// The deploy never happened, so leave the stored state untouched.
 		res.Message = "deploy failed: " + err.Error()
+		rep.FinishStep(StepFailed, res.Message)
 		res.State, _ = p.store.GetRingState(ctx, app, ringName)
 		p.record(ctx, app, ringName, store.ActionSeed, prev, version, store.ResultFailure, res.Message)
 		return res, nil
 	}
+	rep.FinishStep(StepSuccess, "image set to "+version)
 
+	rep.StartStep("health", fmt.Sprintf("Health check %s", ringName))
 	healthErr := p.checkWithRetries(ctx, rc.HealthURL)
 	healthy := healthErr == nil
 	res.State = p.saveState(ctx, app, ringName, prev, version, healthy)
 	res.Success = healthy
 	if healthy {
+		rep.FinishStep(StepSuccess, "healthy")
 		res.Message = fmt.Sprintf("seeded %s and healthy", version)
 		p.record(ctx, app, ringName, store.ActionSeed, prev, version, store.ResultSuccess, res.Message)
 	} else {
+		rep.FinishStep(StepFailed, healthErr.Error())
 		res.Message = "seeded but health check failed: " + healthErr.Error()
 		p.record(ctx, app, ringName, store.ActionSeed, prev, version, store.ResultFailure, res.Message)
 	}
@@ -235,6 +242,7 @@ func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, e
 	}
 	defer unlock()
 
+	rep := reporterFrom(ctx)
 	res := Result{App: app, Action: store.ActionPromote, Ring: nextRing.Name, FromRing: fromRing}
 
 	// Source must have a version to promote.
@@ -246,24 +254,30 @@ func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, e
 	res.Version = version
 
 	// Rule: source ring must be healthy before promoting (live check).
+	rep.StartStep("source-health", fmt.Sprintf("Verify %s (%s) is healthy", fromRing, version))
 	if err := p.checker.Check(ctx, srcRC.HealthURL); err != nil {
+		rep.FinishStep(StepFailed, err.Error())
 		srcState.Healthy = false
 		_ = p.store.UpsertRingState(ctx, srcState)
 		res.Message = fmt.Sprintf("source ring %s is unhealthy, promotion aborted: %s", fromRing, err.Error())
 		p.record(ctx, app, nextRing.Name, store.ActionPromote, "", version, store.ResultFailure, res.Message)
 		return res, nil
 	}
+	rep.FinishStep(StepSuccess, "source healthy")
 
 	dstTgt := p.target(app, nextRing.Name, dstRC)
 	dstPrev := p.currentVersion(ctx, app, nextRing.Name)
 
 	// Deploy to the target ring.
+	rep.StartStep("deploy", fmt.Sprintf("Deploy %s to %s", version, nextRing.Name))
 	if err := p.deployerFor(app).Deploy(ctx, dstTgt, version); err != nil {
 		res.Message = "deploy to target failed: " + err.Error()
+		rep.FinishStep(StepFailed, res.Message)
 		p.record(ctx, app, nextRing.Name, store.ActionPromote, dstPrev, version, store.ResultFailure, res.Message)
 		res.State, _ = p.store.GetRingState(ctx, app, nextRing.Name)
 		return res, nil
 	}
+	rep.FinishStep(StepSuccess, "image set to "+version)
 
 	// The deploy succeeded, so the cluster now runs `version`. Persist that
 	// immediately (health not yet confirmed) so the stored state never lags the
@@ -271,13 +285,16 @@ func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, e
 	p.saveState(ctx, app, nextRing.Name, dstPrev, version, false)
 
 	// Health-check the target with retries.
+	rep.StartStep("health", fmt.Sprintf("Health check %s", nextRing.Name))
 	if healthErr := p.checkWithRetries(ctx, dstRC.HealthURL); healthErr == nil {
+		rep.FinishStep(StepSuccess, "healthy")
 		res.State = p.saveState(ctx, app, nextRing.Name, dstPrev, version, true)
 		res.Success = true
 		res.Message = fmt.Sprintf("promoted %s from %s to %s and healthy", version, fromRing, nextRing.Name)
 		p.record(ctx, app, nextRing.Name, store.ActionPromote, dstPrev, version, store.ResultSuccess, res.Message)
 		return res, nil
 	} else {
+		rep.FinishStep(StepFailed, "health check failed after retries: "+healthErr.Error())
 		p.record(ctx, app, nextRing.Name, store.ActionPromote, dstPrev, version, store.ResultFailure,
 			"health check failed after retries: "+healthErr.Error())
 		p.log.Warn("promote health check failed, rolling back",
@@ -287,19 +304,25 @@ func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, e
 	// Auto-rollback if there is a previous version. The promotion has failed
 	// regardless of whether the rollback succeeds.
 	if dstPrev == "" {
+		rep.StartStep("rollback", "Auto-rollback")
+		rep.FinishStep(StepSkipped, "no previous version to roll back to")
 		res.State = p.saveState(ctx, app, nextRing.Name, dstPrev, version, false)
 		res.Message = "promote failed health check and there is no previous version to roll back to"
 		return res, nil
 	}
+	rep.StartStep("rollback", fmt.Sprintf("Auto-rollback %s to %s", nextRing.Name, dstPrev))
 	st, healthy, derr := p.rollbackTo(ctx, app, nextRing.Name, dstTgt, dstRC, version, dstPrev)
 	res.State = st
 	res.RolledBack = derr == nil
 	switch {
 	case derr != nil:
+		rep.FinishStep(StepFailed, derr.Error())
 		res.Message = fmt.Sprintf("promote of %s failed health check and %s", version, derr.Error())
 	case healthy:
+		rep.FinishStep(StepSuccess, "rolled back to "+dstPrev)
 		res.Message = fmt.Sprintf("promote of %s failed health check; rolled back to %s", version, dstPrev)
 	default:
+		rep.FinishStep(StepFailed, "rolled back to "+dstPrev+" but it is unhealthy")
 		res.Message = fmt.Sprintf("promote of %s failed health check; rolled back to %s but it is unhealthy", version, dstPrev)
 	}
 	return res, nil
@@ -324,17 +347,22 @@ func (p *Promoter) Rollback(ctx context.Context, app, ringName string) (Result, 
 	from, to := st.CurrentVersion, st.PreviousVersion
 	tgt := p.target(app, ringName, rc)
 
+	rep := reporterFrom(ctx)
 	res := Result{App: app, Action: store.ActionRollback, Ring: ringName, Version: to}
+	rep.StartStep("rollback", fmt.Sprintf("Roll back %s from %s to %s", ringName, from, to))
 	newState, healthy, derr := p.rollbackTo(ctx, app, ringName, tgt, rc, from, to)
 	res.State = newState
 	switch {
 	case derr != nil:
+		rep.FinishStep(StepFailed, derr.Error())
 		res.Message = derr.Error()
 	case healthy:
+		rep.FinishStep(StepSuccess, "rolled back to "+to)
 		res.RolledBack = true
 		res.Success = true
 		res.Message = fmt.Sprintf("rolled back %s from %s to %s", ringName, from, to)
 	default:
+		rep.FinishStep(StepFailed, "rolled back to "+to+" but it is unhealthy")
 		res.RolledBack = true
 		res.Message = fmt.Sprintf("rolled back to %s but it is unhealthy", to)
 	}
@@ -346,6 +374,7 @@ func (p *Promoter) Rollback(ctx context.Context, app, ringName string) (Result, 
 // the resulting state, whether the rolled-back version is healthy, and a
 // non-nil error only if the rollback deploy itself failed.
 func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt deployer.Target, rc config.RingConfig, from, to string) (store.RingState, bool, error) {
+	reporterFrom(ctx).Log("deploying previous version " + to)
 	if err := p.deployerFor(app).Deploy(ctx, tgt, to); err != nil {
 		msg := fmt.Sprintf("rollback deploy to %s failed: %s", to, err.Error())
 		p.record(ctx, app, ringName, store.ActionRollback, from, to, store.ResultFailure, msg)
@@ -367,6 +396,7 @@ func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt dep
 // checkWithRetries runs the health check up to retry.Count+1 times, waiting
 // retry.Delay between attempts.
 func (p *Promoter) checkWithRetries(ctx context.Context, url string) error {
+	rep := reporterFrom(ctx)
 	attempts := p.retryCount + 1
 	if attempts < 1 {
 		attempts = 1
@@ -374,6 +404,7 @@ func (p *Promoter) checkWithRetries(ctx context.Context, url string) error {
 	var err error
 	for i := 0; i < attempts; i++ {
 		if i > 0 {
+			rep.Log(fmt.Sprintf("waiting %s before retry", p.retryDelay))
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -381,8 +412,10 @@ func (p *Promoter) checkWithRetries(ctx context.Context, url string) error {
 			}
 		}
 		if err = p.checker.Check(ctx, url); err == nil {
+			rep.Log(fmt.Sprintf("attempt %d/%d: healthy", i+1, attempts))
 			return nil
 		}
+		rep.Log(fmt.Sprintf("attempt %d/%d failed: %s", i+1, attempts, err))
 		p.log.Warn("health check attempt failed", "url", url, "attempt", i+1, "attempts", attempts, "err", err)
 	}
 	return err
