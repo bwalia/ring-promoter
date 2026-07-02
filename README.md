@@ -103,7 +103,8 @@ internal/
   promoter/              promotion rules (seed/promote/rollback) + unit tests
   api/                   REST handlers, bearer-token auth, request logging
   web/                   embedded single-page UI (vanilla JS)
-deploy/k8s/              Namespace, RBAC, ConfigMap, Secret, Deployment, Service, Ingress
+deploy/k8s/              Namespace, RBAC, ConfigMap, Secret, Deployment, Service
+kubernetes/ingress/      public Ingress (wslproxy) for ring-promoter.diytaxreturn.co.uk
 Dockerfile               small multi-stage image (distroless + kubectl)
 config.yaml              local-development config (2 sample apps)
 ```
@@ -362,10 +363,11 @@ where it applies.
    kubectl apply -f deploy/k8s/configmap.yaml
    kubectl apply -f deploy/k8s/deployment.yaml
    kubectl apply -f deploy/k8s/service.yaml
-   kubectl apply -f deploy/k8s/ingress.yaml   # optional (Traefik)
+   kubectl apply -f kubernetes/ingress/ring-promoter.yaml   # public host via the wslproxy ingress
    ```
 
-5. **Reach it**: via the Ingress host (`ring-promoter.local`) or a port-forward:
+5. **Reach it**: via the Ingress host (`http://ring-promoter.diytaxreturn.co.uk`)
+   or a port-forward:
 
    ```bash
    kubectl -n ring-system port-forward svc/ring-promoter 8080:80
