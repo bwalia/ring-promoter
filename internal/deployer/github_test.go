@@ -3,6 +3,7 @@ package deployer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -112,7 +113,7 @@ func TestGitHub_Deploy_HappyPath(t *testing.T) {
 	srv := newGHServer(t, f)
 	d := testGHDeployer(t, srv.URL)
 
-	tgt := Target{App: "wslproxy", Ring: "ring2", TargetEnv: "prod"}
+	tgt := Target{App: "wslproxy", Ring: "acc", TargetEnv: "prod"}
 	if err := d.Deploy(context.Background(), tgt, "release-1.0.10"); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestGitHub_Deploy_FailedRunReturnsError(t *testing.T) {
 	srv := newGHServer(t, f)
 	d := testGHDeployer(t, srv.URL)
 
-	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "ring0", TargetEnv: "int"}, "abc123")
+	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "int", TargetEnv: "int"}, "abc123")
 	if err == nil {
 		t.Fatal("expected an error when the run concludes failure")
 	}
@@ -158,7 +159,7 @@ func TestGitHub_Deploy_FailedRunReturnsError(t *testing.T) {
 
 func TestGitHub_Deploy_MissingTargetEnv(t *testing.T) {
 	d := testGHDeployer(t, "http://unused.invalid")
-	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "ring0"}, "v1")
+	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "int"}, "v1")
 	if err == nil || !strings.Contains(err.Error(), "target_env") {
 		t.Fatalf("expected target_env error, got %v", err)
 	}
@@ -168,7 +169,7 @@ func TestGitHub_Deploy_MissingToken(t *testing.T) {
 	d := NewGitHubActionsDeployer(nil, GitHubActionsConfig{
 		Owner: "o", Repo: "r", Workflow: "wf.yml", APIBaseURL: "http://unused.invalid",
 	}, nil)
-	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "ring0", TargetEnv: "int"}, "v1")
+	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "int", TargetEnv: "int"}, "v1")
 	if err == nil || !strings.Contains(err.Error(), "token") {
 		t.Fatalf("expected token error, got %v", err)
 	}
@@ -182,9 +183,69 @@ func TestGitHub_Deploy_RunNeverAppears(t *testing.T) {
 		Token: "secret-token", APIBaseURL: srv.URL,
 		PollInterval: time.Millisecond, RunLookupTimeout: 50 * time.Millisecond,
 	}, nil)
-	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "ring0", TargetEnv: "int"}, "v1")
+	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "int", TargetEnv: "int"}, "v1")
 	if err == nil || !strings.Contains(err.Error(), "locate dispatched run") {
 		t.Fatalf("expected run-lookup timeout error, got %v", err)
+	}
+}
+
+// flakyDoer returns a transport error for the first failN calls, then delegates
+// to the wrapped transport (simulating transient TLS/connection failures).
+type flakyDoer struct {
+	failN int
+	calls int
+	inner httpDoer
+}
+
+func (f *flakyDoer) Do(req *http.Request) (*http.Response, error) {
+	f.calls++
+	if f.calls <= f.failN {
+		return nil, fmt.Errorf("net/http: TLS handshake timeout")
+	}
+	return f.inner.Do(req)
+}
+
+func TestGitHub_Deploy_RetriesTransientErrors(t *testing.T) {
+	f := &ghFake{conclusion: "success"}
+	srv := newGHServer(t, f)
+	// First 2 API calls fail at the transport layer, then succeed.
+	flaky := &flakyDoer{failN: 2, inner: &http.Client{Timeout: 5 * time.Second}}
+	d := NewGitHubActionsDeployer(nil, GitHubActionsConfig{
+		Owner: "o", Repo: "r", Workflow: "wf.yml", Token: "secret-token",
+		APIBaseURL:       srv.URL,
+		PollInterval:     time.Millisecond,
+		RunLookupTimeout: 2 * time.Second,
+		ClockSkew:        time.Minute,
+		MaxRetries:       3,
+		RetryBackoff:     time.Millisecond,
+	}, flaky)
+
+	if err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "int", TargetEnv: "int"}, "v1"); err != nil {
+		t.Fatalf("deploy should succeed after transient retries: %v", err)
+	}
+	if !f.dispatched {
+		t.Fatal("dispatch never reached the server despite retries")
+	}
+	if flaky.calls < 3 {
+		t.Fatalf("expected retries (>=3 calls), got %d", flaky.calls)
+	}
+}
+
+func TestGitHub_Deploy_GivesUpAfterMaxRetries(t *testing.T) {
+	f := &ghFake{conclusion: "success"}
+	srv := newGHServer(t, f)
+	flaky := &flakyDoer{failN: 100, inner: &http.Client{}} // never recovers
+	d := NewGitHubActionsDeployer(nil, GitHubActionsConfig{
+		Owner: "o", Repo: "r", Workflow: "wf.yml", Token: "secret-token",
+		APIBaseURL: srv.URL, MaxRetries: 2, RetryBackoff: time.Millisecond,
+	}, flaky)
+
+	err := d.Deploy(context.Background(), Target{App: "wslproxy", Ring: "int", TargetEnv: "int"}, "v1")
+	if err == nil || !strings.Contains(err.Error(), "TLS handshake timeout") {
+		t.Fatalf("expected transport error after exhausting retries, got %v", err)
+	}
+	if flaky.calls != 3 { // 1 initial + 2 retries
+		t.Fatalf("expected exactly 3 dispatch attempts, got %d", flaky.calls)
 	}
 }
 
@@ -195,7 +256,7 @@ func TestGitHub_Deploy_ContextCancelled(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	err := d.Deploy(ctx, Target{App: "wslproxy", Ring: "ring0", TargetEnv: "int"}, "v1")
+	err := d.Deploy(ctx, Target{App: "wslproxy", Ring: "int", TargetEnv: "int"}, "v1")
 	if err == nil {
 		t.Fatal("expected an error when the context is cancelled mid-poll")
 	}

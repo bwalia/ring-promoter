@@ -52,57 +52,57 @@ database:
 apps:
   - name: web-frontend
     rings:
-      ring0:
-        namespace: ring0
+      int:
+        namespace: int
         deployment: web-frontend
         container: web
         image: registry.example.com/web-frontend
-        health_url: http://web-frontend.ring0.svc.cluster.local/health
-      ring1:
-        namespace: ring1
+        health_url: http://web-frontend.int.svc.cluster.local/health
+      test:
+        namespace: test
         deployment: web-frontend
         container: web
         image: registry.example.com/web-frontend
-        health_url: http://web-frontend.ring1.svc.cluster.local/health
-      ring2:
-        namespace: ring2
+        health_url: http://web-frontend.test.svc.cluster.local/health
+      acc:
+        namespace: acc
         deployment: web-frontend
         container: web
         image: registry.example.com/web-frontend
-        health_url: http://web-frontend.ring2.svc.cluster.local/health
-      ring3:
-        namespace: ring3
+        health_url: http://web-frontend.acc.svc.cluster.local/health
+      prod:
+        namespace: prod
         deployment: web-frontend
         container: web
         image: registry.example.com/web-frontend
-        health_url: http://web-frontend.ring3.svc.cluster.local/health
+        health_url: http://web-frontend.prod.svc.cluster.local/health
 
   - name: orders-api
     rings:
-      ring0:
-        namespace: ring0
+      int:
+        namespace: int
         deployment: orders-api
         container: api
         image: registry.example.com/orders-api
-        health_url: http://orders-api.ring0.svc.cluster.local/health
-      ring1:
-        namespace: ring1
+        health_url: http://orders-api.int.svc.cluster.local/health
+      test:
+        namespace: test
         deployment: orders-api
         container: api
         image: registry.example.com/orders-api
-        health_url: http://orders-api.ring1.svc.cluster.local/health
-      ring2:
-        namespace: ring2
+        health_url: http://orders-api.test.svc.cluster.local/health
+      acc:
+        namespace: acc
         deployment: orders-api
         container: api
         image: registry.example.com/orders-api
-        health_url: http://orders-api.ring2.svc.cluster.local/health
-      ring3:
-        namespace: ring3
+        health_url: http://orders-api.acc.svc.cluster.local/health
+      prod:
+        namespace: prod
         deployment: orders-api
         container: api
         image: registry.example.com/orders-api
-        health_url: http://orders-api.ring3.svc.cluster.local/health
+        health_url: http://orders-api.prod.svc.cluster.local/health
 
   # ---------------------------------------------------------------------------
   # Example: a VM/OpenResty app (wslproxy) deployed via its own GitHub Actions
@@ -119,10 +119,11 @@ apps:
   #       owner: bwalia
   #       repo: wslproxy
   #       workflow: deploy-single-environment.yml   # per-env, no cascade
-  #       ref: build           # branch the workflow file runs from
+  #       ref: main            # branch hosting the workflow (default branch)
   #       deploy_mode: full    # value sent as the DEPLOY_MODE input
   #       token_env: RP_GITHUB_TOKEN
   #     rings:                 # target_env is sent as the ENV input
-  #       ring0: { target_env: int,  health_url: "https://int-our.wslproxy.com/health" }
-  #       ring1: { target_env: test, health_url: "https://test.wslproxy.com/health" }
-  #       ring2: { target_env: prod, health_url: "https://prod-our-v1.wslproxy.com/health" }
+  #       int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
+  #       test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
+  #       acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }  # pop0
+  #       prod: { target_env: prod, health_url: "http://18.133.126.242:7691/healthz" }        # pop1

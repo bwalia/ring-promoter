@@ -12,19 +12,19 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ring0
+  name: int
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ring1
+  name: test
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ring2
+  name: acc
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ring3
+  name: prod
