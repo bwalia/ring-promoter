@@ -119,7 +119,7 @@ apps:
   #       owner: bwalia
   #       repo: wslproxy
   #       workflow: deploy-single-environment.yml   # per-env, no cascade
-  #       ref: build           # branch the workflow file runs from
+  #       ref: main            # branch hosting the workflow (default branch)
   #       deploy_mode: full    # value sent as the DEPLOY_MODE input
   #       token_env: RP_GITHUB_TOKEN
   #     rings:                 # target_env is sent as the ENV input

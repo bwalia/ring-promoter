@@ -78,6 +78,13 @@ type GitHubActionsConfig struct {
 	// ClockSkew is subtracted from the dispatch time when matching the run, to
 	// tolerate clock differences with GitHub (default 60s).
 	ClockSkew time.Duration
+	// MaxRetries is how many extra attempts each API request makes on a
+	// transport error (DNS/TLS/connection failure) before giving up. Transport
+	// errors mean no response was received, so retrying is safe (default 3).
+	MaxRetries int
+	// RetryBackoff is the base linear backoff between transport-error retries
+	// (attempt N waits N*RetryBackoff; default 2s).
+	RetryBackoff time.Duration
 }
 
 // NewGitHubActionsDeployer returns a GitHubActionsDeployer, filling defaults.
@@ -115,6 +122,12 @@ func NewGitHubActionsDeployer(log *slog.Logger, cfg GitHubActionsConfig, client 
 	}
 	if cfg.ClockSkew <= 0 {
 		cfg.ClockSkew = 60 * time.Second
+	}
+	if cfg.MaxRetries <= 0 {
+		cfg.MaxRetries = 3
+	}
+	if cfg.RetryBackoff <= 0 {
+		cfg.RetryBackoff = 2 * time.Second
 	}
 	return &GitHubActionsDeployer{log: log, http: client, cfg: cfg}
 }
@@ -267,23 +280,45 @@ func (d *GitHubActionsDeployer) waitForRun(ctx context.Context, runID int64) err
 	}
 }
 
-// do performs an authenticated GitHub API request.
+// do performs an authenticated GitHub API request, retrying on transport
+// errors (DNS/TLS handshake/connection failures) with linear backoff. A
+// transport error means the request never got a response, so retrying is safe
+// even for the dispatch POST — e.g. a "TLS handshake timeout" reaching
+// api.github.com is retried rather than failing the whole deploy.
 func (d *GitHubActionsDeployer) do(ctx context.Context, method, endpoint string, body []byte) (*http.Response, error) {
-	var rdr io.Reader
-	if body != nil {
-		rdr = bytes.NewReader(body)
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		var rdr io.Reader
+		if body != nil {
+			rdr = bytes.NewReader(body)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, endpoint, rdr)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+		req.Header.Set("Authorization", "Bearer "+d.cfg.Token)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		resp, err := d.http.Do(req)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if attempt >= d.cfg.MaxRetries {
+			return nil, lastErr
+		}
+		backoff := time.Duration(attempt+1) * d.cfg.RetryBackoff
+		d.log.Warn("github api transient error, retrying",
+			"method", method, "attempt", attempt+1, "max", d.cfg.MaxRetries,
+			"backoff", backoff.String(), "err", err)
+		if serr := sleep(ctx, backoff); serr != nil {
+			return nil, serr
+		}
 	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, rdr)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("Authorization", "Bearer "+d.cfg.Token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	return d.http.Do(req)
 }
 
 // ghRun is the subset of a GitHub Actions workflow run we consume.
