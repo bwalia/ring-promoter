@@ -145,12 +145,15 @@ main { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
 @keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 .run-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.8rem; }
 .run-title { font-weight: 800; font-size: 1.02rem; display: flex; align-items: center; gap: 0.5rem; }
-.run-bar { height: 6px; border-radius: 999px; background: var(--panel-2); overflow: hidden; margin-bottom: 0.9rem; }
-.run-bar > span { display: block; height: 100%; }
-.run-bar.running > span { width: 35%; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: indet 1.6s linear infinite; }
-@keyframes indet { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
-.run-bar.done-ok > span { width: 100%; background: var(--ok); }
-.run-bar.done-bad > span { width: 100%; background: var(--bad); }
+.run-bar { position: relative; height: 3px; border-radius: 999px; background: rgba(79,140,255,0.14); overflow: hidden; margin-bottom: 0.9rem; }
+.run-bar > span { display: block; height: 100%; border-radius: inherit; }
+/* Minimalist indeterminate bar: a single solid pill glides across at constant
+   colour (no fade), starting and ending fully off-screen so the loop reset is
+   invisible — no blink, no pulse. */
+.run-bar.running > span { position: absolute; top: 0; left: 0; width: 30%; background: var(--accent); animation: indet 1.5s ease-in-out infinite; will-change: transform; }
+@keyframes indet { 0% { transform: translateX(-120%); } 100% { transform: translateX(360%); } }
+.run-bar.done-ok > span { width: 100%; background: var(--ok); transition: width 0.3s ease; }
+.run-bar.done-bad > span { width: 100%; background: var(--bad); transition: width 0.3s ease; }
 
 .steps { display: flex; flex-direction: column; gap: 0.15rem; }
 .step { border-radius: 10px; padding: 0.5rem 0.6rem; }
