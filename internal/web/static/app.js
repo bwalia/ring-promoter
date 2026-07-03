@@ -271,25 +271,40 @@ function runIcon(st) {
   if (st === "failed") return '<span class="ic failed">✕</span>';
   return '<span class="spinner"></span>';
 }
-function renderProgress() {
-  const wrap = $("#progress-wrap"), a = state.activeJob;
-  if (!a) { wrap.innerHTML = ""; return; }
-  const job = a.job || { status: "pending", steps: [] };
-  const status = job.status || "pending";
-  const finished = status === "success" || status === "failed";
-  const bar = status === "success" ? "done-ok" : status === "failed" ? "done-bad" : "running";
-  const steps = (job.steps || []).map((s) => {
+function stepsHTML(job) {
+  return (job.steps || []).map((s) => {
     const logs = (s.logs && s.logs.length) ? `<div class="step-logs">${s.logs.map(esc).join("\n")}</div>` : "";
     return `<div class="step"><div class="step-row">${stepIcon(s.status)}` +
       `<span class="step-title">${esc(s.title)}</span><span class="step-dur">${esc(dur(s.started_at, s.finished_at))}</span>` +
       `</div>${logs}</div>`;
   }).join("") || '<div class="muted" style="padding:.4rem .2rem">Starting…</div>';
+}
+function renderProgress() {
+  const wrap = $("#progress-wrap"), a = state.activeJob;
+  if (!a) { wrap.innerHTML = ""; wrap._runId = null; return; }
+  const job = a.job || { status: "pending", steps: [] };
+  const status = job.status || "pending";
+  const finished = status === "success" || status === "failed";
 
+  // While the same job keeps running, DON'T rebuild the panel — only refresh the
+  // steps. Rebuilding would recreate the .run-bar element and restart its CSS
+  // animation every poll (~700ms), which looks like a blink. Keep the bar's DOM
+  // node stable so its animation runs uninterrupted.
+  const existing = wrap.querySelector(".run");
+  if (existing && wrap._runId === a.id && wrap._finished === false && !finished) {
+    const stepsEl = existing.querySelector(".steps");
+    if (stepsEl) stepsEl.innerHTML = stepsHTML(job);
+    return;
+  }
+
+  const bar = status === "success" ? "done-ok" : status === "failed" ? "done-bad" : "running";
   wrap.innerHTML =
     `<div class="run"><div class="run-head"><div class="run-title">${runIcon(status)} ${esc(a.title)}</div>` +
     `<div style="display:flex;gap:.6rem;align-items:center"><span class="badge ${status}">${esc(status)}</span>` +
     `${finished ? '<button class="btn btn-ghost btn-sm" id="run-dismiss">Dismiss</button>' : ""}</div></div>` +
-    `<div class="run-bar ${bar}"><span></span></div><div class="steps">${steps}</div></div>`;
+    `<div class="run-bar ${bar}"><span></span></div><div class="steps">${stepsHTML(job)}</div></div>`;
+  wrap._runId = a.id;
+  wrap._finished = finished;
 
   if (finished) $("#run-dismiss").onclick = () => { state.activeJob = null; saveJob(); renderProgress(); renderAll(); };
 }
