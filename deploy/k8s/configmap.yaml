@@ -47,3 +47,28 @@ data:
           # production = pop1 (18.133.126.242). Public health hostname pending;
           # using the IP endpoint the workflow itself checks in the interim.
           prod: { target_env: prod, health_url: "http://18.133.126.242:7691/healthz" }         # pop1
+
+      # diytaxreturn — Next.js + FastAPI/Lapis app on k3s (k3s0), deployed via its
+      # own GitHub Actions single-env workflow (deploy-single-environment.yml).
+      # Three environments only: int -> test -> acc (no prod ring configured).
+      # STRATEGY: acceptance is deployed ONLY from the `release` branch — the
+      # workflow's guard job enforces this (acc requires DEPLOY_BRANCH=release).
+      # The promoted "version" is a git ref, sent as the workflow's DEPLOY_BRANCH
+      # input: seed int/test with `main`; acc only accepts `release`.
+      # Health = FastAPI /fastapi/health per env. Token from RP_GITHUB_TOKEN.
+      - name: diytaxreturn
+        deployer: github
+        github:
+          owner: bwalia
+          repo: diy-tax-return-uk
+          workflow: deploy-single-environment.yml
+          ref: main            # branch hosting the workflow file (DEPLOY_BRANCH carries the version)
+          deploy_mode: full
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 120s
+        rings:                 # target_env -> workflow ENV input
+          int:  { target_env: int,  health_url: "https://int-api.diytaxreturn.co.uk/fastapi/health" }
+          test: { target_env: test, health_url: "https://test-api.diytaxreturn.co.uk/fastapi/health" }
+          acc:  { target_env: acc,  health_url: "https://acc-api.diytaxreturn.co.uk/fastapi/health" }
+          # No prod ring: this app has three environments (int/test/acc) only.
