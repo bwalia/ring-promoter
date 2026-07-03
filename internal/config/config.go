@@ -165,6 +165,14 @@ type RingConfig struct {
 	// ring to (e.g. "int", "test", "prod"). Required for the "github" deployer;
 	// ignored by the kubectl deployer.
 	TargetEnv string `yaml:"target_env"`
+	// Ref pins the version (git branch/tag/sha) this ring always deploys,
+	// overriding the seeded/promoted version. Use it when a ring is fixed to a
+	// source branch — e.g. acceptance may only ever run `release`: setting
+	// `ref: release` makes both seed and promote to that ring deploy (and record)
+	// `release`, so "promote to acc" ships release while int/test carry main.
+	// Only meaningful for branch/CI-based deployers (github); leave empty
+	// otherwise (the kubectl deployer treats the version as an image tag).
+	Ref string `yaml:"ref"`
 }
 
 // Duration is a time.Duration that unmarshals from a YAML string like "5s".

@@ -51,10 +51,10 @@ data:
       # diytaxreturn — Next.js + FastAPI/Lapis app on k3s (k3s0), deployed via its
       # own GitHub Actions single-env workflow (deploy-single-environment.yml).
       # Three environments only: int -> test -> acc (no prod ring configured).
-      # STRATEGY: acceptance is deployed ONLY from the `release` branch — the
-      # workflow's guard job enforces this (acc requires DEPLOY_BRANCH=release).
-      # The promoted "version" is a git ref, sent as the workflow's DEPLOY_BRANCH
-      # input: seed int/test with `main`; acc only accepts `release`.
+      # STRATEGY: acceptance is deployed ONLY from the `release` branch. The acc
+      # ring pins `ref: release`, so seed/promote to acc always deploys (and
+      # records) release — "Promote -> acc" ships release while int/test carry
+      # main. The workflow's guard job enforces the same rule as defence in depth.
       # Health = FastAPI /fastapi/health per env. Token from RP_GITHUB_TOKEN.
       - name: diytaxreturn
         deployer: github
@@ -70,5 +70,5 @@ data:
         rings:                 # target_env -> workflow ENV input
           int:  { target_env: int,  health_url: "https://int-api.diytaxreturn.co.uk/fastapi/health" }
           test: { target_env: test, health_url: "https://test-api.diytaxreturn.co.uk/fastapi/health" }
-          acc:  { target_env: acc,  health_url: "https://acc-api.diytaxreturn.co.uk/fastapi/health" }
+          acc:  { target_env: acc,  ref: release, health_url: "https://acc-api.diytaxreturn.co.uk/fastapi/health" }
           # No prod ring: this app has three environments (int/test/acc) only.
