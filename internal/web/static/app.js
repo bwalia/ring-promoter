@@ -78,7 +78,7 @@ function showGate(msg) {
   const e = $("#gate-error"); if (msg) { e.textContent = msg; e.hidden = false; } else e.hidden = true;
   $("#gate-token").focus();
 }
-function unlock() { $("#gate").hidden = true; $("#app-root").hidden = false; loadApps(); }
+function unlock() { $("#gate").hidden = true; $("#app-root").hidden = false; loadApps(); loadVersion(); }
 function signOut() {
   state.token = ""; localStorage.removeItem("rp_token");
   state.activeJob = null; localStorage.removeItem(JOB_KEY);
@@ -113,6 +113,36 @@ async function loadRings() {
 async function loadHistory() {
   const res = await api(`/api/apps/${enc(state.app)}/history`);
   if (res.ok) state.history = res.data.history || [];
+}
+
+// ---------- footer / build info ----------
+function fmtDateTime(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return String(ts);
+  return d.toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+async function loadVersion() {
+  const res = await api("/version");
+  const f = $("#footer");
+  if (!f) return;
+  if (!res.ok || !res.data) { f.hidden = true; return; }
+  const d = res.data;
+  const ver = d.version && d.version !== "dev" ? "v" + d.version : (d.version || "dev");
+  const parts = [`<span class="f-ver">Ring Promoter ${esc(ver)}</span>`];
+  if (d.commit && d.commit !== "none") {
+    parts.push(`<span class="f-item">commit <span class="mono">${esc(String(d.commit).slice(0, 7))}</span></span>`);
+  }
+  if (d.built_at && d.built_at !== "unknown") {
+    parts.push(`<span class="f-item">built <span title="${esc(d.built_at)}">${esc(fmtDateTime(d.built_at))}</span></span>`);
+  }
+  if (d.started_at) {
+    parts.push(`<span class="f-item">deployed <span title="${esc(fmtDateTime(d.started_at))}">${esc(timeAgo(d.started_at))}</span></span>`);
+  }
+  f.innerHTML = parts.join('<span class="f-sep">·</span>');
+  f.hidden = false;
 }
 
 // ---------- render ----------

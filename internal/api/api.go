@@ -15,6 +15,13 @@ import (
 	"github.com/example/ring-promoter/internal/ring"
 )
 
+// BuildInfo carries version metadata baked into the binary at build time.
+type BuildInfo struct {
+	Version   string
+	Commit    string
+	BuildTime string
+}
+
 // Server wires the promoter, auth token and UI into an http.Handler.
 type Server struct {
 	prom      *promoter.Promoter
@@ -23,18 +30,21 @@ type Server struct {
 	ui        http.Handler
 	opTimeout time.Duration
 	jobs      *JobManager
+	build     BuildInfo
+	startedAt time.Time
 }
 
 // NewServer constructs an API server. ui serves the embedded web assets and
-// opTimeout bounds each mutating operation.
-func NewServer(prom *promoter.Promoter, token string, ui http.Handler, opTimeout time.Duration, log *slog.Logger) *Server {
+// opTimeout bounds each mutating operation. build carries version metadata
+// surfaced on /version.
+func NewServer(prom *promoter.Promoter, token string, ui http.Handler, opTimeout time.Duration, log *slog.Logger, build BuildInfo) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
 	if opTimeout <= 0 {
 		opTimeout = 10 * time.Minute
 	}
-	return &Server{prom: prom, token: token, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager()}
+	return &Server{prom: prom, token: token, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now()}
 }
 
 // opContext returns a context for a mutating operation that is DETACHED from the
@@ -50,8 +60,9 @@ func (s *Server) opContext(r *http.Request) (context.Context, context.CancelFunc
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Service liveness — unauthenticated.
+	// Service liveness + build/version info — unauthenticated.
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /version", s.handleVersion)
 
 	// App-scoped REST API — authenticated.
 	api := http.NewServeMux()
@@ -110,6 +121,18 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleVersion reports build metadata and when this instance started, which
+// (with the immutable image) reflects when it was last deployed. The UI footer
+// consumes this.
+func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version":    s.build.Version,
+		"commit":     s.build.Commit,
+		"built_at":   s.build.BuildTime,
+		"started_at": s.startedAt.UTC().Format(time.RFC3339),
+	})
 }
 
 func (s *Server) handleListApps(w http.ResponseWriter, _ *http.Request) {
