@@ -181,6 +181,9 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 	if err != nil {
 		return Result{}, err
 	}
+	// A ring may pin a deploy ref (e.g. acc -> release); if so it deploys and
+	// records that ref regardless of the requested version.
+	version = deployVersion(rc, version)
 	unlock, err := p.store.Lock(ctx, "app:"+app)
 	if err != nil {
 		return Result{}, fmt.Errorf("lock application: %w", err)
@@ -264,6 +267,13 @@ func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, e
 		return res, nil
 	}
 	rep.FinishStep(StepSuccess, "source healthy")
+
+	// The target ring may pin a deploy ref (e.g. acc -> release): deploy and
+	// record that ref instead of the promoted version. This lets "promote to
+	// acc" ship release while int/test carry main — and the source-health check
+	// above still used the source's real version.
+	version = deployVersion(dstRC, version)
+	res.Version = version
 
 	dstTgt := p.target(app, nextRing.Name, dstRC)
 	dstPrev := p.currentVersion(ctx, app, nextRing.Name)
@@ -482,4 +492,15 @@ func (p *Promoter) target(app, ringName string, rc config.RingConfig) deployer.T
 		Image:      rc.Image,
 		TargetEnv:  rc.TargetEnv,
 	}
+}
+
+// deployVersion returns the version to actually deploy to (and record for) a
+// ring. When a ring pins a `ref` (e.g. acc -> release), that ref overrides the
+// seeded/promoted version, so deploys to that ring always ship the pinned ref
+// and history reflects it. Rings without a ref use the given version unchanged.
+func deployVersion(rc config.RingConfig, version string) string {
+	if rc.Ref != "" {
+		return rc.Ref
+	}
+	return version
 }

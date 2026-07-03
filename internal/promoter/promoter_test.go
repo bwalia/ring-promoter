@@ -455,3 +455,81 @@ func containsHistory(hist []store.HistoryEntry, action, result string) bool {
 	}
 	return false
 }
+
+// newHarnessWithRings builds a harness where per-ring config can be customised
+// (e.g. pinning a deploy ref on a ring).
+func newHarnessWithRings(t *testing.T, retryCount int, mutate func(r string, rc *config.RingConfig)) (*Promoter, *fakeDeployer, *scriptedChecker, store.Store) {
+	t.Helper()
+	dep := newFakeDeployer()
+	chk := newScriptedChecker(dep)
+	st := store.NewMemory()
+	delay := config.Duration(time.Millisecond)
+	rings := map[string]config.RingConfig{}
+	for _, r := range ring.Names() {
+		rc := config.RingConfig{
+			Namespace: r, Deployment: testApp, Container: testApp,
+			Image: "repo/" + testApp, HealthURL: "health://" + key(testApp, r), TargetEnv: r,
+		}
+		if mutate != nil {
+			mutate(r, &rc)
+		}
+		rings[r] = rc
+	}
+	cfg := &config.Config{
+		APIToken: "test-token", Deployer: config.DeployerLog, Health: config.HealthAlways,
+		Retry:    config.RetryConfig{Count: &retryCount, Delay: &delay},
+		Database: config.DatabaseConfig{Driver: config.StoreMemory},
+		Apps:     []config.AppConfig{{Name: testApp, Rings: rings}},
+	}
+	return New(cfg, st, nil, dep, chk, nil), dep, chk, st
+}
+
+// TestPinnedRef_OverridesPromotedAndSeededVersion verifies that a ring pinning
+// `ref` (e.g. acc -> release) always deploys and records that ref — so
+// "promote to acc" ships release even though int/test carry main.
+func TestPinnedRef_OverridesPromotedAndSeededVersion(t *testing.T) {
+	p, dep, _, st := newHarnessWithRings(t, 2, func(r string, rc *config.RingConfig) {
+		if r == "acc" {
+			rc.Ref = "release"
+		}
+	})
+	ctx := context.Background()
+
+	if _, err := p.Seed(ctx, testApp, "int", "main"); err != nil {
+		t.Fatalf("seed int: %v", err)
+	}
+	if _, err := p.Promote(ctx, testApp, "int"); err != nil { // int -> test
+		t.Fatalf("promote int->test: %v", err)
+	}
+	res, err := p.Promote(ctx, testApp, "test") // test -> acc (pinned to release)
+	if err != nil {
+		t.Fatalf("promote test->acc: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected acc promote to succeed, got %+v", res)
+	}
+
+	// acc ran release, not the promoted main.
+	if got := dep.version(key(testApp, "acc")); got != "release" {
+		t.Fatalf("acc live version = %q, want release", got)
+	}
+	if res.Version != "release" {
+		t.Fatalf("result version = %q, want release", res.Version)
+	}
+	if s := mustState(t, st, testApp, "acc"); s.CurrentVersion != "release" {
+		t.Fatalf("acc recorded version = %q, want release", s.CurrentVersion)
+	}
+	// int/test still carry main.
+	if got := dep.version(key(testApp, "test")); got != "main" {
+		t.Fatalf("test live version = %q, want main", got)
+	}
+
+	// Seeding acc directly with something else is also pinned to release.
+	res2, err := p.Seed(ctx, testApp, "acc", "hotfix-branch")
+	if err != nil {
+		t.Fatalf("seed acc: %v", err)
+	}
+	if res2.Version != "release" || dep.version(key(testApp, "acc")) != "release" {
+		t.Fatalf("seed acc not pinned: res=%q live=%q", res2.Version, dep.version(key(testApp, "acc")))
+	}
+}
