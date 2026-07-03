@@ -80,7 +80,9 @@ function showGate(msg) {
 }
 function unlock() { $("#gate").hidden = true; $("#app-root").hidden = false; loadApps(); }
 function signOut() {
-  state.token = ""; localStorage.removeItem("rp_token"); $("#gate-token").value = ""; showGate();
+  state.token = ""; localStorage.removeItem("rp_token");
+  state.activeJob = null; localStorage.removeItem(JOB_KEY);
+  $("#gate-token").value = ""; showGate();
 }
 
 // ---------- loaders ----------
@@ -96,6 +98,7 @@ async function loadApps() {
   if (state.app && res.data.apps.includes(state.app)) sel.value = state.app;
   state.app = sel.value;
   if (state.app) await loadApp();
+  restoreJob();  // resume any in-flight/just-finished job after a page refresh
 }
 async function loadApp() {
   if (!state.app) return;
@@ -174,7 +177,7 @@ function stageEl(v) {
   const actions = d.querySelector(".stage-actions");
   if (isTarget) {
     actions.className = "stage-running";
-    actions.innerHTML = '<span class="spinner"></span> deploying…';
+    actions.innerHTML = '<span class="dot-active"></span> deploying…';
   } else if (configured) {
     fillActions(actions, v, busy);
   } else {
@@ -226,7 +229,9 @@ function renderHistory() {
 
 // ---------- progress panel ----------
 function stepIcon(st) {
-  if (st === "running") return '<span class="spinner"></span>';
+  // No spinner here: the single spinning wheel lives in the run header. A
+  // running step is marked with a static accent dot instead.
+  if (st === "running") return '<span class="dot-active"></span>';
   if (st === "success") return '<span class="ic success">✓</span>';
   if (st === "failed") return '<span class="ic failed">✕</span>';
   return '<span class="ic skipped">–</span>';
@@ -256,7 +261,39 @@ function renderProgress() {
     `${finished ? '<button class="btn btn-ghost btn-sm" id="run-dismiss">Dismiss</button>' : ""}</div></div>` +
     `<div class="run-bar ${bar}"><span></span></div><div class="steps">${steps}</div></div>`;
 
-  if (finished) $("#run-dismiss").onclick = () => { state.activeJob = null; renderProgress(); renderAll(); };
+  if (finished) $("#run-dismiss").onclick = () => { state.activeJob = null; saveJob(); renderProgress(); renderAll(); };
+}
+
+// ---------- active-job persistence (survives a page refresh) ----------
+// The server retains recent jobs, so we stash the active job's id + last known
+// snapshot in localStorage. On reload we restore it and resume polling, so an
+// in-flight (or just-finished) deploy keeps its progress panel and its buttons
+// stay disabled — the user can't accidentally fire a second promote.
+const JOB_KEY = "rp_job";
+function saveJob() {
+  const a = state.activeJob;
+  if (a && a.id) {
+    localStorage.setItem(JOB_KEY, JSON.stringify({
+      id: a.id, app: a.app, action: a.action, title: a.title, targetRing: a.targetRing, job: a.job || null,
+    }));
+  } else {
+    localStorage.removeItem(JOB_KEY);
+  }
+}
+function restoreJob() {
+  const raw = localStorage.getItem(JOB_KEY);
+  if (!raw) return;
+  let j;
+  try { j = JSON.parse(raw); } catch (_) { localStorage.removeItem(JOB_KEY); return; }
+  if (!j || !j.id) { localStorage.removeItem(JOB_KEY); return; }
+  state.activeJob = {
+    action: j.action, title: j.title, targetRing: j.targetRing, app: j.app, id: j.id,
+    job: j.job || { status: "pending", steps: [] },
+  };
+  renderProgress();
+  renderAll();
+  const st = state.activeJob.job && state.activeJob.job.status;
+  if (st !== "success" && st !== "failed") pollJob();  // still in flight → resume
 }
 
 // ---------- run an action (async job + polling) ----------
@@ -268,17 +305,27 @@ async function run(action, body, title, targetRing) {
 
   const res = await api(`/api/apps/${enc(state.app)}/${action}?async=1`, "POST", body);
   if (res.status !== 202 || !res.data || !res.data.job_id) {
-    state.activeJob = null; renderProgress(); renderAll(); showStartFailure(res); return;
+    state.activeJob = null; saveJob(); renderProgress(); renderAll(); showStartFailure(res); return;
   }
   state.activeJob.id = res.data.job_id;
+  saveJob();
   pollJob();
 }
 async function pollJob() {
   const a = state.activeJob;
   if (!a || !a.id) return;
   const res = await api(`/api/apps/${enc(a.app)}/jobs/${a.id}`);
+  if (res.status === 404) {
+    // The server no longer has this job (e.g. the pod restarted). Drop it and
+    // resync from real state rather than spin forever.
+    state.activeJob = null; saveJob();
+    if (state.app === a.app) { await Promise.all([loadRings(), loadHistory()]); }
+    renderAll(); renderProgress();
+    return;
+  }
   if (!res.ok || !res.data) { setTimeout(pollJob, 1000); return; }
   a.job = res.data;
+  saveJob();
   renderProgress();
   if (res.data.status === "running" || res.data.status === "pending") { setTimeout(pollJob, 700); return; }
   // finished
@@ -298,7 +345,7 @@ $("#gate-form").addEventListener("submit", async (e) => {
 });
 $("#signout").onclick = signOut;
 $("#refresh").onclick = () => loadApp();
-$("#app").onchange = (e) => { state.app = e.target.value; state.activeJob = null; loadApp(); };
+$("#app").onchange = (e) => { state.app = e.target.value; state.activeJob = null; saveJob(); loadApp(); };
 
 // ---------- init ----------
 (async () => {

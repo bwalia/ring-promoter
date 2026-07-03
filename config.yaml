@@ -36,94 +36,17 @@ database:
 # Application registry. Add a new managed app by adding an entry here — no code
 # change and no rebuild required (edit the ConfigMap in k3s).
 #
-# For each app, define each ring it lives in:
-#   namespace  - k8s namespace of that ring
-#   deployment - Deployment to update
-#   container  - container within the Deployment whose image tag is set
-#   image      - image repository (without tag); the version is applied as tag
-#   health_url - URL returning 2xx when the app is healthy in that ring
-#
-# An app may set `deployer:` to override the global one (kubectl | log | github).
-# The "github" deployer targets apps deployed to VMs by their own CI/CD: it
-# dispatches a GitHub Actions workflow and waits for it to conclude. See the
-# commented `wslproxy` example at the end of this file, and deploy/k8s/configmap.yaml
-# for the production version.
+# The only app is wslproxy. In PRODUCTION it deploys via its own GitHub Actions
+# per-environment workflow using the per-app "github" deployer — see the copy in
+# deploy/k8s/configmap.yaml. Here (local dev) it deliberately has NO per-app
+# deployer override, so it uses the global `deployer: log` above and runs
+# offline: seed/promote/rollback exercise the UI + memory store without touching
+# a real cluster or dispatching a workflow (which would need RP_GITHUB_TOKEN).
 # ---------------------------------------------------------------------------
 apps:
-  - name: web-frontend
+  - name: wslproxy
     rings:
-      int:
-        namespace: int
-        deployment: web-frontend
-        container: web
-        image: registry.example.com/web-frontend
-        health_url: http://web-frontend.int.svc.cluster.local/health
-      test:
-        namespace: test
-        deployment: web-frontend
-        container: web
-        image: registry.example.com/web-frontend
-        health_url: http://web-frontend.test.svc.cluster.local/health
-      acc:
-        namespace: acc
-        deployment: web-frontend
-        container: web
-        image: registry.example.com/web-frontend
-        health_url: http://web-frontend.acc.svc.cluster.local/health
-      prod:
-        namespace: prod
-        deployment: web-frontend
-        container: web
-        image: registry.example.com/web-frontend
-        health_url: http://web-frontend.prod.svc.cluster.local/health
-
-  - name: orders-api
-    rings:
-      int:
-        namespace: int
-        deployment: orders-api
-        container: api
-        image: registry.example.com/orders-api
-        health_url: http://orders-api.int.svc.cluster.local/health
-      test:
-        namespace: test
-        deployment: orders-api
-        container: api
-        image: registry.example.com/orders-api
-        health_url: http://orders-api.test.svc.cluster.local/health
-      acc:
-        namespace: acc
-        deployment: orders-api
-        container: api
-        image: registry.example.com/orders-api
-        health_url: http://orders-api.acc.svc.cluster.local/health
-      prod:
-        namespace: prod
-        deployment: orders-api
-        container: api
-        image: registry.example.com/orders-api
-        health_url: http://orders-api.prod.svc.cluster.local/health
-
-  # ---------------------------------------------------------------------------
-  # Example: a VM/OpenResty app (wslproxy) deployed via its own GitHub Actions
-  # CI/CD, using the per-app "github" deployer. Commented out because this local
-  # config runs offline (deployer: log, health: always); enabling it would make
-  # `seed` actually dispatch a real workflow. Use the copy in
-  # deploy/k8s/configmap.yaml for production.
-  #
-  # Requires the token env var (RP_GITHUB_TOKEN) to be set when active.
-  # ---------------------------------------------------------------------------
-  # - name: wslproxy
-  #     deployer: github
-  #     github:
-  #       owner: bwalia
-  #       repo: wslproxy
-  #       workflow: deploy-single-environment.yml   # per-env, no cascade
-  #       ref: main            # branch hosting the workflow (default branch)
-  #       deploy_mode: full    # value sent as the DEPLOY_MODE input
-  #       token_env: RP_GITHUB_TOKEN
-  #     rings:                 # target_env is sent as the ENV input
-  #       int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
-  #       test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
-  #       acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }  # pop0
-  #       prod: { target_env: prod, health_url: "http://18.133.126.242:7691/healthz" }        # pop1
+      int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
+      test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
+      acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }  # pop0
+      prod: { target_env: prod, health_url: "http://18.133.126.242:7691/healthz" }        # pop1
