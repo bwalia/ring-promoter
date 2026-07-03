@@ -25,9 +25,22 @@ import (
 	"github.com/example/ring-promoter/internal/web"
 )
 
+// Build metadata, injected at build time via -ldflags "-X main.version=..."
+// (see Dockerfile). Defaults keep local `go run` working without flags.
+var (
+	version   = "dev"
+	commit    = "none"
+	buildTime = "unknown"
+)
+
 func main() {
 	configPath := flag.String("config", envOr("RP_CONFIG_FILE", "config.yaml"), "path to the config file")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Printf("ring-promoter %s (commit %s, built %s)\n", version, commit, buildTime)
+		return
+	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -58,7 +71,8 @@ func run(configPath string, logger *slog.Logger) error {
 		return err
 	}
 	prom := promoter.New(cfg, st, deployers, defaultDeployer, buildChecker(cfg), logger)
-	srv := api.NewServer(prom, cfg.APIToken, web.Handler(), cfg.OperationTimeout.Std(), logger)
+	srv := api.NewServer(prom, cfg.APIToken, web.Handler(), cfg.OperationTimeout.Std(), logger,
+		api.BuildInfo{Version: version, Commit: commit, BuildTime: buildTime})
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,

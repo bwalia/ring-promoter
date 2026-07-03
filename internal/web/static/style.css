@@ -203,3 +203,20 @@ main { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
 .gate-card h1 { margin: 0; font-size: 1.4rem; }
 .gate-card p { margin: 0; }
 .gate-error { color: var(--bad); font-size: 0.85rem; background: var(--bad-dim); padding: 0.5rem; border-radius: 8px; }
+
+/* Footer: build/version info (see /version). */
+.footer {
+  max-width: 1200px;
+  margin: 1.6rem auto 2rem;
+  padding: 0.9rem 1.2rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.footer .f-ver { font-weight: 600; color: var(--text, var(--muted)); }
+.footer .f-sep { opacity: 0.5; }
+.footer .f-item { white-space: nowrap; }
