@@ -259,7 +259,7 @@ apps:
       int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
       test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
       acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }  # pop0
-      prod: { target_env: prod, health_url: "http://18.133.126.242:7691/healthz" }        # pop1
+      prod: { target_env: prod, health_url: "https://pop1.diytaxreturn.co.uk/healthz" }   # pop1
 ```
 
 How it maps onto Ring Promoter:
