@@ -1,0 +1,135 @@
+name: Deploy to k3s1
+
+# Builds, pushes and deploys Ring Promoter to the k3s1 cluster whenever a PR is
+# merged to main (a push to main). GitOps: main is the source of truth — the
+# manifests in deploy/k8s/ (except the placeholder Secret) are applied every run.
+#
+# Runs on the self-hosted Mac Studio runner. See docs/deploy-k3s1.md for the
+# one-time bootstrap (Secret, Postgres, repo secrets, runner registration).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: sha-<short> built from this ref)"
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-k3s1
+  cancel-in-progress: false
+
+env:
+  IMAGE: docker.io/bwalia/ring-promoter
+  NAMESPACE: ring-system
+
+jobs:
+  test:
+    name: Test
+    runs-on: [self-hosted, mac-studio]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+
+  deploy:
+    name: Build & deploy to k3s1
+    needs: test
+    runs-on: [self-hosted, mac-studio]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute build metadata
+        run: |
+          echo "SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_ENV"
+          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWD }}
+
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=sha-${{ env.SHORT_SHA }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ env.BUILD_TIME }}
+
+      - name: Configure kubeconfig (k3s1)
+        run: |
+          umask 077
+          echo "${{ secrets.KUBE_CONFIG_DATA_K3S1 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Preflight (verify k3s1 prerequisites)
+        run: |
+          set -euo pipefail
+          echo "== k3s1 nodes =="
+          kubectl get nodes -o wide
+          if ! kubectl -n "${NAMESPACE}" get secret ring-promoter >/dev/null 2>&1; then
+            echo "::error::secret/ring-promoter is missing in namespace ${NAMESPACE} on k3s1."
+            echo "::error::Run the one-time bootstrap (see docs/deploy-k3s1.md): create it with RP_API_TOKEN, RP_DB_DSN and RP_GITHUB_TOKEN. CI never creates secrets."
+            exit 1
+          fi
+          echo "secret/ring-promoter present — proceeding."
+
+      - name: Apply manifests (GitOps; never secret.yaml)
+        run: |
+          set -euo pipefail
+          kubectl apply \
+            -f deploy/k8s/namespace.yaml \
+            -f deploy/k8s/rbac.yaml \
+            -f deploy/k8s/configmap.yaml \
+            -f deploy/k8s/service.yaml \
+            -f kubernetes/ingress/ring-promoter.yaml
+
+      - name: Roll out image
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "$TAG" ]; then TAG="sha-${SHORT_SHA}"; fi
+          echo "Deploying ${IMAGE}:${TAG}"
+          sed "s#image: docker.io/bwalia/ring-promoter:.*#image: ${IMAGE}:${TAG}#" \
+            deploy/k8s/deployment.yaml | kubectl apply -f -
+          kubectl -n "${NAMESPACE}" rollout status deploy/ring-promoter --timeout=180s
+
+      - name: Post-deploy health check
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://ring-promoter.diytaxreturn.co.uk/healthz || echo 000)
+            echo "healthz attempt $i -> $code"
+            if [ "$code" = "200" ]; then echo "k3s1 deploy healthy."; exit 0; fi
+            sleep 5
+          done
+          echo "::error::/healthz did not return 200 after the rollout"; exit 1
