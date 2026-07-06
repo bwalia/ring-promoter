@@ -126,8 +126,9 @@ jobs:
       - name: Post-deploy health check
         run: |
           set -euo pipefail
+          # -L follows the edge's http->https 301 so we read the final 200.
           for i in $(seq 1 12); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://ring-promoter.diytaxreturn.co.uk/healthz || echo 000)
+            code=$(curl -sL -o /dev/null -w '%{http_code}' --max-time 15 http://ring-promoter.diytaxreturn.co.uk/healthz || echo 000)
             echo "healthz attempt $i -> $code"
             if [ "$code" = "200" ]; then echo "k3s1 deploy healthy."; exit 0; fi
             sleep 5
