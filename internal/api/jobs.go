@@ -125,7 +125,10 @@ func (j *Job) snapshot() jobState {
 	cp.Steps = make([]stepView, len(j.st.Steps))
 	for i, s := range j.st.Steps {
 		sc := s
-		sc.Logs = append([]string(nil), s.Logs...)
+		// make (not append to nil) so a step with no logs marshals as [] —
+		// append([]string(nil), ...) of an empty slice yields nil → JSON null.
+		sc.Logs = make([]string, len(s.Logs))
+		copy(sc.Logs, s.Logs)
 		cp.Steps[i] = sc
 	}
 	if j.st.Result != nil {

@@ -7,10 +7,17 @@ import { create } from "zustand";
 // Ring-card buttons and command-palette items both funnel into pendingAction;
 // the dashboard renders the matching (confirmation) dialog.
 
+// Every pending action is tagged with the app it targets: the dialogs only
+// honor an action for the app whose dashboard is showing, so an action queued
+// from another view (e.g. the command palette while a group page was open)
+// can never fire against the wrong app.
 export type PendingAction =
-  | { type: "seed"; ring?: string }
-  | { type: "promote"; fromRing: string }
-  | { type: "rollback"; ring: string };
+  | { type: "seed"; app: string; ring?: string }
+  | { type: "promote"; app: string; fromRing: string }
+  | { type: "rollback"; app: string; ring: string }
+  // Enabling auto-promote INTO production needs the prod password — this
+  // routes the switch through a confirmation dialog that collects it.
+  | { type: "autoPromote"; app: string; ring: string };
 
 interface UiState {
   paletteOpen: boolean;

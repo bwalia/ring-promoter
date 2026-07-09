@@ -27,6 +27,7 @@ type BuildInfo struct {
 type Server struct {
 	prom      *promoter.Promoter
 	token     string
+	prodPass  string
 	log       *slog.Logger
 	ui        http.Handler
 	opTimeout time.Duration
@@ -37,15 +38,41 @@ type Server struct {
 
 // NewServer constructs an API server. ui serves the embedded web assets and
 // opTimeout bounds each mutating operation. build carries version metadata
-// surfaced on /version.
-func NewServer(prom *promoter.Promoter, token string, ui http.Handler, opTimeout time.Duration, log *slog.Logger, build BuildInfo) *Server {
+// surfaced on /version. prodPass, when non-empty, is additionally required to
+// deploy anything to the last (production) ring.
+func NewServer(prom *promoter.Promoter, token, prodPass string, ui http.Handler, opTimeout time.Duration, log *slog.Logger, build BuildInfo) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
 	if opTimeout <= 0 {
 		opTimeout = 10 * time.Minute
 	}
-	return &Server{prom: prom, token: token, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now()}
+	return &Server{prom: prom, token: token, prodPass: prodPass, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now()}
+}
+
+// prodRing is the pipeline's last ring — the one the production password
+// protects.
+func prodRing() string {
+	all := ring.All()
+	return all[len(all)-1].Name
+}
+
+// checkProdPassword authorizes an operation that deploys to the production
+// ring. It returns false (after writing a 403) when a production password is
+// configured and the request's password does not match.
+func (s *Server) checkProdPassword(w http.ResponseWriter, password string) bool {
+	if s.prodPass == "" {
+		return true
+	}
+	if subtle.ConstantTimeCompare([]byte(password), []byte(s.prodPass)) == 1 {
+		return true
+	}
+	if password == "" {
+		writeError(w, http.StatusForbidden, errors.New("production password required"))
+	} else {
+		writeError(w, http.StatusForbidden, errors.New("incorrect production password"))
+	}
+	return false
 }
 
 // opContext returns a context for a mutating operation that is DETACHED from the
@@ -142,6 +169,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"apps":  s.prom.Apps(),
 		"rings": ring.All(),
+		// Tells the UI to ask for the production password where needed.
+		"prod_protected": s.prodPass != "",
 	})
 }
 
@@ -183,13 +212,18 @@ func (s *Server) handleVersions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Ring    string `json:"ring"`
-		Version string `json:"version"`
+		Ring     string `json:"ring"`
+		Version  string `json:"version"`
+		Password string `json:"password,omitempty"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	app := r.PathValue("app")
+	// Seeding straight into production needs the production password.
+	if body.Ring == prodRing() && !s.checkProdPassword(w, body.Password) {
+		return
+	}
 	if wantsAsync(r) {
 		// Reject precondition failures (unknown ring, version missing from the
 		// source repo) on the request itself instead of spawning a doomed job —
@@ -213,11 +247,17 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		FromRing string `json:"from_ring"`
+		Password string `json:"password,omitempty"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	app := r.PathValue("app")
+	// Promoting INTO production needs the production password.
+	if next, ok := ring.Next(body.FromRing); ok && next.Name == prodRing() &&
+		!s.checkProdPassword(w, body.Password) {
+		return
+	}
 	if wantsAsync(r) {
 		job := s.jobs.run(r.Context(), s.opTimeout, app, "promote", func(ctx context.Context) (promoter.Result, error) {
 			return s.prom.Promote(ctx, app, body.FromRing)
@@ -257,12 +297,22 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 // inside the seed/promote operation itself).
 func (s *Server) handleAutoPromote(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Enabled bool `json:"enabled"`
+		Enabled  bool   `json:"enabled"`
+		Password string `json:"password,omitempty"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	app, ringName := r.PathValue("app"), r.PathValue("ring")
+	// Enabling the hands-free path INTO production needs the password too —
+	// otherwise auto-promote would be a way around it. Disabling is always
+	// allowed (it only makes things safer).
+	if body.Enabled {
+		if next, ok := ring.Next(ringName); ok && next.Name == prodRing() &&
+			!s.checkProdPassword(w, body.Password) {
+			return
+		}
+	}
 	if err := s.prom.SetAutoPromote(r.Context(), app, ringName, body.Enabled); err != nil {
 		writeError(w, statusForErr(err), err)
 		return

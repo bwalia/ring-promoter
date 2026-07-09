@@ -8,6 +8,7 @@ import {
   Boxes,
   Download,
   Keyboard,
+  Layers,
   LogOut,
   Monitor,
   Moon,
@@ -44,6 +45,9 @@ export function CommandPalette({
   const apps = data?.apps ?? [];
   const selectedApp = usePrefsStore((s) => s.selectedApp);
   const selectApp = usePrefsStore((s) => s.selectApp);
+  const selectGroup = usePrefsStore((s) => s.selectGroup);
+  const selectedGroup = usePrefsStore((s) => s.selectedGroup);
+  const groups = usePrefsStore((s) => s.groups);
   const favorites = usePrefsStore((s) => s.favorites);
   const autoRefresh = usePrefsStore((s) => s.autoRefresh);
   const setAutoRefresh = usePrefsStore((s) => s.setAutoRefresh);
@@ -116,6 +120,29 @@ export function CommandPalette({
           ))}
         </CommandGroup>
 
+        {groups.length > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Groups">
+              {groups.map((g) => (
+                <CommandItem
+                  key={g.id}
+                  // id keeps the value unique when two groups share a name
+                  // (cmdk keys selection by value); the name keeps it searchable.
+                  value={`group ${g.name} ${g.id}`}
+                  onSelect={run(() => selectGroup(g.id))}
+                >
+                  <Layers aria-hidden className="size-4" />
+                  <span className="truncate">{g.name}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {g.apps.length} app{g.apps.length === 1 ? "" : "s"}
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
+
         {versionHits.length > 0 && (
           <>
             <CommandSeparator />
@@ -137,13 +164,16 @@ export function CommandPalette({
           </>
         )}
 
-        {selectedApp && (
+        {/* Per-app quick actions are hidden while a group page is showing:
+            their dialogs live on the app dashboard, so they could not open
+            here (and a queued action would fire later on the wrong view). */}
+        {selectedApp && !selectedGroup && (
           <>
             <CommandSeparator />
             <CommandGroup heading={`Actions · ${selectedApp}`}>
               <CommandItem
                 value="seed a version"
-                onSelect={run(() => setPendingAction({ type: "seed" }))}
+                onSelect={run(() => setPendingAction({ type: "seed", app: selectedApp }))}
               >
                 <Download aria-hidden className="size-4" /> Seed a version…
               </CommandItem>
@@ -152,7 +182,7 @@ export function CommandPalette({
                   key={`p-${r.ring.name}`}
                   value={`promote ${r.ring.name} ${r.current_version}`}
                   onSelect={run(() =>
-                    setPendingAction({ type: "promote", fromRing: r.ring.name }),
+                    setPendingAction({ type: "promote", app: selectedApp, fromRing: r.ring.name }),
                   )}
                 >
                   <ArrowUpRight aria-hidden className="size-4" />
@@ -164,7 +194,7 @@ export function CommandPalette({
                   key={`r-${r.ring.name}`}
                   value={`rollback ${r.ring.name} ${r.previous_version}`}
                   onSelect={run(() =>
-                    setPendingAction({ type: "rollback", ring: r.ring.name }),
+                    setPendingAction({ type: "rollback", app: selectedApp, ring: r.ring.name }),
                   )}
                 >
                   <Undo2 aria-hidden className="size-4" />

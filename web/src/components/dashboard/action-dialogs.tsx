@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -53,7 +53,9 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  useAutoPromoteMutation,
   usePromoteMutation,
+  useProdProtection,
   useRollbackMutation,
   useSeedMutation,
   useVersions,
@@ -74,9 +76,17 @@ export function ActionDialogs({
   app: string;
   rings: RingView[];
 }) {
-  const pending = useUiStore((s) => s.pendingAction);
+  const raw = useUiStore((s) => s.pendingAction);
   const setPending = useUiStore((s) => s.setPendingAction);
   const close = () => setPending(null);
+
+  // Only honor actions aimed at THIS app. An action queued from another view
+  // (e.g. the palette while a group page was open) must never fire against
+  // whichever dashboard happens to mount next — drop it instead.
+  const pending = raw && raw.app === app ? raw : null;
+  useEffect(() => {
+    if (raw && raw.app !== app) setPending(null);
+  }, [raw, app, setPending]);
 
   return (
     <>
@@ -89,6 +99,7 @@ export function ActionDialogs({
         />
       )}
       <PromoteDialog
+        key={pending?.type === "promote" ? pending.fromRing : "none"}
         app={app}
         rings={rings}
         fromRing={pending?.type === "promote" ? pending.fromRing : null}
@@ -100,6 +111,9 @@ export function ActionDialogs({
         ring={pending?.type === "rollback" ? pending.ring : null}
         onClose={close}
       />
+      {pending?.type === "autoPromote" && (
+        <AutoPromoteDialog app={app} ring={pending.ring} onClose={close} />
+      )}
     </>
   );
 }
@@ -121,18 +135,30 @@ function SeedDialog({
     initialRing ?? configured[0]?.ring.name ?? "",
   );
   const [version, setVersion] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const seed = useSeedMutation(app);
   const versionsQuery = useVersions(app);
+  const { prodProtected, prodRing } = useProdProtection();
 
   const target = configured.find((r) => r.ring.name === ring);
   const replaces = target?.current_version;
+  const needsPassword = prodProtected && ring === prodRing;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!ring || !version.trim() || seed.isPending) return;
+    setError(null);
     seed.mutate(
-      { ring, version: version.trim() },
-      { onSuccess: onClose },
+      {
+        ring,
+        version: version.trim(),
+        password: needsPassword ? password : undefined,
+      },
+      {
+        onSuccess: onClose,
+        onError: (err) => setError(err.message),
+      },
     );
   };
 
@@ -206,13 +232,28 @@ function SeedDialog({
             </p>
           )}
 
+          {needsPassword && (
+            <ProdPasswordField
+              id="seed-prod-password"
+              value={password}
+              onChange={setPassword}
+            />
+          )}
+
+          {error && <p className="text-sm text-status-critical">{error}</p>}
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={!ring || !version.trim() || seed.isPending}
+              disabled={
+                !ring ||
+                !version.trim() ||
+                (needsPassword && !password) ||
+                seed.isPending
+              }
             >
               {seed.isPending && (
                 <Loader2 aria-hidden className="size-4 animate-spin" />
@@ -343,10 +384,28 @@ function PromoteDialog({
   onClose: () => void;
 }) {
   const promote = usePromoteMutation(app);
+  const { prodProtected, prodRing } = useProdProtection();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const i = rings.findIndex((r) => r.ring.name === fromRing);
   const source = i >= 0 ? rings[i] : undefined;
   const target = i >= 0 ? rings[i + 1] : undefined;
-  const toProd = target?.ring.name === "prod";
+  const toProd = target?.ring.name === prodRing;
+  const needsPassword = toProd && prodProtected;
+
+  const confirm = (e: React.MouseEvent) => {
+    if (!fromRing) return;
+    // Keep the dialog open so a wrong password can be corrected in place.
+    e.preventDefault();
+    setError(null);
+    promote.mutate(
+      { fromRing, password: needsPassword ? password : undefined },
+      {
+        onSuccess: onClose,
+        onError: (err) => setError(err.message),
+      },
+    );
+  };
 
   return (
     <AlertDialog open={!!fromRing} onOpenChange={(o) => !o && onClose()}>
@@ -382,14 +441,103 @@ function PromoteDialog({
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
+
+        {needsPassword && (
+          <ProdPasswordField
+            id="promote-prod-password"
+            value={password}
+            onChange={setPassword}
+            autoFocus
+          />
+        )}
+
+        {/* Rendered for every failure (not only password ones): the dialog
+            stays open on error, so the reason must be visible inside it. */}
+        {error && <p className="text-sm text-status-critical">{error}</p>}
+
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={() =>
-              fromRing && promote.mutate({ fromRing }, { onSuccess: onClose })
-            }
+            disabled={(needsPassword && !password) || promote.isPending}
+            onClick={confirm}
           >
+            {promote.isPending && (
+              <Loader2 aria-hidden className="size-4 animate-spin" />
+            )}
             Promote
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/** Confirms enabling auto-promote INTO production (requires the password). */
+function AutoPromoteDialog({
+  app,
+  ring,
+  onClose,
+}: {
+  app: string;
+  ring: string;
+  onClose: () => void;
+}) {
+  const autoPromote = useAutoPromoteMutation(app);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const confirm = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setError(null);
+    autoPromote.mutate(
+      { ring, enabled: true, password },
+      {
+        onSuccess: onClose,
+        onError: (err) => setError(err.message),
+      },
+    );
+  };
+
+  return (
+    <AlertDialog open onOpenChange={(o) => !o && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Auto-promote to Production?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2">
+              <p>
+                Every version that lands healthy in{" "}
+                <span className="font-medium">{ring}</span> for{" "}
+                <span className="font-medium">{app}</span> will deploy to
+                Production automatically — no further confirmation, no
+                password prompt per deploy.
+              </p>
+              <p className="flex items-start gap-2 rounded-md bg-status-critical/10 p-2.5 text-status-critical">
+                <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                This removes the human step before Production.
+              </p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <ProdPasswordField
+          id="auto-prod-password"
+          value={password}
+          onChange={setPassword}
+          error={error}
+          autoFocus
+        />
+
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={!password || autoPromote.isPending}
+            onClick={confirm}
+          >
+            {autoPromote.isPending && (
+              <Loader2 aria-hidden className="size-4 animate-spin" />
+            )}
+            Enable
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -450,5 +598,39 @@ function RollbackDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+/**
+ * Shared production-password input (with optional inline error) so the three
+ * prod-guarded dialogs cannot drift in behavior or styling.
+ */
+function ProdPasswordField({
+  id,
+  value,
+  onChange,
+  error,
+  autoFocus,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string | null;
+  autoFocus?: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>Production password</Label>
+      <Input
+        id={id}
+        type="password"
+        autoComplete="off"
+        autoFocus={autoFocus}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Required to deploy to production"
+      />
+      {error && <p className="text-sm text-status-critical">{error}</p>}
+    </div>
   );
 }

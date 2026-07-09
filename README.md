@@ -212,6 +212,18 @@ check failed and the target was rolled back — details in the JSON body), and
 app's source repository), `409` (nothing to promote/roll back), `401`
 (bad token). This lets CI treat a non-2xx response as "promotion failed".
 
+**Production password.** When `RP_PROD_PASSWORD` is set, any request that
+deploys to the **last ring** must carry it in the JSON body as `"password"`:
+promoting into production, seeding production directly, and enabling
+auto-promote into production (`403` otherwise). Rollbacks are deliberately
+exempt so incident response is never blocked. The UI prompts for the password
+in the matching dialogs.
+
+> Consent for auto-promote is checked when the switch is ENABLED. If you turn
+> on `RP_PROD_PASSWORD` on a system where auto-promote into production was
+> already enabled, review those switches — they remain in effect until turned
+> off.
+
 **Version validation.** For apps using the `github` deployer, `seed` verifies
 the requested version (branch, tag or commit SHA) actually resolves in the
 app's repository before dispatching anything — a typo'd ref is rejected with
@@ -494,6 +506,7 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 |-------------------|---------------------|----------------|----------------------------------------|
 | `RP_LISTEN_ADDR`  | `listen_addr`       | `:8080`        | HTTP bind address.                     |
 | `RP_API_TOKEN`    | `api_token`         | – (required)   | Bearer token for `/api`.               |
+| `RP_PROD_PASSWORD`| `production_password`| – (optional)  | Extra password required to deploy to the last ring (promote into prod, seed prod, enable auto-promote into prod). Rollbacks are exempt. Empty = disabled. |
 | `RP_DEPLOYER`     | `deployer`          | `log`          | Global default: `kubectl`, `log` or `github`. Overridable per app via `deployer:`. |
 | `RP_GITHUB_TOKEN` | – (per-app `token_env`) | –          | API token for apps using the `github` deployer (needs `actions:write` + `contents:read`). From a Secret. |
 | `RP_HEALTH`       | `health`            | `always`       | `http` or `always`.                    |

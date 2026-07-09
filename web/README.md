@@ -59,6 +59,11 @@ result — the Go binary embeds whatever is in that directory at build time.
   (server-side setting): a healthy landing there continues onward in the same
   job. The switch updates optimistically and the whole chain renders in the
   live progress panel.
+- **Production password.** When the server has `RP_PROD_PASSWORD` set
+  (`prod_protected` in `GET /api/apps`), the promote/seed dialogs targeting
+  the last ring add a password field, and enabling `auto → prod` opens a
+  dedicated confirmation. A wrong password shows inline and keeps the dialog
+  open. Enforcement is server-side; the UI only collects the password.
 - **Persisted preferences** (localStorage): token, theme, selected app,
   favorites, recents, custom app groups, collapsed sidebar sections,
   auto-refresh on/off, and the running-job reference per app (so a mid-deploy

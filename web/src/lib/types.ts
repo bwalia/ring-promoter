@@ -9,6 +9,8 @@ export interface Ring {
 export interface AppsResponse {
   apps: string[];
   rings: Ring[];
+  /** True when the server requires a password for production deployments. */
+  prod_protected?: boolean;
 }
 
 export interface RingView {

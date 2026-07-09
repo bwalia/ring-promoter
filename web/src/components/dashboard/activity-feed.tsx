@@ -21,10 +21,13 @@ function describe(h: HistoryEntry): string {
   }
 }
 
-/** Recent seeds, promotions and rollbacks across every application. */
-export function ActivityFeed() {
+/**
+ * Recent seeds, promotions and rollbacks — across every application, or only
+ * the given ones (e.g. a group's members).
+ */
+export function ActivityFeed({ apps: only }: { apps?: string[] } = {}) {
   const { data } = useApps();
-  const apps = data?.apps ?? [];
+  const apps = only ?? data?.apps ?? [];
   const { items, isPending } = useActivityFeed(apps);
   const selectApp = usePrefsStore((s) => s.selectApp);
 
@@ -32,7 +35,9 @@ export function ActivityFeed() {
     <section className="rounded-xl border bg-card">
       <div className="flex items-baseline gap-2 border-b p-3">
         <h2 className="text-sm font-semibold">Activity</h2>
-        <p className="text-xs text-muted-foreground">all apps</p>
+        <p className="text-xs text-muted-foreground">
+          {only ? "this group" : "all apps"}
+        </p>
       </div>
 
       {isPending ? (

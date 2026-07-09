@@ -78,6 +78,76 @@ export function useActivityFeed(apps: string[]) {
   });
 }
 
+export interface GroupAppRings {
+  app: string;
+  rings: RingView[] | undefined;
+  isPending: boolean;
+  error: Error | null;
+}
+
+/** Ring state for every app of a group (shares the per-app rings cache). */
+export function useGroupRings(apps: string[]): GroupAppRings[] {
+  const token = useAuthStore((s) => s.token);
+  const autoRefresh = usePrefsStore((s) => s.autoRefresh);
+  return useQueries({
+    queries: apps.map((app) => ({
+      queryKey: ["rings", app],
+      queryFn: () => api.rings(app),
+      enabled: !!token,
+      refetchInterval: autoRefresh ? RINGS_INTERVAL : (false as const),
+    })),
+    combine: (results) =>
+      results.map((r, i) => ({
+        app: apps[i],
+        rings: r.data?.rings,
+        isPending: r.isPending,
+        error: r.error,
+      })),
+  });
+}
+
+/**
+ * Which of the given apps currently have a seed/promote/rollback running.
+ * Polls only the apps with a tracked job; finished jobs drop out on their own.
+ */
+export function useDeployingApps(apps: string[]): Set<string> {
+  const token = useAuthStore((s) => s.token);
+  const active = useJobsStore((s) => s.active);
+  const clearActive = useJobsStore((s) => s.clearActive);
+  const tracked = apps.filter((a) => active[a]);
+  const results = useQueries({
+    queries: tracked.map((app) => ({
+      queryKey: ["job", app, active[app].jobId],
+      queryFn: () => api.job(app, active[app].jobId),
+      enabled: !!token,
+      // Stop polling once the job is terminal OR gone (a dead id would
+      // otherwise be re-fetched every 2s forever).
+      refetchInterval: (q: { state: { data?: Job; error: Error | null } }) =>
+        q.state.error || isTerminal(q.state.data) ? false : 2_000,
+      retry: false,
+    })),
+  });
+
+  // Untrack jobs the server no longer knows (restart / eviction) so stale
+  // localStorage entries don't linger.
+  useEffect(() => {
+    results.forEach((r, i) => {
+      if (r.error instanceof ApiError && r.error.status === 404) {
+        clearActive(tracked[i]);
+      }
+    });
+  });
+
+  // "Deploying" requires a CONFIRMED non-terminal job — an unresolved fetch
+  // must not flash apps blue on page load.
+  return new Set(
+    tracked.filter((_, i) => {
+      const job = results[i].data;
+      return !!job && !isTerminal(job);
+    }),
+  );
+}
+
 /**
  * Versions that exist in the app's source repository (github-deployed apps).
  * `supported: false` means the deployer can't enumerate them — free-form input.
@@ -157,12 +227,29 @@ export function useActiveJob(app: string | null) {
 
 // ---- mutations (async job flow) ----
 
+/** Whether prod deploys need a password, and which ring is "prod" (the last). */
+export function useProdProtection() {
+  const { data } = useApps();
+  return {
+    prodProtected: !!data?.prod_protected,
+    prodRing: data?.rings?.[data.rings.length - 1]?.name,
+  };
+}
+
 export function useSeedMutation(app: string | null) {
   const setActive = useJobsStore((s) => s.setActive);
   return useMutation({
-    mutationFn: ({ ring, version }: { ring: string; version: string }) => {
+    mutationFn: ({
+      ring,
+      version,
+      password,
+    }: {
+      ring: string;
+      version: string;
+      password?: string;
+    }) => {
       if (!app) throw new Error("no application selected");
-      return api.seed(app, ring, version);
+      return api.seed(app, ring, version, password);
     },
     onSuccess: ({ job_id }, { ring, version }) => {
       setActive(app!, { jobId: job_id, action: "seed" });
@@ -178,9 +265,15 @@ export function useSeedMutation(app: string | null) {
 export function usePromoteMutation(app: string | null) {
   const setActive = useJobsStore((s) => s.setActive);
   return useMutation({
-    mutationFn: ({ fromRing }: { fromRing: string }) => {
+    mutationFn: ({
+      fromRing,
+      password,
+    }: {
+      fromRing: string;
+      password?: string;
+    }) => {
       if (!app) throw new Error("no application selected");
-      return api.promote(app, fromRing);
+      return api.promote(app, fromRing, password);
     },
     onSuccess: ({ job_id }, { fromRing }) => {
       setActive(app!, { jobId: job_id, action: "promote" });
@@ -197,9 +290,17 @@ export function usePromoteMutation(app: string | null) {
 export function useAutoPromoteMutation(app: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ ring, enabled }: { ring: string; enabled: boolean }) => {
+    mutationFn: ({
+      ring,
+      enabled,
+      password,
+    }: {
+      ring: string;
+      enabled: boolean;
+      password?: string;
+    }) => {
       if (!app) throw new Error("no application selected");
-      return api.setAutoPromote(app, ring, enabled);
+      return api.setAutoPromote(app, ring, enabled, password);
     },
     onMutate: async ({ ring, enabled }) => {
       await queryClient.cancelQueries({ queryKey: ["rings", app] });

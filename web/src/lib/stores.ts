@@ -27,6 +27,8 @@ export const useAuthStore = create<AuthState>()(
 
 interface PrefsState {
   selectedApp: string | null;
+  /** When set, the group page is shown instead of the app dashboard. */
+  selectedGroup: string | null;
   favorites: string[];
   recents: string[];
   groups: AppGroup[];
@@ -34,6 +36,7 @@ interface PrefsState {
   autoRefresh: boolean;
 
   selectApp: (app: string) => void;
+  selectGroup: (id: string) => void;
   toggleFavorite: (app: string) => void;
   createGroup: (name: string, apps: string[]) => void;
   updateGroup: (id: string, name: string, apps: string[]) => void;
@@ -48,6 +51,7 @@ export const usePrefsStore = create<PrefsState>()(
   persist(
     (set) => ({
       selectedApp: null,
+      selectedGroup: null,
       favorites: [],
       recents: [],
       groups: [],
@@ -57,8 +61,11 @@ export const usePrefsStore = create<PrefsState>()(
       selectApp: (app) =>
         set((s) => ({
           selectedApp: app,
+          selectedGroup: null,
           recents: [app, ...s.recents.filter((a) => a !== app)].slice(0, 5),
         })),
+
+      selectGroup: (id) => set({ selectedGroup: id }),
 
       toggleFavorite: (app) =>
         set((s) => ({
@@ -81,7 +88,10 @@ export const usePrefsStore = create<PrefsState>()(
         })),
 
       deleteGroup: (id) =>
-        set((s) => ({ groups: s.groups.filter((g) => g.id !== id) })),
+        set((s) => ({
+          groups: s.groups.filter((g) => g.id !== id),
+          selectedGroup: s.selectedGroup === id ? null : s.selectedGroup,
+        })),
 
       toggleCollapsed: (key) =>
         set((s) => ({

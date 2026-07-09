@@ -32,6 +32,9 @@ import { cn } from "@/lib/utils";
 
 export function Topbar() {
   const selectedApp = usePrefsStore((s) => s.selectedApp);
+  const selectedGroup = usePrefsStore((s) => s.selectedGroup);
+  const groups = usePrefsStore((s) => s.groups);
+  const activeGroup = groups.find((g) => g.id === selectedGroup);
   const favorites = usePrefsStore((s) => s.favorites);
   const toggleFavorite = usePrefsStore((s) => s.toggleFavorite);
   const autoRefresh = usePrefsStore((s) => s.autoRefresh);
@@ -59,9 +62,9 @@ export function Topbar() {
 
       <div className="flex min-w-0 items-center gap-1.5">
         <h1 className="truncate text-sm font-semibold md:text-base">
-          {selectedApp ?? "Dashboard"}
+          {activeGroup?.name ?? selectedApp ?? "Dashboard"}
         </h1>
-        {selectedApp && (
+        {!activeGroup && selectedApp && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

@@ -77,17 +77,21 @@ export const api = {
     request<Job>(`${app(name)}/jobs/${encodeURIComponent(id)}`),
 
   // Mutations always use the async job flow so the UI can render live
-  // step-by-step progress; each returns the job id to poll.
-  seed: (name: string, ring: string, version: string) =>
+  // step-by-step progress; each returns the job id to poll. `password` is the
+  // production password, required by the server for prod-bound operations.
+  seed: (name: string, ring: string, version: string, password?: string) =>
     request<{ job_id: string }>(`${app(name)}/seed?async=1`, {
       method: "POST",
-      body: JSON.stringify({ ring, version }),
+      body: JSON.stringify({ ring, version, ...(password ? { password } : {}) }),
     }),
 
-  promote: (name: string, fromRing: string) =>
+  promote: (name: string, fromRing: string, password?: string) =>
     request<{ job_id: string }>(`${app(name)}/promote?async=1`, {
       method: "POST",
-      body: JSON.stringify({ from_ring: fromRing }),
+      body: JSON.stringify({
+        from_ring: fromRing,
+        ...(password ? { password } : {}),
+      }),
     }),
 
   rollback: (name: string, ring: string) =>
@@ -96,9 +100,17 @@ export const api = {
       body: JSON.stringify({ ring }),
     }),
 
-  setAutoPromote: (name: string, ring: string, enabled: boolean) =>
+  setAutoPromote: (
+    name: string,
+    ring: string,
+    enabled: boolean,
+    password?: string,
+  ) =>
     request<{ app: string; ring: string; auto_promote: boolean }>(
       `${app(name)}/rings/${encodeURIComponent(ring)}/auto-promote`,
-      { method: "PUT", body: JSON.stringify({ enabled }) },
+      {
+        method: "PUT",
+        body: JSON.stringify({ enabled, ...(password ? { password } : {}) }),
+      },
     ),
 };

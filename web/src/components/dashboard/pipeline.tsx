@@ -21,7 +21,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { VersionLabel } from "@/components/version-label";
-import { useActiveJob, useAutoPromoteMutation } from "@/lib/queries";
+import {
+  useActiveJob,
+  useAutoPromoteMutation,
+  useProdProtection,
+} from "@/lib/queries";
 import { useUiStore } from "@/lib/ui-store";
 import type { RingView } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -63,7 +67,7 @@ export function Pipeline({
               </div>
               <Button
                 size="sm"
-                onClick={() => setPendingAction({ type: "seed" })}
+                onClick={() => setPendingAction({ type: "seed", app })}
               >
                 <Download aria-hidden className="size-4" /> Seed a version
               </Button>
@@ -113,12 +117,23 @@ function RingCard({
 }) {
   const setPendingAction = useUiStore((s) => s.setPendingAction);
   const autoPromote = useAutoPromoteMutation(app);
+  const { prodProtected, prodRing } = useProdProtection();
   const health = ringHealth(view);
   const { ring } = view;
 
   // "When a version lands here healthy, continue to the next ring." Offered on
   // middle rings only: the first ring is fed by seeds, the last has no target.
   const showAutoPromote = view.configured && !!prev && !!next;
+
+  const toggleAutoPromote = (on: boolean) => {
+    // Turning on the hands-free path INTO production requires the production
+    // password — collected by a dedicated dialog. Everything else is direct.
+    if (on && prodProtected && next?.ring.name === prodRing) {
+      setPendingAction({ type: "autoPromote", app, ring: ring.name });
+      return;
+    }
+    autoPromote.mutate({ ring: ring.name, enabled: on });
+  };
 
   // The version waiting one ring below, ready to be promoted into this ring.
   const candidate =
@@ -145,6 +160,7 @@ function RingCard({
 
   return (
     <div
+      data-testid={`ring-card-${ring.name}`}
       className={cn(
         "flex min-w-0 flex-1 basis-0 flex-col gap-3 rounded-xl border bg-card p-4",
         health === "unhealthy" && "border-status-critical/40",
@@ -219,9 +235,7 @@ function RingCard({
             <label className="flex w-fit cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
               <Switch
                 checked={view.auto_promote}
-                onCheckedChange={(on) =>
-                  autoPromote.mutate({ ring: ring.name, enabled: on })
-                }
+                onCheckedChange={toggleAutoPromote}
                 aria-label={`Auto-promote ${ring.name}`}
                 className="scale-75"
               />
@@ -244,7 +258,7 @@ function RingCard({
               size="sm"
               disabled={busy}
               onClick={() =>
-                setPendingAction({ type: "seed", ring: ring.name })
+                setPendingAction({ type: "seed", app, ring: ring.name })
               }
             >
               <Download aria-hidden className="size-3.5" /> Seed
@@ -263,7 +277,7 @@ function RingCard({
                   size="sm"
                   disabled={busy || !view.can_promote_from}
                   onClick={() =>
-                    setPendingAction({ type: "promote", fromRing: ring.name })
+                    setPendingAction({ type: "promote", app, fromRing: ring.name })
                   }
                 >
                   <ArrowUpRight aria-hidden className="size-3.5" /> Promote
@@ -289,7 +303,7 @@ function RingCard({
                 disabled={busy}
                 className="text-status-critical hover:text-status-critical"
                 onClick={() =>
-                  setPendingAction({ type: "rollback", ring: ring.name })
+                  setPendingAction({ type: "rollback", app, ring: ring.name })
                 }
               >
                 <Undo2 aria-hidden className="size-3.5" /> Roll back

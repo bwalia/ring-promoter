@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CircleDot } from "lucide-react";
 import { CommandPalette } from "@/components/command-palette";
 import { Dashboard } from "@/components/dashboard/dashboard";
+import { GroupView } from "@/components/group-view";
 import { NoAppSelected } from "@/components/dashboard/no-app-selected";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { Sidebar } from "@/components/sidebar";
@@ -28,6 +29,12 @@ export function AppShell() {
   const token = useAuthStore((s) => s.token);
   const selectedApp = usePrefsStore((s) => s.selectedApp);
   const selectApp = usePrefsStore((s) => s.selectApp);
+  const selectGroup = usePrefsStore((s) => s.selectGroup);
+  const selectedGroup = usePrefsStore((s) => s.selectedGroup);
+  const groups = usePrefsStore((s) => s.groups);
+  const activeGroup = selectedGroup
+    ? groups.find((g) => g.id === selectedGroup)
+    : undefined;
   const { paletteOpen, setPaletteOpen, setShortcutsOpen } = useUiStore();
   const mobileNavOpen = useUiStore((s) => s.mobileNavOpen);
   const setMobileNavOpen = useUiStore((s) => s.setMobileNavOpen);
@@ -41,24 +48,33 @@ export function AppShell() {
     () => false,
   );
 
-  // Deep link: /?app=<name> selects that app on load; keep the URL in sync so
-  // the current view is always shareable.
+  // Deep link: /?app=<name> or /?group=<id> selects that view on load; keep
+  // the URL in sync so the current view is always shareable.
   useEffect(() => {
     if (!mounted) return;
-    const fromUrl = new URLSearchParams(window.location.search).get("app");
-    if (fromUrl && fromUrl !== usePrefsStore.getState().selectedApp) {
-      selectApp(fromUrl);
+    const params = new URLSearchParams(window.location.search);
+    const groupParam = params.get("group");
+    const appParam = params.get("app");
+    const state = usePrefsStore.getState();
+    if (groupParam && state.groups.some((g) => g.id === groupParam)) {
+      selectGroup(groupParam);
+    } else if (appParam) {
+      // Unconditionally: selectApp also clears a persisted selectedGroup, so
+      // an ?app= link always wins over whatever view was open last time.
+      selectApp(appParam);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
 
   useEffect(() => {
     if (!mounted) return;
-    const url = selectedApp
-      ? `?app=${encodeURIComponent(selectedApp)}`
-      : window.location.pathname;
+    const url = activeGroup
+      ? `?group=${encodeURIComponent(activeGroup.id)}`
+      : selectedApp
+        ? `?app=${encodeURIComponent(selectedApp)}`
+        : window.location.pathname;
     window.history.replaceState(null, "", url);
-  }, [mounted, selectedApp]);
+  }, [mounted, selectedApp, activeGroup]);
 
   // Global keyboard shortcuts.
   useEffect(() => {
@@ -112,7 +128,13 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
         <main className="flex-1 overflow-y-auto">
-          {selectedApp ? <Dashboard app={selectedApp} /> : <NoAppSelected />}
+          {activeGroup ? (
+            <GroupView key={activeGroup.id} group={activeGroup} />
+          ) : selectedApp ? (
+            <Dashboard app={selectedApp} />
+          ) : (
+            <NoAppSelected />
+          )}
         </main>
       </div>
 

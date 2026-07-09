@@ -135,7 +135,7 @@ function StepRow({ step }: { step: JobStep }) {
     override ?? (step.status === "running" || step.status === "failed");
   const setOpen = (o: boolean) => setOverride(o);
 
-  const hasLogs = step.logs.length > 0;
+  const hasLogs = (step.logs?.length ?? 0) > 0;
 
   return (
     <li>
@@ -162,7 +162,7 @@ function StepRow({ step }: { step: JobStep }) {
         {hasLogs && (
           <CollapsibleContent>
             <pre className="mx-4 mb-3 max-h-48 overflow-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">
-              {step.logs.join("\n")}
+              {(step.logs ?? []).join("\n")}
             </pre>
           </CollapsibleContent>
         )}

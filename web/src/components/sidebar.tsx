@@ -258,6 +258,8 @@ function GroupSection({
   const collapsed = usePrefsStore((s) => !!s.collapsed[`group:${group.id}`]);
   const toggleCollapsed = usePrefsStore((s) => s.toggleCollapsed);
   const deleteGroup = usePrefsStore((s) => s.deleteGroup);
+  const selectGroup = usePrefsStore((s) => s.selectGroup);
+  const active = usePrefsStore((s) => s.selectedGroup === group.id);
   const members = group.apps.filter(known).filter(filterMatch);
 
   return (
@@ -265,8 +267,18 @@ function GroupSection({
       open={!collapsed}
       onOpenChange={() => toggleCollapsed(`group:${group.id}`)}
     >
-      <div className="group/g flex items-center justify-between rounded-md pr-1 hover:bg-sidebar-accent">
-        <CollapsibleTrigger className="flex flex-1 items-center gap-1.5 px-2 py-1.5 text-sm">
+      <div
+        className={cn(
+          "group/g flex items-center justify-between rounded-md pr-1",
+          active
+            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+            : "hover:bg-sidebar-accent",
+        )}
+      >
+        <CollapsibleTrigger
+          className="py-1.5 pl-2 pr-0.5"
+          aria-label={`${collapsed ? "Expand" : "Collapse"} ${group.name}`}
+        >
           <ChevronRight
             aria-hidden
             className={cn(
@@ -274,11 +286,21 @@ function GroupSection({
               !collapsed && "rotate-90",
             )}
           />
+        </CollapsibleTrigger>
+        {/* The group name opens the group page (the chevron collapses). */}
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 text-left text-sm"
+          onClick={() => {
+            selectGroup(group.id);
+            onNavigate?.();
+          }}
+        >
           <span className="truncate">{group.name}</span>
           <span className="text-xs text-muted-foreground">
             {group.apps.length}
           </span>
-        </CollapsibleTrigger>
+        </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -316,12 +338,15 @@ function GroupSection({
 
 function AppRow({ app, onNavigate }: { app: string; onNavigate?: () => void }) {
   const selectedApp = usePrefsStore((s) => s.selectedApp);
+  const groupActive = usePrefsStore((s) => !!s.selectedGroup);
   const selectApp = usePrefsStore((s) => s.selectApp);
   const favorites = usePrefsStore((s) => s.favorites);
   const toggleFavorite = usePrefsStore((s) => s.toggleFavorite);
   const groups = usePrefsStore((s) => s.groups);
   const updateGroup = usePrefsStore((s) => s.updateGroup);
-  const active = selectedApp === app;
+  // A group page showing means no app row is the active view, even though
+  // selectedApp is retained behind the scenes.
+  const active = !groupActive && selectedApp === app;
   const favorite = favorites.includes(app);
 
   return (
