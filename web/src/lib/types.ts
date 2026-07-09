@@ -89,3 +89,14 @@ export interface AppGroup {
   name: string;
   apps: string[];
 }
+
+export interface AppVersion {
+  name: string;
+  type: "branch" | "tag";
+}
+
+export interface VersionsResponse {
+  /** false = the app's deployer can't enumerate versions (free-form input). */
+  supported: boolean;
+  versions: AppVersion[];
+}

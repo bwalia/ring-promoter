@@ -3,6 +3,7 @@ package deployer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -259,5 +260,81 @@ func TestGitHub_Deploy_ContextCancelled(t *testing.T) {
 	err := d.Deploy(ctx, Target{App: "wslproxy", Ring: "int", TargetEnv: "int"}, "v1")
 	if err == nil {
 		t.Fatal("expected an error when the context is cancelled mid-poll")
+	}
+}
+
+// ---- VersionSource ----
+
+// versionsGHServer serves the ref-listing and commit-resolution endpoints used
+// by ListVersions / ValidateVersion.
+func versionsGHServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/repos/o/r/branches", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "1" {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_, _ = w.Write([]byte(`[{"name":"main"},{"name":"release"}]`))
+	})
+	mux.HandleFunc("/repos/o/r/tags", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "1" {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_, _ = w.Write([]byte(`[{"name":"v1.2.3"}]`))
+	})
+	mux.HandleFunc("/repos/o/r/commits/", func(w http.ResponseWriter, r *http.Request) {
+		ref := strings.TrimPrefix(r.URL.Path, "/repos/o/r/commits/")
+		switch ref {
+		case "main", "release", "v1.2.3", "abc1234":
+			_, _ = w.Write([]byte(`{"sha":"abc1234def"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestGitHub_ListVersions_BranchesThenTags(t *testing.T) {
+	srv := versionsGHServer(t)
+	d := testGHDeployer(t, srv.URL)
+
+	got, err := d.ListVersions(context.Background())
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	want := []Version{
+		{Name: "main", Type: "branch"},
+		{Name: "release", Type: "branch"},
+		{Name: "v1.2.3", Type: "tag"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d versions, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("version[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestGitHub_ValidateVersion(t *testing.T) {
+	srv := versionsGHServer(t)
+	d := testGHDeployer(t, srv.URL)
+	ctx := context.Background()
+
+	for _, ok := range []string{"main", "v1.2.3", "abc1234"} {
+		if err := d.ValidateVersion(ctx, ok); err != nil {
+			t.Fatalf("ValidateVersion(%q): unexpected error %v", ok, err)
+		}
+	}
+	err := d.ValidateVersion(ctx, "does-not-exist")
+	if !errors.Is(err, ErrVersionNotFound) {
+		t.Fatalf("ValidateVersion(unknown) = %v, want ErrVersionNotFound", err)
 	}
 }

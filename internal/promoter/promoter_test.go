@@ -533,3 +533,72 @@ func TestPinnedRef_OverridesPromotedAndSeededVersion(t *testing.T) {
 		t.Fatalf("seed acc not pinned: res=%q live=%q", res2.Version, dep.version(key(testApp, "acc")))
 	}
 }
+
+// ---- version validation (deployer.VersionSource) ----
+
+// validatingDeployer wraps fakeDeployer with a fixed set of versions that
+// exist in the "source repository".
+type validatingDeployer struct {
+	*fakeDeployer
+	known map[string]bool
+}
+
+func (v *validatingDeployer) ListVersions(context.Context) ([]deployer.Version, error) {
+	out := make([]deployer.Version, 0, len(v.known))
+	for name := range v.known {
+		out = append(out, deployer.Version{Name: name, Type: "branch"})
+	}
+	return out, nil
+}
+
+func (v *validatingDeployer) ValidateVersion(_ context.Context, version string) error {
+	if v.known[version] {
+		return nil
+	}
+	return deployer.ErrVersionNotFound
+}
+
+func TestSeed_RejectsVersionMissingFromSource(t *testing.T) {
+	dep := &validatingDeployer{fakeDeployer: newFakeDeployer(), known: map[string]bool{"v1": true}}
+	st := store.NewMemory()
+	p := New(testConfig(0), st, nil, dep, newScriptedChecker(dep.fakeDeployer), nil)
+
+	_, err := p.Seed(context.Background(), testApp, "int", "does-not-exist")
+	if !errors.Is(err, ErrVersionNotFound) {
+		t.Fatalf("expected ErrVersionNotFound, got %v", err)
+	}
+	if dep.deployCount() != 0 {
+		t.Fatalf("nothing must be deployed for an unknown version, got %d deploys", dep.deployCount())
+	}
+	if _, err := st.GetRingState(context.Background(), testApp, "int"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("no state must be recorded for a rejected seed, got %v", err)
+	}
+
+	// A version that exists proceeds normally.
+	res, err := p.Seed(context.Background(), testApp, "int", "v1")
+	if err != nil || !res.Success {
+		t.Fatalf("seed of existing version: err=%v res=%+v", err, res)
+	}
+}
+
+func TestVersions_SupportedOnlyWithVersionSource(t *testing.T) {
+	// Plain deployer: not supported.
+	p, _, _, _ := newHarness(t, 0)
+	supported, _, err := p.Versions(context.Background(), testApp)
+	if err != nil || supported {
+		t.Fatalf("plain deployer: supported=%v err=%v, want false/nil", supported, err)
+	}
+
+	// VersionSource deployer: supported with the known list.
+	dep := &validatingDeployer{fakeDeployer: newFakeDeployer(), known: map[string]bool{"main": true}}
+	p2 := New(testConfig(0), store.NewMemory(), nil, dep, newScriptedChecker(dep.fakeDeployer), nil)
+	supported, versions, err := p2.Versions(context.Background(), testApp)
+	if err != nil || !supported || len(versions) != 1 || versions[0].Name != "main" {
+		t.Fatalf("version-source deployer: supported=%v versions=%+v err=%v", supported, versions, err)
+	}
+
+	// Unknown app.
+	if _, _, err := p2.Versions(context.Background(), "nope"); !errors.Is(err, ErrAppNotFound) {
+		t.Fatalf("unknown app: %v, want ErrAppNotFound", err)
+	}
+}

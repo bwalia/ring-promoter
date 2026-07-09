@@ -1,5 +1,11 @@
 import { useAuthStore } from "@/lib/stores";
-import type { AppsResponse, HistoryEntry, Job, RingView } from "@/lib/types";
+import type {
+  AppsResponse,
+  HistoryEntry,
+  Job,
+  RingView,
+  VersionsResponse,
+} from "@/lib/types";
 
 export class ApiError extends Error {
   status: number;
@@ -63,6 +69,9 @@ export const api = {
 
   history: (name: string) =>
     request<{ history: HistoryEntry[] }>(`${app(name)}/history`),
+
+  versions: (name: string) =>
+    request<VersionsResponse>(`${app(name)}/versions`),
 
   job: (name: string, id: string) =>
     request<Job>(`${app(name)}/jobs/${encodeURIComponent(id)}`),

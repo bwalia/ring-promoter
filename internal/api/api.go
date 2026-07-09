@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/example/ring-promoter/internal/deployer"
 	"github.com/example/ring-promoter/internal/promoter"
 	"github.com/example/ring-promoter/internal/ring"
 )
@@ -69,6 +70,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/apps", s.handleListApps)
 	api.HandleFunc("GET /api/apps/{app}/rings", s.handleRings)
 	api.HandleFunc("GET /api/apps/{app}/history", s.handleHistory)
+	api.HandleFunc("GET /api/apps/{app}/versions", s.handleVersions)
 	api.HandleFunc("GET /api/apps/{app}/jobs/{id}", s.handleGetJob)
 	api.HandleFunc("POST /api/apps/{app}/seed", s.handleSeed)
 	api.HandleFunc("POST /api/apps/{app}/promote", s.handlePromote)
@@ -160,6 +162,24 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"history": hist})
 }
 
+// handleVersions lists the versions that exist in the app's source repository
+// (branches/tags for github-deployed apps). supported=false tells the UI the
+// deployer cannot enumerate versions, so it falls back to free-form input.
+func (s *Server) handleVersions(w http.ResponseWriter, r *http.Request) {
+	supported, versions, err := s.prom.Versions(r.Context(), r.PathValue("app"))
+	if err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	if versions == nil {
+		versions = []deployer.Version{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"supported": supported,
+		"versions":  versions,
+	})
+}
+
 func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Ring    string `json:"ring"`
@@ -170,6 +190,13 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 	}
 	app := r.PathValue("app")
 	if wantsAsync(r) {
+		// Reject precondition failures (unknown ring, version missing from the
+		// source repo) on the request itself instead of spawning a doomed job —
+		// the UI keeps its dialog open and shows the reason.
+		if err := s.prom.ValidateSeed(r.Context(), app, body.Ring, body.Version); err != nil {
+			writeError(w, statusForErr(err), err)
+			return
+		}
 		job := s.jobs.run(r.Context(), s.opTimeout, app, "seed", func(ctx context.Context) (promoter.Result, error) {
 			return s.prom.Seed(ctx, app, body.Ring, body.Version)
 		})
@@ -259,7 +286,8 @@ func statusForErr(err error) int {
 	switch {
 	case errors.Is(err, promoter.ErrAppNotFound), errors.Is(err, promoter.ErrRingNotConfigured):
 		return http.StatusNotFound
-	case errors.Is(err, promoter.ErrNoNextRing), errors.Is(err, promoter.ErrEmptyVersion):
+	case errors.Is(err, promoter.ErrNoNextRing), errors.Is(err, promoter.ErrEmptyVersion),
+		errors.Is(err, promoter.ErrVersionNotFound):
 		return http.StatusBadRequest
 	case errors.Is(err, promoter.ErrNothingToPromote), errors.Is(err, promoter.ErrNothingToRollback):
 		return http.StatusConflict

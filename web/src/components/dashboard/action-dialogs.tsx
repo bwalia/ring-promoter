@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronsUpDown,
+  GitBranch,
+  Hash,
+  Loader2,
+  Tag,
+} from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,8 +29,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -30,13 +51,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   usePromoteMutation,
   useRollbackMutation,
   useSeedMutation,
+  useVersions,
 } from "@/lib/queries";
 import { useUiStore } from "@/lib/ui-store";
-import type { RingView } from "@/lib/types";
+import type { AppVersion, RingView } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 /**
  * The seed / promote / rollback dialogs for the selected app. All are driven
@@ -98,6 +122,7 @@ function SeedDialog({
   );
   const [version, setVersion] = useState("");
   const seed = useSeedMutation(app);
+  const versionsQuery = useVersions(app);
 
   const target = configured.find((r) => r.ring.name === ring);
   const replaces = target?.current_version;
@@ -141,14 +166,30 @@ function SeedDialog({
 
           <div className="space-y-2">
             <Label htmlFor="seed-version">Version</Label>
-            <Input
-              id="seed-version"
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              placeholder="e.g. 1.4.2 or a commit SHA"
-              autoComplete="off"
-              className="font-mono"
-            />
+            {versionsQuery.isPending ? (
+              <Skeleton className="h-9 w-full" />
+            ) : versionsQuery.data?.supported ? (
+              <>
+                <VersionPicker
+                  versions={versionsQuery.data.versions}
+                  value={version}
+                  onChange={setVersion}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Only branches, tags or commit SHAs that exist in the app’s
+                  source repository can be seeded.
+                </p>
+              </>
+            ) : (
+              <Input
+                id="seed-version"
+                value={version}
+                onChange={(e) => setVersion(e.target.value)}
+                placeholder="e.g. 1.4.2 or a commit SHA"
+                autoComplete="off"
+                className="font-mono"
+              />
+            )}
           </div>
 
           {replaces && (
@@ -182,6 +223,111 @@ function SeedDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Searchable picker over the branches/tags that actually exist in the app's
+ * source repository. Anything typed that isn't in the list can still be used
+ * as a commit SHA — the server verifies it against the repo before deploying.
+ */
+function VersionPicker({
+  versions,
+  value,
+  onChange,
+}: {
+  versions: AppVersion[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const branches = versions.filter((v) => v.type === "branch");
+  const tags = versions.filter((v) => v.type === "tag");
+  const query = search.trim();
+  const exactMatch = versions.some((v) => v.name === query);
+
+  const pick = (name: string) => {
+    onChange(name);
+    setOpen(false);
+    setSearch("");
+  };
+
+  const item = (v: AppVersion) => (
+    <CommandItem key={`${v.type}-${v.name}`} value={v.name} onSelect={pick}>
+      {v.type === "branch" ? (
+        <GitBranch aria-hidden className="size-4" />
+      ) : (
+        <Tag aria-hidden className="size-4" />
+      )}
+      <span className="truncate font-mono text-xs">{v.name}</span>
+      <Check
+        aria-hidden
+        className={cn(
+          "ml-auto size-4",
+          value === v.name ? "opacity-100" : "opacity-0",
+        )}
+      />
+    </CommandItem>
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          id="seed-version"
+          className="w-full justify-between font-normal"
+        >
+          {value ? (
+            <span className="truncate font-mono">{value}</span>
+          ) : (
+            <span className="text-muted-foreground">
+              Select a branch, tag or SHA…
+            </span>
+          )}
+          <ChevronsUpDown aria-hidden className="size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] p-0"
+        align="start"
+      >
+        <Command>
+          <CommandInput
+            placeholder="Search, or paste a commit SHA…"
+            value={search}
+            onValueChange={setSearch}
+          />
+          <CommandList>
+            <CommandEmpty>No matching branch or tag.</CommandEmpty>
+            {branches.length > 0 && (
+              <CommandGroup heading="Branches">
+                {branches.map(item)}
+              </CommandGroup>
+            )}
+            {tags.length > 0 && (
+              <CommandGroup heading="Tags">{tags.map(item)}</CommandGroup>
+            )}
+            {query && !exactMatch && (
+              <CommandGroup heading="Commit SHA">
+                <CommandItem value={query} onSelect={() => pick(query)}>
+                  <Hash aria-hidden className="size-4" />
+                  <span className="truncate font-mono text-xs">{query}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    verified on submit
+                  </span>
+                </CommandItem>
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 

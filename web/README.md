@@ -50,6 +50,11 @@ result — the Go binary embeds whatever is in that directory at build time.
 - **Auth.** The API token is entered once (validated against `GET /api/apps`),
   kept in localStorage and attached as a `Bearer` header. Any 401 signs out
   back to the token gate.
+- **Version picker.** For apps whose deployer can enumerate versions (the
+  `github` deployer: repo branches + tags via `GET .../versions`), the Seed
+  dialog is a searchable picker — only versions that exist in the source
+  repository can be chosen; a pasted commit SHA is verified by the server on
+  submit. Other apps keep free-form input.
 - **Persisted preferences** (localStorage): token, theme, selected app,
   favorites, recents, custom app groups, collapsed sidebar sections,
   auto-refresh on/off, and the running-job reference per app (so a mid-deploy

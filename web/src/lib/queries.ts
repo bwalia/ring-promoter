@@ -78,6 +78,20 @@ export function useActivityFeed(apps: string[]) {
   });
 }
 
+/**
+ * Versions that exist in the app's source repository (github-deployed apps).
+ * `supported: false` means the deployer can't enumerate them — free-form input.
+ */
+export function useVersions(app: string | null) {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["versions", app],
+    queryFn: () => api.versions(app!),
+    enabled: !!token && !!app,
+    staleTime: 60_000,
+  });
+}
+
 function isTerminal(job: Job | undefined): boolean {
   return job?.status === "success" || job?.status === "failed";
 }

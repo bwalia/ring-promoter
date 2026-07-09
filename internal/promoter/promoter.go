@@ -34,6 +34,10 @@ var (
 	ErrEmptyVersion      = errors.New("version must not be empty")
 	ErrNothingToPromote  = errors.New("source ring has no version to promote")
 	ErrNothingToRollback = errors.New("ring has no previous version to roll back to")
+	// ErrVersionNotFound rejects a seed whose version does not exist in the
+	// application's source repository (only checked for deployers that can
+	// verify it — see deployer.VersionSource).
+	ErrVersionNotFound = deployer.ErrVersionNotFound
 )
 
 // Result describes the outcome of a seed / promote / rollback operation.
@@ -171,6 +175,54 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 	return views, nil
 }
 
+// Versions returns the deployable versions known to the application's source
+// repository. supported is false when the app's deployer cannot enumerate
+// versions (the UI then falls back to free-form input).
+func (p *Promoter) Versions(ctx context.Context, app string) (supported bool, versions []deployer.Version, err error) {
+	if _, ok := p.cfg.App(app); !ok {
+		return false, nil, ErrAppNotFound
+	}
+	vs, ok := p.deployerFor(app).(deployer.VersionSource)
+	if !ok {
+		return false, nil, nil
+	}
+	versions, err = vs.ListVersions(ctx)
+	return true, versions, err
+}
+
+// ValidateSeed checks a seed's preconditions without performing it: the ring
+// must be configured and the effective (possibly ring-pinned) version must
+// exist in the source repository when the deployer can verify that. The API
+// layer calls it before accepting an async seed so a bad version is rejected
+// with a 4xx instead of spawning a doomed job.
+func (p *Promoter) ValidateSeed(ctx context.Context, app, ringName, version string) error {
+	if version == "" {
+		return ErrEmptyVersion
+	}
+	rc, err := p.ringConfig(app, ringName)
+	if err != nil {
+		return err
+	}
+	return p.validateVersion(ctx, app, deployVersion(rc, version))
+}
+
+// validateVersion rejects a version that does not exist in the app's source
+// repository — before anything is dispatched or recorded. Apps whose deployer
+// cannot verify versions (no deployer.VersionSource) always pass.
+func (p *Promoter) validateVersion(ctx context.Context, app, version string) error {
+	vs, ok := p.deployerFor(app).(deployer.VersionSource)
+	if !ok {
+		return nil
+	}
+	if verr := vs.ValidateVersion(ctx, version); verr != nil {
+		if errors.Is(verr, deployer.ErrVersionNotFound) {
+			return verr
+		}
+		return fmt.Errorf("verify version %q: %w", version, verr)
+	}
+	return nil
+}
+
 // Seed sets an initial version for one ring, deploys it and health-checks it.
 // It does not roll back on failure (there is no baseline to return to).
 func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Result, error) {
@@ -184,6 +236,12 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 	// A ring may pin a deploy ref (e.g. acc -> release); if so it deploys and
 	// records that ref regardless of the requested version.
 	version = deployVersion(rc, version)
+
+	// Checked on the effective (pinned) version, since that is what deploys.
+	if err := p.validateVersion(ctx, app, version); err != nil {
+		return Result{}, err
+	}
+
 	unlock, err := p.store.Lock(ctx, "app:"+app)
 	if err != nil {
 		return Result{}, fmt.Errorf("lock application: %w", err)

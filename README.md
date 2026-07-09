@@ -183,6 +183,7 @@ are unauthenticated.
 | `GET  /api/apps`                 | –                     | List apps and the ring pipeline.          |
 | `GET  /api/apps/{app}/rings`     | –                     | Per-ring state + live version & health.   |
 | `GET  /api/apps/{app}/history`   | –                     | History, newest first.                    |
+| `GET  /api/apps/{app}/versions`  | –                     | Versions in the app's source repo (github deployer: branches + tags; `supported:false` otherwise). |
 | `GET  /api/apps/{app}/jobs/{id}` | –                     | Live job status (steps, logs, result).    |
 | `POST /api/apps/{app}/seed`      | `{"ring","version"}`  | Set an initial version for a ring.        |
 | `POST /api/apps/{app}/promote`   | `{"from_ring"}`       | Promote to the next ring.                 |
@@ -199,8 +200,15 @@ web UI uses the async path to render its live deployment view.
 succeeded (deployed and healthy), **422** when it ran but failed (e.g. health
 check failed and the target was rolled back — details in the JSON body), and
 **4xx** for precondition errors: `404` (unknown app/ring), `400` (empty version
-/ promoting past the last ring), `409` (nothing to promote/roll back), `401`
+/ promoting past the last ring / seeding a version that does not exist in the
+app's source repository), `409` (nothing to promote/roll back), `401`
 (bad token). This lets CI treat a non-2xx response as "promotion failed".
+
+**Version validation.** For apps using the `github` deployer, `seed` verifies
+the requested version (branch, tag or commit SHA) actually resolves in the
+app's repository before dispatching anything — a typo'd ref is rejected with
+`400` instead of triggering a doomed workflow run. The web UI's Seed dialog
+uses `GET .../versions` to offer only real branches and tags.
 
 Every mutating call returns a `Result` object:
 
