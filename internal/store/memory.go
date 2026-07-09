@@ -12,6 +12,7 @@ type Memory struct {
 	mu      sync.RWMutex
 	states  map[string]RingState // key: app + "\x00" + ring
 	history []HistoryEntry
+	groups  map[string]Group
 	nextID  int64
 	now     func() time.Time
 
@@ -23,6 +24,7 @@ type Memory struct {
 func NewMemory() *Memory {
 	return &Memory{
 		states: make(map[string]RingState),
+		groups: make(map[string]Group),
 		nextID: 1,
 		now:    time.Now,
 		locks:  make(map[string]*sync.Mutex),
@@ -109,6 +111,58 @@ func (m *Memory) ListHistory(_ context.Context, app string) ([]HistoryEntry, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 	return out, nil
+}
+
+// ListGroups implements Store, ordered by name (then ID for stability).
+func (m *Memory) ListGroups(_ context.Context) ([]Group, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]Group, 0, len(m.groups))
+	for _, g := range m.groups {
+		g.Apps = append([]string(nil), g.Apps...)
+		out = append(out, g)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// CreateGroup implements Store.
+func (m *Memory) CreateGroup(_ context.Context, g Group) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	g.Apps = append([]string(nil), g.Apps...)
+	g.UpdatedAt = m.now().UTC()
+	m.groups[g.ID] = g
+	return nil
+}
+
+// UpdateGroup implements Store.
+func (m *Memory) UpdateGroup(_ context.Context, g Group) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.groups[g.ID]; !ok {
+		return ErrNotFound
+	}
+	g.Apps = append([]string(nil), g.Apps...)
+	g.UpdatedAt = m.now().UTC()
+	m.groups[g.ID] = g
+	return nil
+}
+
+// DeleteGroup implements Store.
+func (m *Memory) DeleteGroup(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.groups[id]; !ok {
+		return ErrNotFound
+	}
+	delete(m.groups, id)
+	return nil
 }
 
 // Close implements Store.

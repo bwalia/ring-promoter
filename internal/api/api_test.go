@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,5 +106,60 @@ func TestProdPassword_DisabledWhenUnset(t *testing.T) {
 	doJSON(t, h, "POST", "/api/apps/web/seed", `{"ring":"acc","version":"v1"}`)
 	if rec := doJSON(t, h, "POST", "/api/apps/web/promote", `{"from_ring":"acc"}`); rec.Code != http.StatusOK {
 		t.Fatalf("no password configured: expected 200, got %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestGroups_CRUDAndValidation(t *testing.T) {
+	h := newTestServer(t, "")
+
+	// Empty at first.
+	if rec := doJSON(t, h, "GET", "/api/groups", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"groups":[]`) {
+		t.Fatalf("initial list: %d %s", rec.Code, rec.Body)
+	}
+
+	// Create (with a duplicate member that must be deduplicated).
+	rec := doJSON(t, h, "POST", "/api/groups", `{"name":" Core ","apps":["web","web"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	var created struct {
+		ID   string   `json:"id"`
+		Name string   `json:"name"`
+		Apps []string `json:"apps"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	if created.ID == "" || created.Name != "Core" || len(created.Apps) != 1 {
+		t.Fatalf("bad created group: %+v", created)
+	}
+
+	// Validation: empty name, unknown app.
+	if rec := doJSON(t, h, "POST", "/api/groups", `{"name":"  ","apps":[]}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty name: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "POST", "/api/groups", `{"name":"x","apps":["nope"]}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown app: %d %s", rec.Code, rec.Body)
+	}
+
+	// Update.
+	if rec := doJSON(t, h, "PUT", "/api/groups/"+created.ID, `{"name":"Platform","apps":["web"]}`); rec.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "PUT", "/api/groups/missing", `{"name":"x","apps":[]}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("update missing: %d %s", rec.Code, rec.Body)
+	}
+
+	// List reflects the update and is shared state (no cookies/session involved).
+	if rec := doJSON(t, h, "GET", "/api/groups", ""); !strings.Contains(rec.Body.String(), "Platform") {
+		t.Fatalf("list after update: %s", rec.Body)
+	}
+
+	// Delete.
+	if rec := doJSON(t, h, "DELETE", "/api/groups/"+created.ID, ""); rec.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "DELETE", "/api/groups/"+created.ID, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("delete twice: %d %s", rec.Code, rec.Body)
 	}
 }

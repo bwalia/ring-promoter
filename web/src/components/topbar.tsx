@@ -26,6 +26,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useGroups } from "@/lib/queries";
 import { useAuthStore, usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
 import { cn } from "@/lib/utils";
@@ -33,7 +34,7 @@ import { cn } from "@/lib/utils";
 export function Topbar() {
   const selectedApp = usePrefsStore((s) => s.selectedApp);
   const selectedGroup = usePrefsStore((s) => s.selectedGroup);
-  const groups = usePrefsStore((s) => s.groups);
+  const groups = useGroups().data ?? [];
   const activeGroup = groups.find((g) => g.id === selectedGroup);
   const favorites = usePrefsStore((s) => s.favorites);
   const toggleFavorite = usePrefsStore((s) => s.toggleFavorite);

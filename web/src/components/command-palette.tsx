@@ -28,7 +28,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { useApps, useRings } from "@/lib/queries";
+import { useApps, useGroups, useRings } from "@/lib/queries";
 import { useAuthStore, usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
 import type { RingView } from "@/lib/types";
@@ -47,7 +47,7 @@ export function CommandPalette({
   const selectApp = usePrefsStore((s) => s.selectApp);
   const selectGroup = usePrefsStore((s) => s.selectGroup);
   const selectedGroup = usePrefsStore((s) => s.selectedGroup);
-  const groups = usePrefsStore((s) => s.groups);
+  const groups = useGroups().data ?? [];
   const favorites = usePrefsStore((s) => s.favorites);
   const autoRefresh = usePrefsStore((s) => s.autoRefresh);
   const setAutoRefresh = usePrefsStore((s) => s.setAutoRefresh);

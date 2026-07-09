@@ -31,21 +31,22 @@ interface PrefsState {
   selectedGroup: string | null;
   favorites: string[];
   recents: string[];
+  /**
+   * LEGACY: groups now live on the server (see lib/queries.ts useGroups).
+   * This field only holds groups created by older builds until the one-time
+   * migration in AppShell pushes them to the server and clears it.
+   */
   groups: AppGroup[];
   collapsed: Record<string, boolean>;
   autoRefresh: boolean;
 
   selectApp: (app: string) => void;
-  selectGroup: (id: string) => void;
+  selectGroup: (id: string | null) => void;
   toggleFavorite: (app: string) => void;
-  createGroup: (name: string, apps: string[]) => void;
-  updateGroup: (id: string, name: string, apps: string[]) => void;
-  deleteGroup: (id: string) => void;
+  clearGroups: () => void;
   toggleCollapsed: (key: string) => void;
   setAutoRefresh: (on: boolean) => void;
 }
-
-let groupSeq = 0;
 
 export const usePrefsStore = create<PrefsState>()(
   persist(
@@ -74,24 +75,7 @@ export const usePrefsStore = create<PrefsState>()(
             : [...s.favorites, app],
         })),
 
-      createGroup: (name, apps) =>
-        set((s) => ({
-          groups: [
-            ...s.groups,
-            { id: `g-${Date.now()}-${groupSeq++}`, name, apps },
-          ],
-        })),
-
-      updateGroup: (id, name, apps) =>
-        set((s) => ({
-          groups: s.groups.map((g) => (g.id === id ? { ...g, name, apps } : g)),
-        })),
-
-      deleteGroup: (id) =>
-        set((s) => ({
-          groups: s.groups.filter((g) => g.id !== id),
-          selectedGroup: s.selectedGroup === id ? null : s.selectedGroup,
-        })),
+      clearGroups: () => set({ groups: [] }),
 
       toggleCollapsed: (key) =>
         set((s) => ({
