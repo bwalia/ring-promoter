@@ -8,8 +8,14 @@ RUN go mod download
 COPY . .
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
+# Build metadata, surfaced by the app on /version and in the UI footer.
+ARG VERSION=dev
+ARG GIT_COMMIT=none
+ARG BUILD_TIME=unknown
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/ringpromoter ./cmd/ringpromoter
+    go build -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${GIT_COMMIT} -X main.buildTime=${BUILD_TIME}" \
+      -o /out/ringpromoter ./cmd/ringpromoter
 
 # ---- fetch kubectl for the KubectlDeployer ----
 FROM build AS kubectl

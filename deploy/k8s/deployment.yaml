@@ -31,11 +31,18 @@ spec:
       serviceAccountName: ring-promoter
       securityContext:
         runAsNonRoot: true
+        # The distroless :nonroot image's user is the NAME "nonroot"; Kubernetes
+        # cannot verify a non-numeric user against runAsNonRoot, so pin the
+        # distroless nonroot UID/GID (65532) numerically or the container fails
+        # to start with CreateContainerConfigError.
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: ring-promoter
-          image: registry.example.com/ring-promoter:latest
+          image: docker.io/bwalia/ring-promoter:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

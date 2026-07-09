@@ -23,17 +23,6 @@ data:
       delay: 5s
     operation_timeout: 30m
     apps:
-      - name: web-frontend
-        rings:
-          int:  { namespace: int,  deployment: web-frontend, container: web, image: registry.example.com/web-frontend, health_url: "http://web-frontend.int.svc.cluster.local/health" }
-          test: { namespace: test, deployment: web-frontend, container: web, image: registry.example.com/web-frontend, health_url: "http://web-frontend.test.svc.cluster.local/health" }
-          acc:  { namespace: acc,  deployment: web-frontend, container: web, image: registry.example.com/web-frontend, health_url: "http://web-frontend.acc.svc.cluster.local/health" }
-          prod: { namespace: prod, deployment: web-frontend, container: web, image: registry.example.com/web-frontend, health_url: "http://web-frontend.prod.svc.cluster.local/health" }
-      - name: orders-api
-        rings:
-          int:  { namespace: int,  deployment: orders-api, container: api, image: registry.example.com/orders-api, health_url: "http://orders-api.int.svc.cluster.local/health" }
-          test: { namespace: test, deployment: orders-api, container: api, image: registry.example.com/orders-api, health_url: "http://orders-api.test.svc.cluster.local/health" }
-
       # wslproxy — OpenResty/Lua app on VMs, deployed via its own GitHub Actions
       # per-environment workflow (deploy-single-environment.yml). Rings are the
       # real pipeline Integration -> Test -> Acceptance -> Production; target_env
@@ -55,6 +44,30 @@ data:
           int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
           test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
           acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }   # pop0
-          # production = pop1 (18.133.126.242). Public health hostname pending;
-          # using the IP endpoint the workflow itself checks in the interim.
-          prod: { target_env: prod, health_url: "http://18.133.126.242:7691/healthz" }         # pop1
+          # production = pop1. Public health endpoint on the wslproxy edge.
+          prod: { target_env: prod, health_url: "https://pop1.diytaxreturn.co.uk/healthz" }     # pop1
+
+      # diytaxreturn — Next.js + FastAPI/Lapis app on k3s (k3s0), deployed via its
+      # own GitHub Actions single-env workflow (deploy-single-environment.yml).
+      # Three environments only: int -> test -> acc (no prod ring configured).
+      # STRATEGY: acceptance is deployed ONLY from the `release` branch. The acc
+      # ring pins `ref: release`, so seed/promote to acc always deploys (and
+      # records) release — "Promote -> acc" ships release while int/test carry
+      # main. The workflow's guard job enforces the same rule as defence in depth.
+      # Health = FastAPI /fastapi/health per env. Token from RP_GITHUB_TOKEN.
+      - name: diytaxreturn
+        deployer: github
+        github:
+          owner: bwalia
+          repo: diy-tax-return-uk
+          workflow: deploy-single-environment.yml
+          ref: main            # branch hosting the workflow file (DEPLOY_BRANCH carries the version)
+          deploy_mode: full
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 120s
+        rings:                 # target_env -> workflow ENV input
+          int:  { target_env: int,  health_url: "https://int-api.diytaxreturn.co.uk/fastapi/health" }
+          test: { target_env: test, health_url: "https://test-api.diytaxreturn.co.uk/fastapi/health" }
+          acc:  { target_env: acc,  ref: release, health_url: "https://acc-api.diytaxreturn.co.uk/fastapi/health" }
+          # No prod ring: this app has three environments (int/test/acc) only.

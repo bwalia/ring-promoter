@@ -104,7 +104,8 @@ internal/
   api/                   REST handlers, bearer-token auth, request logging
   web/                   embedded UI assets (built from web/, see below)
 web/                     Next.js + TypeScript frontend (source of the UI)
-deploy/k8s/              Namespace, RBAC, ConfigMap, Secret, Deployment, Service, Ingress
+deploy/k8s/              Namespace, RBAC, ConfigMap, Secret, Deployment, Service
+kubernetes/ingress/      public Ingress (wslproxy) for ring-promoter.diytaxreturn.co.uk
 Dockerfile               small multi-stage image (distroless + kubectl)
 config.yaml              local-development config (2 sample apps)
 ```
@@ -283,7 +284,7 @@ apps:
       int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
       test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
       acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }  # pop0
-      prod: { target_env: prod, health_url: "http://18.133.126.242:7691/healthz" }        # pop1
+      prod: { target_env: prod, health_url: "https://pop1.diytaxreturn.co.uk/healthz" }   # pop1
 ```
 
 How it maps onto Ring Promoter:
@@ -387,10 +388,11 @@ where it applies.
    kubectl apply -f deploy/k8s/configmap.yaml
    kubectl apply -f deploy/k8s/deployment.yaml
    kubectl apply -f deploy/k8s/service.yaml
-   kubectl apply -f deploy/k8s/ingress.yaml   # optional (Traefik)
+   kubectl apply -f kubernetes/ingress/ring-promoter.yaml   # public host via the wslproxy ingress
    ```
 
-5. **Reach it**: via the Ingress host (`ring-promoter.local`) or a port-forward:
+5. **Reach it**: via the Ingress host (`http://ring-promoter.diytaxreturn.co.uk`)
+   or a port-forward:
 
    ```bash
    kubectl -n ring-system port-forward svc/ring-promoter 8080:80
