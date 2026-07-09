@@ -8,9 +8,14 @@ CREATE TABLE IF NOT EXISTS ring_state (
     current_version  TEXT        NOT NULL DEFAULT '',
     previous_version TEXT        NOT NULL DEFAULT '',
     healthy          BOOLEAN     NOT NULL DEFAULT FALSE,
+    -- Setting: promote onward automatically when a version lands here healthy.
+    auto_promote     BOOLEAN     NOT NULL DEFAULT FALSE,
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (app, ring)
 );
+
+-- Upgrade pre-existing databases created before auto_promote (idempotent).
+ALTER TABLE ring_state ADD COLUMN IF NOT EXISTS auto_promote BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Append-only record of every seed / promote / rollback.
 CREATE TABLE IF NOT EXISTS history (

@@ -54,11 +54,11 @@ func (p *Postgres) migrate(ctx context.Context) error {
 // GetRingState implements Store.
 func (p *Postgres) GetRingState(ctx context.Context, app, ring string) (RingState, error) {
 	const q = `
-		SELECT app, ring, current_version, previous_version, healthy, updated_at
+		SELECT app, ring, current_version, previous_version, healthy, auto_promote, updated_at
 		FROM ring_state WHERE app = $1 AND ring = $2`
 	var s RingState
 	err := p.db.QueryRowContext(ctx, q, app, ring).Scan(
-		&s.App, &s.Ring, &s.CurrentVersion, &s.PreviousVersion, &s.Healthy, &s.UpdatedAt)
+		&s.App, &s.Ring, &s.CurrentVersion, &s.PreviousVersion, &s.Healthy, &s.AutoPromote, &s.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RingState{}, ErrNotFound
 	}
@@ -68,7 +68,8 @@ func (p *Postgres) GetRingState(ctx context.Context, app, ring string) (RingStat
 	return s, nil
 }
 
-// UpsertRingState implements Store.
+// UpsertRingState implements Store. The auto_promote column is deliberately
+// not touched — it is a setting, changed only via SetAutoPromote.
 func (p *Postgres) UpsertRingState(ctx context.Context, s RingState) error {
 	const q = `
 		INSERT INTO ring_state (app, ring, current_version, previous_version, healthy, updated_at)
@@ -80,6 +81,18 @@ func (p *Postgres) UpsertRingState(ctx context.Context, s RingState) error {
 			updated_at       = now()`
 	if _, err := p.db.ExecContext(ctx, q, s.App, s.Ring, s.CurrentVersion, s.PreviousVersion, s.Healthy); err != nil {
 		return fmt.Errorf("upsert ring state: %w", err)
+	}
+	return nil
+}
+
+// SetAutoPromote implements Store.
+func (p *Postgres) SetAutoPromote(ctx context.Context, app, ring string, enabled bool) error {
+	const q = `
+		INSERT INTO ring_state (app, ring, auto_promote)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (app, ring) DO UPDATE SET auto_promote = EXCLUDED.auto_promote`
+	if _, err := p.db.ExecContext(ctx, q, app, ring, enabled); err != nil {
+		return fmt.Errorf("set auto promote: %w", err)
 	}
 	return nil
 }

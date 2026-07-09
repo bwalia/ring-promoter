@@ -48,6 +48,13 @@ in **configuration**, not code.
 - If the target is still unhealthy after all retries, it is **automatically
   rolled back** to its previous version.
 - Every **seed / promote / rollback** is written to history, success or failure.
+- **Auto-promote (optional, per ring).** A ring can be flagged so that a
+  version landing there healthy is promoted onward automatically — the chain
+  runs inside the same operation and lock, hop by hop, and stops at the first
+  ring whose flag is off (or on any failure, with the usual auto-rollback).
+  The flag is stored per (app, ring) and toggled from the UI's ring cards or
+  via the API. Typical use: enable it on `test` so `int → test` carries on to
+  `acc`, but leave `acc` off so nothing reaches `prod` without a human.
 
 ### Clean, swappable interfaces
 
@@ -188,6 +195,7 @@ are unauthenticated.
 | `POST /api/apps/{app}/seed`      | `{"ring","version"}`  | Set an initial version for a ring.        |
 | `POST /api/apps/{app}/promote`   | `{"from_ring"}`       | Promote to the next ring.                 |
 | `POST /api/apps/{app}/rollback`  | `{"ring"}`            | Roll a ring back to its previous version. |
+| `PUT  /api/apps/{app}/rings/{ring}/auto-promote` | `{"enabled"}` | Toggle auto-promote for a ring (see below). |
 
 **Sync vs async.** `seed`/`promote`/`rollback` run **synchronously** by default and
 return the final `Result` (200 success / 422 ran-but-failed) — ideal for CI

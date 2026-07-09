@@ -75,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/apps/{app}/seed", s.handleSeed)
 	api.HandleFunc("POST /api/apps/{app}/promote", s.handlePromote)
 	api.HandleFunc("POST /api/apps/{app}/rollback", s.handleRollback)
+	api.HandleFunc("PUT /api/apps/{app}/rings/{ring}/auto-promote", s.handleAutoPromote)
 	mux.Handle("/api/", s.authenticate(api))
 
 	// Web UI (single-page app) — served at the root.
@@ -249,6 +250,26 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	res, err := s.prom.Rollback(ctx, app, body.Ring)
 	writeResult(w, res, err)
+}
+
+// handleAutoPromote flips a ring's auto-promote setting: when a version lands
+// healthy in that ring, it is promoted onward automatically (the chain runs
+// inside the seed/promote operation itself).
+func (s *Server) handleAutoPromote(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	app, ringName := r.PathValue("app"), r.PathValue("ring")
+	if err := s.prom.SetAutoPromote(r.Context(), app, ringName, body.Enabled); err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"app": app, "ring": ringName, "auto_promote": body.Enabled,
+	})
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {

@@ -44,7 +44,7 @@ export function JobProgress({ app }: { app: string }) {
   return (
     <section
       className={cn(
-        "overflow-hidden rounded-xl border bg-card shadow-xs",
+        "overflow-hidden rounded-xl border bg-card",
         job.status === "failed" && "border-status-critical/50",
         job.status === "success" && "border-status-good/50",
       )}

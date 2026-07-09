@@ -8,21 +8,20 @@ import {
   Clock,
   Download,
   History,
-  Radar,
   Undo2,
 } from "lucide-react";
 import { RelativeTime } from "@/components/relative-time";
 import { HealthBadge, ringHealth } from "@/components/status";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { VersionLabel } from "@/components/version-label";
-import { useActiveJob } from "@/lib/queries";
+import { useActiveJob, useAutoPromoteMutation } from "@/lib/queries";
 import { useUiStore } from "@/lib/ui-store";
 import type { RingView } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -44,18 +43,7 @@ export function Pipeline({
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <Radar aria-hidden className="size-4 text-muted-foreground" />
-          Promotion pipeline
-        </h2>
-        {rings && (
-          <span className="text-xs text-muted-foreground">
-            {rings.map((r) => r.ring.name).join(" → ")} · one ring at a time,
-            never skipped
-          </span>
-        )}
-      </div>
+      <h2 className="text-sm font-semibold">Promotion pipeline</h2>
 
       {isPending || !rings ? (
         <div className="flex flex-col gap-2 xl:flex-row">
@@ -86,6 +74,7 @@ export function Pipeline({
             {rings.map((view, i) => (
               <Fragment key={view.ring.name}>
                 <RingCard
+                  app={app}
                   view={view}
                   prev={i > 0 ? rings[i - 1] : undefined}
                   next={i < rings.length - 1 ? rings[i + 1] : undefined}
@@ -110,19 +99,26 @@ export function Pipeline({
 }
 
 function RingCard({
+  app,
   view,
   prev,
   next,
   busy,
 }: {
+  app: string;
   view: RingView;
   prev?: RingView;
   next?: RingView;
   busy: boolean;
 }) {
   const setPendingAction = useUiStore((s) => s.setPendingAction);
+  const autoPromote = useAutoPromoteMutation(app);
   const health = ringHealth(view);
   const { ring } = view;
+
+  // "When a version lands here healthy, continue to the next ring." Offered on
+  // middle rings only: the first ring is fed by seeds, the last has no target.
+  const showAutoPromote = view.configured && !!prev && !!next;
 
   // The version waiting one ring below, ready to be promoted into this ring.
   const candidate =
@@ -141,12 +137,8 @@ function RingCard({
   if (!view.configured) {
     return (
       <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center gap-1 rounded-xl border border-dashed p-4 text-center">
-        <p className="text-sm font-medium text-muted-foreground">
-          {ring.label}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Not configured for this app
-        </p>
+        <p className="text-sm text-muted-foreground">{ring.label}</p>
+        <p className="text-xs text-muted-foreground/70">Not configured</p>
       </div>
     );
   }
@@ -154,20 +146,12 @@ function RingCard({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-1 basis-0 flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs",
+        "flex min-w-0 flex-1 basis-0 flex-col gap-3 rounded-xl border bg-card p-4",
         health === "unhealthy" && "border-status-critical/40",
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{ring.label}</p>
-          <Badge
-            variant="outline"
-            className="mt-1 font-mono text-[10px] uppercase"
-          >
-            {ring.name}
-          </Badge>
-        </div>
+        <p className="min-w-0 truncate text-sm font-semibold">{ring.label}</p>
         <HealthBadge
           health={health}
           pulse
@@ -189,20 +173,20 @@ function RingCard({
           <p className="text-sm text-muted-foreground">no version deployed</p>
         )}
         <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <History aria-hidden className="size-3 shrink-0" />
-            <span className="shrink-0">previous:</span>
-            {view.previous_version ? (
+          {view.previous_version && (
+            <div className="flex items-center gap-1.5">
+              <History aria-hidden className="size-3 shrink-0" />
+              <span className="shrink-0">previous:</span>
               <VersionLabel version={view.previous_version} />
-            ) : (
-              <span>—</span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Clock aria-hidden className="size-3 shrink-0" />
-            <span className="shrink-0">updated</span>
-            <RelativeTime iso={view.updated_at} />
-          </div>
+            </div>
+          )}
+          {view.current_version && (
+            <div className="flex items-center gap-1.5">
+              <Clock aria-hidden className="size-3 shrink-0" />
+              <span className="shrink-0">updated</span>
+              <RelativeTime iso={view.updated_at} />
+            </div>
+          )}
           {drift && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -228,6 +212,29 @@ function RingCard({
           )}
         </div>
       </div>
+
+      {showAutoPromote && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <label className="flex w-fit cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              <Switch
+                checked={view.auto_promote}
+                onCheckedChange={(on) =>
+                  autoPromote.mutate({ ring: ring.name, enabled: on })
+                }
+                aria-label={`Auto-promote ${ring.name}`}
+                className="scale-75"
+              />
+              auto → {next!.ring.name}
+            </label>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-72">
+            When a version lands here and is healthy, promote it to{" "}
+            {next!.ring.label} automatically. Turn off to stop a promotion
+            chain at this ring.
+          </TooltipContent>
+        </Tooltip>
+      )}
 
       <div className="mt-auto flex flex-wrap gap-1.5">
         <Tooltip>
@@ -273,13 +280,13 @@ function RingCard({
           </Tooltip>
         )}
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
+        {view.previous_version && (
+          <Tooltip>
+            <TooltipTrigger asChild>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                disabled={busy || !view.previous_version}
+                disabled={busy}
                 className="text-status-critical hover:text-status-critical"
                 onClick={() =>
                   setPendingAction({ type: "rollback", ring: ring.name })
@@ -287,14 +294,10 @@ function RingCard({
               >
                 <Undo2 aria-hidden className="size-3.5" /> Roll back
               </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            {view.previous_version
-              ? `Return to ${view.previous_version}`
-              : "No previous version recorded"}
-          </TooltipContent>
-        </Tooltip>
+            </TooltipTrigger>
+            <TooltipContent>Return to {view.previous_version}</TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </div>
   );

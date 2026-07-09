@@ -95,4 +95,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ring }),
     }),
+
+  setAutoPromote: (name: string, ring: string, enabled: boolean) =>
+    request<{ app: string; ring: string; auto_promote: boolean }>(
+      `${app(name)}/rings/${encodeURIComponent(ring)}/auto-promote`,
+      { method: "PUT", body: JSON.stringify({ enabled }) },
+    ),
 };

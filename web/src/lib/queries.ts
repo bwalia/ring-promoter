@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { useAuthStore, useJobsStore, usePrefsStore } from "@/lib/stores";
-import type { HistoryEntry, Job } from "@/lib/types";
+import type { HistoryEntry, Job, RingView } from "@/lib/types";
 
 // Polling cadence. The UI never asks the user to refresh: server state is
 // re-fetched on these intervals (and instantly after a job finishes).
@@ -190,6 +190,43 @@ export function usePromoteMutation(app: string | null) {
     },
     onError: (err: Error) =>
       toast.error("Promotion failed", { description: err.message }),
+  });
+}
+
+/** Flip a ring's auto-promote switch, updating the cached rings optimistically. */
+export function useAutoPromoteMutation(app: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ring, enabled }: { ring: string; enabled: boolean }) => {
+      if (!app) throw new Error("no application selected");
+      return api.setAutoPromote(app, ring, enabled);
+    },
+    onMutate: async ({ ring, enabled }) => {
+      await queryClient.cancelQueries({ queryKey: ["rings", app] });
+      const prev = queryClient.getQueryData<{ rings: RingView[] }>([
+        "rings",
+        app,
+      ]);
+      queryClient.setQueryData<{ rings: RingView[] }>(
+        ["rings", app],
+        (data) =>
+          data && {
+            rings: data.rings.map((r) =>
+              r.ring.name === ring ? { ...r, auto_promote: enabled } : r,
+            ),
+          },
+      );
+      return { prev };
+    },
+    onError: (err: Error, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(["rings", app], ctx.prev);
+      toast.error("Could not change auto-promote", {
+        description: err.message,
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["rings", app] });
+    },
   });
 }
 

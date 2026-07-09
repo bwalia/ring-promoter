@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRight, ScrollText, Search } from "lucide-react";
+import { ArrowRight, ListFilter, Search } from "lucide-react";
 import { RelativeTime } from "@/components/relative-time";
 import { ActionBadge, ResultIcon } from "@/components/status";
 import { ErrorState } from "@/components/error-state";
@@ -40,6 +40,7 @@ export function HistoryPanel({
   const [ring, setRing] = useState("all");
   const [text, setText] = useState("");
   const [limit, setLimit] = useState(PAGE);
+  const [showFilters, setShowFilters] = useState(false);
 
   const rings = useMemo(
     () => [...new Set((history ?? []).map((h) => h.ring))],
@@ -61,18 +62,16 @@ export function HistoryPanel({
   }, [history, action, result, ring, text]);
 
   const shown = filtered.slice(0, limit);
-  const hasFilters =
-    action !== "all" || result !== "all" || ring !== "all" || !!text.trim();
+  const hasSelectFilters =
+    action !== "all" || result !== "all" || ring !== "all";
+  const hasFilters = hasSelectFilters || !!text.trim();
 
   return (
     <section
-      className={cn("rounded-xl border bg-card shadow-xs", className)}
+      className={cn("rounded-xl border bg-card", className)}
     >
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
-        <h2 className="mr-auto flex items-center gap-2 text-sm font-semibold">
-          <ScrollText aria-hidden className="size-4 text-muted-foreground" />
-          Deployment history
-        </h2>
+        <h2 className="mr-auto text-sm font-semibold">History</h2>
         <div className="relative">
           <Search
             aria-hidden
@@ -81,46 +80,63 @@ export function HistoryPanel({
           <Input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Version or message…"
-            className="h-8 w-44 pl-7 text-sm"
+            placeholder="Search…"
+            className="h-8 w-36 pl-7 text-sm"
             aria-label="Search history"
           />
         </div>
-        <Select value={action} onValueChange={setAction}>
-          <SelectTrigger size="sm" className="w-28" aria-label="Filter by action">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All actions</SelectItem>
-            <SelectItem value="seed">Seed</SelectItem>
-            <SelectItem value="promote">Promote</SelectItem>
-            <SelectItem value="rollback">Rollback</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={result} onValueChange={setResult}>
-          <SelectTrigger size="sm" className="w-28" aria-label="Filter by result">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All results</SelectItem>
-            <SelectItem value="success">Success</SelectItem>
-            <SelectItem value="failure">Failure</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={ring} onValueChange={setRing}>
-          <SelectTrigger size="sm" className="w-24" aria-label="Filter by ring">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All rings</SelectItem>
-            {rings.map((r) => (
-              <SelectItem key={r} value={r}>
-                {r}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative size-8"
+          aria-label="Toggle filters"
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          <ListFilter aria-hidden className="size-4" />
+          {hasSelectFilters && (
+            <span className="absolute right-1 top-1 size-1.5 rounded-full bg-primary" />
+          )}
+        </Button>
       </div>
+
+      {showFilters && (
+        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 p-3">
+          <Select value={action} onValueChange={setAction}>
+            <SelectTrigger size="sm" className="w-28" aria-label="Filter by action">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All actions</SelectItem>
+              <SelectItem value="seed">Seed</SelectItem>
+              <SelectItem value="promote">Promote</SelectItem>
+              <SelectItem value="rollback">Rollback</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={result} onValueChange={setResult}>
+            <SelectTrigger size="sm" className="w-28" aria-label="Filter by result">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All results</SelectItem>
+              <SelectItem value="success">Success</SelectItem>
+              <SelectItem value="failure">Failure</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={ring} onValueChange={setRing}>
+            <SelectTrigger size="sm" className="w-24" aria-label="Filter by ring">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All rings</SelectItem>
+              {rings.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {r}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {isPending ? (
         <div className="space-y-2 p-3">

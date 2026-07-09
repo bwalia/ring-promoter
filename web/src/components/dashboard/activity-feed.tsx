@@ -1,6 +1,5 @@
 "use client";
 
-import { Rss } from "lucide-react";
 import { RelativeTime } from "@/components/relative-time";
 import { ACTION_META } from "@/components/status";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,13 +29,10 @@ export function ActivityFeed() {
   const selectApp = usePrefsStore((s) => s.selectApp);
 
   return (
-    <section className="rounded-xl border bg-card shadow-xs">
-      <div className="border-b p-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <Rss aria-hidden className="size-4 text-muted-foreground" />
-          Activity
-        </h2>
-        <p className="text-xs text-muted-foreground">All applications</p>
+    <section className="rounded-xl border bg-card">
+      <div className="flex items-baseline gap-2 border-b p-3">
+        <h2 className="text-sm font-semibold">Activity</h2>
+        <p className="text-xs text-muted-foreground">all apps</p>
       </div>
 
       {isPending ? (

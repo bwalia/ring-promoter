@@ -20,6 +20,7 @@ export interface RingView {
   healthy: boolean;
   live_healthy: boolean;
   live_health_error?: string;
+  auto_promote: boolean;
   updated_at: string;
   can_promote_from: boolean;
 }

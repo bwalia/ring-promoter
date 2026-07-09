@@ -2,10 +2,8 @@
 
 import { useState } from "react";
 import {
-  Boxes,
   ChevronRight,
   CircleDot,
-  Clock,
   FolderPlus,
   Layers,
   MoreHorizontal,
@@ -58,7 +56,6 @@ export function Sidebar({
   >({ open: false });
 
   const favorites = usePrefsStore((s) => s.favorites);
-  const recents = usePrefsStore((s) => s.recents);
   const groups = usePrefsStore((s) => s.groups);
 
   const q = filter.trim().toLowerCase();
@@ -66,7 +63,6 @@ export function Sidebar({
   const known = (a: string) => apps.includes(a);
 
   const favApps = favorites.filter(known).filter(match);
-  const recentApps = recents.filter(known).filter(match).slice(0, 5);
   const allApps = apps.filter(match);
 
   return (
@@ -130,26 +126,17 @@ export function Sidebar({
           )}
 
           {favApps.length > 0 && (
-            <Section id="favorites" label="Favorites" icon={Star}>
+            <Section id="favorites" label="Favorites">
               {favApps.map((a) => (
                 <AppRow key={a} app={a} onNavigate={onNavigate} />
               ))}
             </Section>
           )}
 
-          {recentApps.length > 0 && (
-            <Section id="recents" label="Recent" icon={Clock}>
-              {recentApps.map((a) => (
-                <AppRow key={a} app={a} onNavigate={onNavigate} />
-              ))}
-            </Section>
-          )}
-
-          {(groups.length > 0 || apps.length > 0) && (
+          {groups.length > 0 && (
             <Section
               id="groups"
               label="Groups"
-              icon={Layers}
               action={
                 <Button
                   variant="ghost"
@@ -162,11 +149,6 @@ export function Sidebar({
                 </Button>
               }
             >
-              {groups.length === 0 && (
-                <p className="px-2 py-1 text-xs text-muted-foreground">
-                  Group related apps together.
-                </p>
-              )}
               {groups.map((g) => (
                 <GroupSection
                   key={g.id}
@@ -181,7 +163,23 @@ export function Sidebar({
           )}
 
           {apps.length > 0 && (
-            <Section id="all" label="All applications" icon={Boxes}>
+            <Section
+              id="all"
+              label="Applications"
+              action={
+                groups.length === 0 ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6"
+                    aria-label="New group"
+                    onClick={() => setGroupDialog({ open: true })}
+                  >
+                    <FolderPlus aria-hidden className="size-3.5" />
+                  </Button>
+                ) : undefined
+              }
+            >
               {allApps.length === 0 ? (
                 <p className="px-2 py-1 text-xs text-muted-foreground">
                   No matches for “{filter}”.
@@ -211,13 +209,11 @@ export function Sidebar({
 function Section({
   id,
   label,
-  icon: Icon,
   action,
   children,
 }: {
   id: string;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -227,15 +223,14 @@ function Section({
   return (
     <Collapsible open={!collapsed} onOpenChange={() => toggleCollapsed(id)}>
       <div className="flex items-center justify-between">
-        <CollapsibleTrigger className="group flex flex-1 items-center gap-1.5 rounded-md px-1 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+        <CollapsibleTrigger className="group flex flex-1 items-center gap-1 rounded-md px-1 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
           <ChevronRight
             aria-hidden
             className={cn(
-              "size-3.5 transition-transform",
+              "size-3 transition-transform",
               !collapsed && "rotate-90",
             )}
           />
-          <Icon aria-hidden className="size-3.5" />
           {label}
         </CollapsibleTrigger>
         {action}
@@ -340,18 +335,15 @@ function AppRow({ app, onNavigate }: { app: string; onNavigate?: () => void }) {
     >
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm",
+          !active && "text-muted-foreground hover:text-foreground",
+        )}
         onClick={() => {
           selectApp(app);
           onNavigate?.();
         }}
       >
-        <span
-          className={cn(
-            "size-1.5 shrink-0 rounded-full",
-            active ? "bg-primary" : "bg-muted-foreground/40",
-          )}
-        />
         <span className="truncate">{app}</span>
         {favorite && (
           <Star

@@ -27,12 +27,17 @@ var ErrNotFound = errors.New("ring state not found")
 
 // RingState is the tracked state of one application in one ring.
 type RingState struct {
-	App             string    `json:"app"`
-	Ring            string    `json:"ring"`
-	CurrentVersion  string    `json:"current_version"`
-	PreviousVersion string    `json:"previous_version"`
-	Healthy         bool      `json:"healthy"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	App             string `json:"app"`
+	Ring            string `json:"ring"`
+	CurrentVersion  string `json:"current_version"`
+	PreviousVersion string `json:"previous_version"`
+	Healthy         bool   `json:"healthy"`
+	// AutoPromote: when a version lands healthy in this ring, it is promoted
+	// onward to the next ring automatically. This is a setting, not deploy
+	// state: it is changed ONLY via SetAutoPromote — UpsertRingState leaves it
+	// untouched.
+	AutoPromote bool      `json:"auto_promote"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // HistoryEntry is one recorded seed / promote / rollback event.
@@ -54,8 +59,12 @@ type Store interface {
 	// GetRingState returns the state for one (app, ring). It returns
 	// ErrNotFound if no state has been recorded yet.
 	GetRingState(ctx context.Context, app, ring string) (RingState, error)
-	// UpsertRingState creates or replaces the state for (state.App, state.Ring).
+	// UpsertRingState creates or replaces the deploy state for
+	// (state.App, state.Ring). It never modifies the AutoPromote setting.
 	UpsertRingState(ctx context.Context, state RingState) error
+	// SetAutoPromote flips the auto-promote setting for (app, ring), creating
+	// the row (with empty versions) if none exists yet.
+	SetAutoPromote(ctx context.Context, app, ring string, enabled bool) error
 	// AddHistory appends an entry to the history log.
 	AddHistory(ctx context.Context, entry HistoryEntry) error
 	// ListHistory returns the history for an application, newest first.

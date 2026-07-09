@@ -55,6 +55,10 @@ result — the Go binary embeds whatever is in that directory at build time.
   dialog is a searchable picker — only versions that exist in the source
   repository can be chosen; a pasted commit SHA is verified by the server on
   submit. Other apps keep free-form input.
+- **Auto-promote switches.** Middle rings carry an `auto → <next>` switch
+  (server-side setting): a healthy landing there continues onward in the same
+  job. The switch updates optimistically and the whole chain renders in the
+  live progress panel.
 - **Persisted preferences** (localStorage): token, theme, selected app,
   favorites, recents, custom app groups, collapsed sidebar sections,
   auto-refresh on/off, and the running-job reference per app (so a mid-deploy
