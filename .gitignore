@@ -3,3 +3,9 @@
 *.out
 *.test
 .env
+
+# Node build artifacts (frontend in web/)
+web/node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts

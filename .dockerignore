@@ -4,3 +4,6 @@
 deploy/
 scratchpad/
 **/*_test.go
+web/node_modules/
+web/.next/
+web/out/

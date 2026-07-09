@@ -102,7 +102,8 @@ internal/
   health/                Checker interface, HTTPChecker, AlwaysHealthy
   promoter/              promotion rules (seed/promote/rollback) + unit tests
   api/                   REST handlers, bearer-token auth, request logging
-  web/                   embedded single-page UI (vanilla JS)
+  web/                   embedded UI assets (built from web/, see below)
+web/                     Next.js + TypeScript frontend (source of the UI)
 deploy/k8s/              Namespace, RBAC, ConfigMap, Secret, Deployment, Service, Ingress
 Dockerfile               small multi-stage image (distroless + kubectl)
 config.yaml              local-development config (2 sample apps)
@@ -122,6 +123,30 @@ go run ./cmd/ringpromoter --config config.yaml
 
 Open the UI at <http://localhost:8080>, paste the token (`local-dev-token`) into
 the token box, pick an app, and use the Seed / Promote / Rollback buttons.
+
+### The web UI
+
+The UI is a Next.js (App Router) + TypeScript single-page app living in
+[`web/`](web/). A **static export** of it is committed under
+`internal/web/static` and embedded into the Go binary, so production stays a
+single binary and the API is same-origin — nothing about the deployment
+changes.
+
+- **Just running the server?** Nothing to do — the embedded build is committed.
+- **Working on the UI?** Run it with hot reload against the Go server:
+
+  ```bash
+  go run ./cmd/ringpromoter --config config.yaml   # terminal 1 (API on :8080)
+  cd web && npm install && npm run dev             # terminal 2 (UI on :3000)
+  ```
+
+- **Done changing the UI?** Regenerate the embedded copy and commit it:
+
+  ```bash
+  cd web && npm run build:embed
+  ```
+
+See [`web/README.md`](web/README.md) for the frontend architecture.
 
 Drive it from the CLI:
 
