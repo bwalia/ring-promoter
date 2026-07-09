@@ -34,7 +34,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useApps } from "@/lib/queries";
+import {
+  useApps,
+  useDeleteGroup,
+  useGroups,
+  useUpdateGroup,
+} from "@/lib/queries";
 import { usePrefsStore } from "@/lib/stores";
 import type { AppGroup } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -56,7 +61,7 @@ export function Sidebar({
   >({ open: false });
 
   const favorites = usePrefsStore((s) => s.favorites);
-  const groups = usePrefsStore((s) => s.groups);
+  const groups = useGroups().data ?? [];
 
   const q = filter.trim().toLowerCase();
   const match = (a: string) => a.toLowerCase().includes(q);
@@ -257,7 +262,7 @@ function GroupSection({
 }) {
   const collapsed = usePrefsStore((s) => !!s.collapsed[`group:${group.id}`]);
   const toggleCollapsed = usePrefsStore((s) => s.toggleCollapsed);
-  const deleteGroup = usePrefsStore((s) => s.deleteGroup);
+  const deleteGroup = useDeleteGroup();
   const selectGroup = usePrefsStore((s) => s.selectGroup);
   const active = usePrefsStore((s) => s.selectedGroup === group.id);
   const members = group.apps.filter(known).filter(filterMatch);
@@ -318,7 +323,7 @@ function GroupSection({
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
-              onClick={() => deleteGroup(group.id)}
+              onClick={() => deleteGroup.mutate(group.id)}
             >
               <Trash2 aria-hidden className="size-4" /> Delete group
             </DropdownMenuItem>
@@ -342,8 +347,8 @@ function AppRow({ app, onNavigate }: { app: string; onNavigate?: () => void }) {
   const selectApp = usePrefsStore((s) => s.selectApp);
   const favorites = usePrefsStore((s) => s.favorites);
   const toggleFavorite = usePrefsStore((s) => s.toggleFavorite);
-  const groups = usePrefsStore((s) => s.groups);
-  const updateGroup = usePrefsStore((s) => s.updateGroup);
+  const groups = useGroups().data ?? [];
+  const updateGroup = useUpdateGroup();
   // A group page showing means no app row is the active view, even though
   // selectedApp is retained behind the scenes.
   const active = !groupActive && selectedApp === app;
@@ -409,13 +414,13 @@ function AppRow({ app, onNavigate }: { app: string; onNavigate?: () => void }) {
                         key={g.id}
                         checked={inGroup}
                         onCheckedChange={() =>
-                          updateGroup(
-                            g.id,
-                            g.name,
-                            inGroup
+                          updateGroup.mutate({
+                            id: g.id,
+                            name: g.name,
+                            apps: inGroup
                               ? g.apps.filter((a) => a !== app)
                               : [...g.apps, app],
-                          )
+                          })
                         }
                       >
                         {g.name}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { usePrefsStore } from "@/lib/stores";
+import { useCreateGroup, useUpdateGroup } from "@/lib/queries";
 import type { AppGroup } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -28,8 +29,9 @@ export function GroupDialog({
   group?: AppGroup;
   apps: string[];
 }) {
-  const createGroup = usePrefsStore((s) => s.createGroup);
-  const updateGroup = usePrefsStore((s) => s.updateGroup);
+  const createGroup = useCreateGroup();
+  const updateGroup = useUpdateGroup();
+  const saving = createGroup.isPending || updateGroup.isPending;
   // The dialog is mounted fresh on every open (see Sidebar), so plain initial
   // state is enough — no reset effect needed.
   const [name, setName] = useState(group?.name ?? "");
@@ -42,13 +44,13 @@ export function GroupDialog({
 
   const save = () => {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || saving) return;
+    const done = { onSuccess: () => onOpenChange(false) };
     if (group) {
-      updateGroup(group.id, trimmed, selected);
+      updateGroup.mutate({ id: group.id, name: trimmed, apps: selected }, done);
     } else {
-      createGroup(trimmed, selected);
+      createGroup.mutate({ name: trimmed, apps: selected }, done);
     }
-    onOpenChange(false);
   };
 
   return (
@@ -113,7 +115,8 @@ export function GroupDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={!name.trim()}>
+          <Button onClick={save} disabled={!name.trim() || saving}>
+            {saving && <Loader2 aria-hidden className="size-4 animate-spin" />}
             {group ? "Save changes" : "Create group"}
           </Button>
         </DialogFooter>

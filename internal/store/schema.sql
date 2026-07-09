@@ -17,6 +17,15 @@ CREATE TABLE IF NOT EXISTS ring_state (
 -- Upgrade pre-existing databases created before auto_promote (idempotent).
 ALTER TABLE ring_state ADD COLUMN IF NOT EXISTS auto_promote BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- User-defined application groups, shared by every user of the control plane.
+-- Members are stored as a JSON array of app names.
+CREATE TABLE IF NOT EXISTS app_group (
+    id         TEXT        PRIMARY KEY,
+    name       TEXT        NOT NULL,
+    apps       TEXT        NOT NULL DEFAULT '[]',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Append-only record of every seed / promote / rollback.
 CREATE TABLE IF NOT EXISTS history (
     id           BIGSERIAL   PRIMARY KEY,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -128,6 +129,72 @@ func (p *Postgres) ListHistory(ctx context.Context, app string) ([]HistoryEntry,
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// ListGroups implements Store, ordered by name.
+func (p *Postgres) ListGroups(ctx context.Context) ([]Group, error) {
+	const q = `SELECT id, name, apps, updated_at FROM app_group ORDER BY name, id`
+	rows, err := p.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list groups: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Group
+	for rows.Next() {
+		var g Group
+		var apps string
+		if err := rows.Scan(&g.ID, &g.Name, &apps, &g.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan group: %w", err)
+		}
+		if err := json.Unmarshal([]byte(apps), &g.Apps); err != nil {
+			return nil, fmt.Errorf("decode group %s apps: %w", g.ID, err)
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// CreateGroup implements Store.
+func (p *Postgres) CreateGroup(ctx context.Context, g Group) error {
+	apps, err := json.Marshal(g.Apps)
+	if err != nil {
+		return fmt.Errorf("encode group apps: %w", err)
+	}
+	const q = `INSERT INTO app_group (id, name, apps) VALUES ($1, $2, $3)`
+	if _, err := p.db.ExecContext(ctx, q, g.ID, g.Name, string(apps)); err != nil {
+		return fmt.Errorf("create group: %w", err)
+	}
+	return nil
+}
+
+// UpdateGroup implements Store.
+func (p *Postgres) UpdateGroup(ctx context.Context, g Group) error {
+	apps, err := json.Marshal(g.Apps)
+	if err != nil {
+		return fmt.Errorf("encode group apps: %w", err)
+	}
+	const q = `UPDATE app_group SET name = $2, apps = $3, updated_at = now() WHERE id = $1`
+	res, err := p.db.ExecContext(ctx, q, g.ID, g.Name, string(apps))
+	if err != nil {
+		return fmt.Errorf("update group: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteGroup implements Store.
+func (p *Postgres) DeleteGroup(ctx context.Context, id string) error {
+	res, err := p.db.ExecContext(ctx, `DELETE FROM app_group WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete group: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Lock implements Store using a PostgreSQL session-level advisory lock, held on

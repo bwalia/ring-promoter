@@ -227,6 +227,64 @@ export function useActiveJob(app: string | null) {
 
 // ---- mutations (async job flow) ----
 
+// ---- application groups (server-side, shared by every user) ----
+
+export function useGroups() {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["groups"],
+    queryFn: api.groups,
+    enabled: !!token,
+    refetchInterval: 30_000,
+    select: (data) => data.groups ?? [],
+  });
+}
+
+export function useCreateGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, apps }: { name: string; apps: string[] }) =>
+      api.createGroup(name, apps),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["groups"] }),
+    onError: (err: Error) =>
+      toast.error("Could not create group", { description: err.message }),
+  });
+}
+
+export function useUpdateGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      name,
+      apps,
+    }: {
+      id: string;
+      name: string;
+      apps: string[];
+    }) => api.updateGroup(id, name, apps),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["groups"] }),
+    onError: (err: Error) =>
+      toast.error("Could not update group", { description: err.message }),
+  });
+}
+
+export function useDeleteGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteGroup(id),
+    onSuccess: (_res, id) => {
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+      // Leaving a deleted group's page selected would strand the view.
+      if (usePrefsStore.getState().selectedGroup === id) {
+        usePrefsStore.getState().selectGroup(null);
+      }
+    },
+    onError: (err: Error) =>
+      toast.error("Could not delete group", { description: err.message }),
+  });
+}
+
 /** Whether prod deploys need a password, and which ring is "prod" (the last). */
 export function useProdProtection() {
   const { data } = useApps();

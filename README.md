@@ -196,6 +196,10 @@ are unauthenticated.
 | `POST /api/apps/{app}/promote`   | `{"from_ring"}`       | Promote to the next ring.                 |
 | `POST /api/apps/{app}/rollback`  | `{"ring"}`            | Roll a ring back to its previous version. |
 | `PUT  /api/apps/{app}/rings/{ring}/auto-promote` | `{"enabled"}` | Toggle auto-promote for a ring (see below). |
+| `GET  /api/groups`               | –                     | List application groups (server-side, shared by all users). |
+| `POST /api/groups`               | `{"name","apps"}`     | Create a group (members must be configured apps). |
+| `PUT  /api/groups/{id}`          | `{"name","apps"}`     | Rename a group / replace its members.     |
+| `DELETE /api/groups/{id}`        | –                     | Delete a group.                           |
 
 **Sync vs async.** `seed`/`promote`/`rollback` run **synchronously** by default and
 return the final `Result` (200 success / 422 ran-but-failed) — ideal for CI

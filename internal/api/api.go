@@ -14,6 +14,7 @@ import (
 	"github.com/example/ring-promoter/internal/deployer"
 	"github.com/example/ring-promoter/internal/promoter"
 	"github.com/example/ring-promoter/internal/ring"
+	"github.com/example/ring-promoter/internal/store"
 )
 
 // BuildInfo carries version metadata baked into the binary at build time.
@@ -103,6 +104,11 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/apps/{app}/promote", s.handlePromote)
 	api.HandleFunc("POST /api/apps/{app}/rollback", s.handleRollback)
 	api.HandleFunc("PUT /api/apps/{app}/rings/{ring}/auto-promote", s.handleAutoPromote)
+	// Application groups — stored server-side, shared by all users.
+	api.HandleFunc("GET /api/groups", s.handleListGroups)
+	api.HandleFunc("POST /api/groups", s.handleCreateGroup)
+	api.HandleFunc("PUT /api/groups/{id}", s.handleUpdateGroup)
+	api.HandleFunc("DELETE /api/groups/{id}", s.handleDeleteGroup)
 	mux.Handle("/api/", s.authenticate(api))
 
 	// Web UI (single-page app) — served at the root.
@@ -322,6 +328,60 @@ func (s *Server) handleAutoPromote(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ---- application groups ----
+
+func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.prom.Groups(r.Context())
+	if err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	if groups == nil {
+		groups = []store.Group{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"groups": groups})
+}
+
+func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string   `json:"name"`
+		Apps []string `json:"apps"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	g, err := s.prom.CreateGroup(r.Context(), body.Name, body.Apps)
+	if err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, g)
+}
+
+func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string   `json:"name"`
+		Apps []string `json:"apps"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	g, err := s.prom.UpdateGroup(r.Context(), r.PathValue("id"), body.Name, body.Apps)
+	if err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, g)
+}
+
+func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	if err := s.prom.DeleteGroup(r.Context(), r.PathValue("id")); err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	job, ok := s.jobs.get(r.PathValue("id"))
 	if !ok || job.snapshot().App != r.PathValue("app") {
@@ -357,8 +417,11 @@ func statusForErr(err error) int {
 	switch {
 	case errors.Is(err, promoter.ErrAppNotFound), errors.Is(err, promoter.ErrRingNotConfigured):
 		return http.StatusNotFound
+	case errors.Is(err, promoter.ErrGroupNotFound):
+		return http.StatusNotFound
 	case errors.Is(err, promoter.ErrNoNextRing), errors.Is(err, promoter.ErrEmptyVersion),
-		errors.Is(err, promoter.ErrVersionNotFound):
+		errors.Is(err, promoter.ErrVersionNotFound), errors.Is(err, promoter.ErrEmptyGroupName),
+		errors.Is(err, promoter.ErrUnknownApp):
 		return http.StatusBadRequest
 	case errors.Is(err, promoter.ErrNothingToPromote), errors.Is(err, promoter.ErrNothingToRollback):
 		return http.StatusConflict

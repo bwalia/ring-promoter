@@ -65,9 +65,11 @@ result — the Go binary embeds whatever is in that directory at build time.
   dedicated confirmation. A wrong password shows inline and keeps the dialog
   open. Enforcement is server-side; the UI only collects the password.
 - **Persisted preferences** (localStorage): token, theme, selected app,
-  favorites, recents, custom app groups, collapsed sidebar sections,
-  auto-refresh on/off, and the running-job reference per app (so a mid-deploy
-  refresh resumes the live view).
+  favorites, recents, collapsed sidebar sections, auto-refresh on/off, and the
+  running-job reference per app (so a mid-deploy refresh resumes the live
+  view). **Application groups are NOT local** — they live on the server
+  (`/api/groups`, Postgres in production) and are shared by every user;
+  groups created by older builds are migrated automatically on first load.
 - **URL state.** The selected app is mirrored to `?app=<name>` so views are
   shareable/bookmarkable.
 - **Keyboard.** `⌘K`/`Ctrl-K` command palette (apps, versions, actions,

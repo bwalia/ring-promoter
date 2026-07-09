@@ -1,5 +1,6 @@
 import { useAuthStore } from "@/lib/stores";
 import type {
+  AppGroup,
   AppsResponse,
   HistoryEntry,
   Job,
@@ -72,6 +73,27 @@ export const api = {
 
   versions: (name: string) =>
     request<VersionsResponse>(`${app(name)}/versions`),
+
+  // Application groups live on the server (shared by every user), not in the
+  // browser.
+  groups: () => request<{ groups: AppGroup[] }>("/api/groups"),
+
+  createGroup: (name: string, apps: string[]) =>
+    request<AppGroup>("/api/groups", {
+      method: "POST",
+      body: JSON.stringify({ name, apps }),
+    }),
+
+  updateGroup: (id: string, name: string, apps: string[]) =>
+    request<AppGroup>(`/api/groups/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, apps }),
+    }),
+
+  deleteGroup: (id: string) =>
+    request<{ status: string }>(`/api/groups/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
 
   job: (name: string, id: string) =>
     request<Job>(`${app(name)}/jobs/${encodeURIComponent(id)}`),

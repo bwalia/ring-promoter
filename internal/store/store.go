@@ -40,6 +40,15 @@ type RingState struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// Group is a user-defined collection of applications, shared by every user of
+// this control plane (persisted server-side, not in the browser).
+type Group struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Apps      []string  `json:"apps"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // HistoryEntry is one recorded seed / promote / rollback event.
 type HistoryEntry struct {
 	ID          int64     `json:"id"`
@@ -69,6 +78,15 @@ type Store interface {
 	AddHistory(ctx context.Context, entry HistoryEntry) error
 	// ListHistory returns the history for an application, newest first.
 	ListHistory(ctx context.Context, app string) ([]HistoryEntry, error)
+	// ListGroups returns all application groups, ordered by name.
+	ListGroups(ctx context.Context) ([]Group, error)
+	// CreateGroup stores a new group (the caller assigns a unique ID).
+	CreateGroup(ctx context.Context, g Group) error
+	// UpdateGroup replaces an existing group's name and members. It returns
+	// ErrNotFound when no group with g.ID exists.
+	UpdateGroup(ctx context.Context, g Group) error
+	// DeleteGroup removes a group. It returns ErrNotFound when absent.
+	DeleteGroup(ctx context.Context, id string) error
 	// Lock acquires an exclusive lock for key, blocking until it is held or ctx
 	// is done. The returned function releases it. This serializes mutating
 	// operations for one application. The Postgres implementation uses a session
