@@ -71,7 +71,7 @@ func run(configPath string, logger *slog.Logger) error {
 		return err
 	}
 	prom := promoter.New(cfg, st, deployers, defaultDeployer, buildChecker(cfg), logger)
-	srv := api.NewServer(prom, cfg.APIToken, web.Handler(), cfg.OperationTimeout.Std(), logger,
+	srv := api.NewServer(prom, cfg.APIToken, cfg.ProdPassword, web.Handler(), cfg.OperationTimeout.Std(), logger,
 		api.BuildInfo{Version: version, Commit: commit, BuildTime: buildTime})
 
 	httpServer := &http.Server{

@@ -70,6 +70,14 @@ spec:
                   name: ring-promoter
                   key: RP_GITHUB_TOKEN
                   optional: true
+            # Extra password gating deployments to the last ring (production).
+            # Optional: without the Secret key, prod deploys need no password.
+            - name: RP_PROD_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_PROD_PASSWORD
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz

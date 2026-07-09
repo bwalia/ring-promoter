@@ -48,6 +48,13 @@ in **configuration**, not code.
 - If the target is still unhealthy after all retries, it is **automatically
   rolled back** to its previous version.
 - Every **seed / promote / rollback** is written to history, success or failure.
+- **Auto-promote (optional, per ring).** A ring can be flagged so that a
+  version landing there healthy is promoted onward automatically — the chain
+  runs inside the same operation and lock, hop by hop, and stops at the first
+  ring whose flag is off (or on any failure, with the usual auto-rollback).
+  The flag is stored per (app, ring) and toggled from the UI's ring cards or
+  via the API. Typical use: enable it on `test` so `int → test` carries on to
+  `acc`, but leave `acc` off so nothing reaches `prod` without a human.
 
 ### Clean, swappable interfaces
 
@@ -102,7 +109,8 @@ internal/
   health/                Checker interface, HTTPChecker, AlwaysHealthy
   promoter/              promotion rules (seed/promote/rollback) + unit tests
   api/                   REST handlers, bearer-token auth, request logging
-  web/                   embedded single-page UI (vanilla JS)
+  web/                   embedded UI assets (built from web/, see below)
+web/                     Next.js + TypeScript frontend (source of the UI)
 deploy/k8s/              Namespace, RBAC, ConfigMap, Secret, Deployment, Service
 kubernetes/ingress/      public Ingress (wslproxy) for ring-promoter.diytaxreturn.co.uk
 Dockerfile               small multi-stage image (distroless + kubectl)
@@ -123,6 +131,30 @@ go run ./cmd/ringpromoter --config config.yaml
 
 Open the UI at <http://localhost:8080>, paste the token (`local-dev-token`) into
 the token box, pick an app, and use the Seed / Promote / Rollback buttons.
+
+### The web UI
+
+The UI is a Next.js (App Router) + TypeScript single-page app living in
+[`web/`](web/). A **static export** of it is committed under
+`internal/web/static` and embedded into the Go binary, so production stays a
+single binary and the API is same-origin — nothing about the deployment
+changes.
+
+- **Just running the server?** Nothing to do — the embedded build is committed.
+- **Working on the UI?** Run it with hot reload against the Go server:
+
+  ```bash
+  go run ./cmd/ringpromoter --config config.yaml   # terminal 1 (API on :8080)
+  cd web && npm install && npm run dev             # terminal 2 (UI on :3000)
+  ```
+
+- **Done changing the UI?** Regenerate the embedded copy and commit it:
+
+  ```bash
+  cd web && npm run build:embed
+  ```
+
+See [`web/README.md`](web/README.md) for the frontend architecture.
 
 Drive it from the CLI:
 
@@ -158,10 +190,12 @@ are unauthenticated.
 | `GET  /api/apps`                 | –                     | List apps and the ring pipeline.          |
 | `GET  /api/apps/{app}/rings`     | –                     | Per-ring state + live version & health.   |
 | `GET  /api/apps/{app}/history`   | –                     | History, newest first.                    |
+| `GET  /api/apps/{app}/versions`  | –                     | Versions in the app's source repo (github deployer: branches + tags; `supported:false` otherwise). |
 | `GET  /api/apps/{app}/jobs/{id}` | –                     | Live job status (steps, logs, result).    |
 | `POST /api/apps/{app}/seed`      | `{"ring","version"}`  | Set an initial version for a ring.        |
 | `POST /api/apps/{app}/promote`   | `{"from_ring"}`       | Promote to the next ring.                 |
 | `POST /api/apps/{app}/rollback`  | `{"ring"}`            | Roll a ring back to its previous version. |
+| `PUT  /api/apps/{app}/rings/{ring}/auto-promote` | `{"enabled"}` | Toggle auto-promote for a ring (see below). |
 
 **Sync vs async.** `seed`/`promote`/`rollback` run **synchronously** by default and
 return the final `Result` (200 success / 422 ran-but-failed) — ideal for CI
@@ -174,8 +208,27 @@ web UI uses the async path to render its live deployment view.
 succeeded (deployed and healthy), **422** when it ran but failed (e.g. health
 check failed and the target was rolled back — details in the JSON body), and
 **4xx** for precondition errors: `404` (unknown app/ring), `400` (empty version
-/ promoting past the last ring), `409` (nothing to promote/roll back), `401`
+/ promoting past the last ring / seeding a version that does not exist in the
+app's source repository), `409` (nothing to promote/roll back), `401`
 (bad token). This lets CI treat a non-2xx response as "promotion failed".
+
+**Production password.** When `RP_PROD_PASSWORD` is set, any request that
+deploys to the **last ring** must carry it in the JSON body as `"password"`:
+promoting into production, seeding production directly, and enabling
+auto-promote into production (`403` otherwise). Rollbacks are deliberately
+exempt so incident response is never blocked. The UI prompts for the password
+in the matching dialogs.
+
+> Consent for auto-promote is checked when the switch is ENABLED. If you turn
+> on `RP_PROD_PASSWORD` on a system where auto-promote into production was
+> already enabled, review those switches — they remain in effect until turned
+> off.
+
+**Version validation.** For apps using the `github` deployer, `seed` verifies
+the requested version (branch, tag or commit SHA) actually resolves in the
+app's repository before dispatching anything — a typo'd ref is rejected with
+`400` instead of triggering a doomed workflow run. The web UI's Seed dialog
+uses `GET .../versions` to offer only real branches and tags.
 
 Every mutating call returns a `Result` object:
 
@@ -453,6 +506,7 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 |-------------------|---------------------|----------------|----------------------------------------|
 | `RP_LISTEN_ADDR`  | `listen_addr`       | `:8080`        | HTTP bind address.                     |
 | `RP_API_TOKEN`    | `api_token`         | – (required)   | Bearer token for `/api`.               |
+| `RP_PROD_PASSWORD`| `production_password`| – (optional)  | Extra password required to deploy to the last ring (promote into prod, seed prod, enable auto-promote into prod). Rollbacks are exempt. Empty = disabled. |
 | `RP_DEPLOYER`     | `deployer`          | `log`          | Global default: `kubectl`, `log` or `github`. Overridable per app via `deployer:`. |
 | `RP_GITHUB_TOKEN` | – (per-app `token_env`) | –          | API token for apps using the `github` deployer (needs `actions:write` + `contents:read`). From a Secret. |
 | `RP_HEALTH`       | `health`            | `always`       | `http` or `always`.                    |

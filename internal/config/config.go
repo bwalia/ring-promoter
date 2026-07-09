@@ -44,6 +44,12 @@ type Config struct {
 	// APIToken guards every /api route (bearer token). Prefer setting this via
 	// the RP_API_TOKEN environment variable / Secret rather than the file.
 	APIToken string `yaml:"api_token"`
+	// ProdPassword, when set, is additionally required for any operation that
+	// deploys to the LAST ring (production): promoting into it, seeding it
+	// directly, or enabling auto-promote into it. Rollbacks are exempt so
+	// incident response is never slowed down. Empty = no extra protection.
+	// Prefer the RP_PROD_PASSWORD environment variable / Secret over the file.
+	ProdPassword string `yaml:"production_password"`
 
 	// Deployer selects the deploy backend: "kubectl" or "log".
 	Deployer string `yaml:"deployer"`
@@ -236,6 +242,9 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("RP_API_TOKEN"); v != "" {
 		c.APIToken = v
+	}
+	if v := os.Getenv("RP_PROD_PASSWORD"); v != "" {
+		c.ProdPassword = v
 	}
 	if v := os.Getenv("RP_DEPLOYER"); v != "" {
 		c.Deployer = v

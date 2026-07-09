@@ -533,3 +533,174 @@ func TestPinnedRef_OverridesPromotedAndSeededVersion(t *testing.T) {
 		t.Fatalf("seed acc not pinned: res=%q live=%q", res2.Version, dep.version(key(testApp, "acc")))
 	}
 }
+
+// ---- version validation (deployer.VersionSource) ----
+
+// validatingDeployer wraps fakeDeployer with a fixed set of versions that
+// exist in the "source repository".
+type validatingDeployer struct {
+	*fakeDeployer
+	known map[string]bool
+}
+
+func (v *validatingDeployer) ListVersions(context.Context) ([]deployer.Version, error) {
+	out := make([]deployer.Version, 0, len(v.known))
+	for name := range v.known {
+		out = append(out, deployer.Version{Name: name, Type: "branch"})
+	}
+	return out, nil
+}
+
+func (v *validatingDeployer) ValidateVersion(_ context.Context, version string) error {
+	if v.known[version] {
+		return nil
+	}
+	return deployer.ErrVersionNotFound
+}
+
+func TestSeed_RejectsVersionMissingFromSource(t *testing.T) {
+	dep := &validatingDeployer{fakeDeployer: newFakeDeployer(), known: map[string]bool{"v1": true}}
+	st := store.NewMemory()
+	p := New(testConfig(0), st, nil, dep, newScriptedChecker(dep.fakeDeployer), nil)
+
+	_, err := p.Seed(context.Background(), testApp, "int", "does-not-exist")
+	if !errors.Is(err, ErrVersionNotFound) {
+		t.Fatalf("expected ErrVersionNotFound, got %v", err)
+	}
+	if dep.deployCount() != 0 {
+		t.Fatalf("nothing must be deployed for an unknown version, got %d deploys", dep.deployCount())
+	}
+	if _, err := st.GetRingState(context.Background(), testApp, "int"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("no state must be recorded for a rejected seed, got %v", err)
+	}
+
+	// A version that exists proceeds normally.
+	res, err := p.Seed(context.Background(), testApp, "int", "v1")
+	if err != nil || !res.Success {
+		t.Fatalf("seed of existing version: err=%v res=%+v", err, res)
+	}
+}
+
+func TestVersions_SupportedOnlyWithVersionSource(t *testing.T) {
+	// Plain deployer: not supported.
+	p, _, _, _ := newHarness(t, 0)
+	supported, _, err := p.Versions(context.Background(), testApp)
+	if err != nil || supported {
+		t.Fatalf("plain deployer: supported=%v err=%v, want false/nil", supported, err)
+	}
+
+	// VersionSource deployer: supported with the known list.
+	dep := &validatingDeployer{fakeDeployer: newFakeDeployer(), known: map[string]bool{"main": true}}
+	p2 := New(testConfig(0), store.NewMemory(), nil, dep, newScriptedChecker(dep.fakeDeployer), nil)
+	supported, versions, err := p2.Versions(context.Background(), testApp)
+	if err != nil || !supported || len(versions) != 1 || versions[0].Name != "main" {
+		t.Fatalf("version-source deployer: supported=%v versions=%+v err=%v", supported, versions, err)
+	}
+
+	// Unknown app.
+	if _, _, err := p2.Versions(context.Background(), "nope"); !errors.Is(err, ErrAppNotFound) {
+		t.Fatalf("unknown app: %v, want ErrAppNotFound", err)
+	}
+}
+
+// ---- auto-promote chaining ----
+
+func TestPromote_AutoChainsThroughEnabledRings(t *testing.T) {
+	p, dep, _, st := newHarness(t, 0)
+	ctx := context.Background()
+
+	if _, err := p.Seed(ctx, testApp, "int", "v1"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Auto-promote on for test only: int→test should carry on to acc and stop.
+	if err := p.SetAutoPromote(ctx, testApp, "test", true); err != nil {
+		t.Fatalf("set auto promote: %v", err)
+	}
+
+	res, err := p.Promote(ctx, testApp, "int")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if !res.Success || res.Ring != "acc" {
+		t.Fatalf("expected chain to end successfully at acc, got %+v", res)
+	}
+	if got := dep.version(key(testApp, "test")); got != "v1" {
+		t.Fatalf("test should run v1, got %q", got)
+	}
+	if got := dep.version(key(testApp, "acc")); got != "v1" {
+		t.Fatalf("acc should run v1, got %q", got)
+	}
+	if got := dep.version(key(testApp, "prod")); got != "" {
+		t.Fatalf("prod must NOT be auto-promoted (switch off), got %q", got)
+	}
+	if s := mustState(t, st, testApp, "acc"); s.CurrentVersion != "v1" || !s.Healthy {
+		t.Fatalf("bad acc state: %+v", s)
+	}
+	// The upserts along the chain must not have cleared the setting.
+	if s := mustState(t, st, testApp, "test"); !s.AutoPromote {
+		t.Fatal("test's auto-promote setting was lost by state upserts")
+	}
+}
+
+func TestSeed_AutoChainsFromSeededRing(t *testing.T) {
+	p, dep, _, _ := newHarness(t, 0)
+	ctx := context.Background()
+
+	if err := p.SetAutoPromote(ctx, testApp, "test", true); err != nil {
+		t.Fatalf("set auto promote: %v", err)
+	}
+	res, err := p.Seed(ctx, testApp, "test", "v2")
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if !res.Success || res.Ring != "acc" {
+		t.Fatalf("seed into test should chain to acc, got %+v", res)
+	}
+	if got := dep.version(key(testApp, "acc")); got != "v2" {
+		t.Fatalf("acc should run v2, got %q", got)
+	}
+	if got := dep.version(key(testApp, "prod")); got != "" {
+		t.Fatalf("prod must stay untouched, got %q", got)
+	}
+}
+
+func TestAutoChain_StopsWhenHopFails(t *testing.T) {
+	p, dep, chk, _ := newHarness(t, 0)
+	ctx := context.Background()
+
+	if _, err := p.Seed(ctx, testApp, "int", "v1"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	_ = p.SetAutoPromote(ctx, testApp, "test", true)
+	_ = p.SetAutoPromote(ctx, testApp, "acc", true)
+	chk.markUnhealthy(testApp, "acc", "v1") // the auto test→acc hop will fail
+
+	res, err := p.Promote(ctx, testApp, "int")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if res.Success || res.Ring != "acc" {
+		t.Fatalf("chain should end unsuccessfully at acc, got %+v", res)
+	}
+	if got := dep.version(key(testApp, "prod")); got != "" {
+		t.Fatalf("prod must not deploy after a failed hop, got %q", got)
+	}
+}
+
+func TestSetAutoPromote_Validation(t *testing.T) {
+	p, _, _, _ := newHarness(t, 0)
+	ctx := context.Background()
+
+	if err := p.SetAutoPromote(ctx, testApp, "prod", true); !errors.Is(err, ErrNoNextRing) {
+		t.Fatalf("enabling on the last ring: %v, want ErrNoNextRing", err)
+	}
+	if err := p.SetAutoPromote(ctx, "nope", "int", true); !errors.Is(err, ErrAppNotFound) {
+		t.Fatalf("unknown app: %v, want ErrAppNotFound", err)
+	}
+	if err := p.SetAutoPromote(ctx, testApp, "test", true); err != nil {
+		t.Fatalf("valid enable: %v", err)
+	}
+	if err := p.SetAutoPromote(ctx, testApp, "test", false); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+}

@@ -321,6 +321,78 @@ func (d *GitHubActionsDeployer) do(ctx context.Context, method, endpoint string,
 	}
 }
 
+// ---- VersionSource: the versions of a github-deployed app are git refs ----
+
+// ListVersions implements VersionSource: the deployable versions are the
+// repository's branches and tags (branches first). Paginated up to a sane cap;
+// a repo with more refs than that should be seeded by exact name/SHA instead.
+func (d *GitHubActionsDeployer) ListVersions(ctx context.Context) ([]Version, error) {
+	if d.cfg.Token == "" {
+		return nil, fmt.Errorf("github deployer: no API token configured")
+	}
+	branches, err := d.listRefs(ctx, "branches", "branch")
+	if err != nil {
+		return nil, fmt.Errorf("list branches: %w", err)
+	}
+	tags, err := d.listRefs(ctx, "tags", "tag")
+	if err != nil {
+		return nil, fmt.Errorf("list tags: %w", err)
+	}
+	return append(branches, tags...), nil
+}
+
+// listRefs pages through /repos/{owner}/{repo}/{branches|tags}.
+func (d *GitHubActionsDeployer) listRefs(ctx context.Context, endpoint, typ string) ([]Version, error) {
+	const perPage, maxPages = 100, 3
+	var out []Version
+	for page := 1; page <= maxPages; page++ {
+		u := fmt.Sprintf("%s/repos/%s/%s/%s?per_page=%d&page=%d",
+			d.cfg.APIBaseURL, d.cfg.Owner, d.cfg.Repo, endpoint, perPage, page)
+		resp, err := d.do(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, err
+		}
+		var refs []struct {
+			Name string `json:"name"`
+		}
+		if err := decode(resp, &refs); err != nil {
+			return nil, err
+		}
+		for _, r := range refs {
+			out = append(out, Version{Name: r.Name, Type: typ})
+		}
+		if len(refs) < perPage {
+			break
+		}
+	}
+	return out, nil
+}
+
+// ValidateVersion implements VersionSource: a version is valid when GitHub can
+// resolve it to a commit — which covers branches, tags and (abbreviated) SHAs.
+func (d *GitHubActionsDeployer) ValidateVersion(ctx context.Context, version string) error {
+	if d.cfg.Token == "" {
+		return fmt.Errorf("github deployer: no API token configured")
+	}
+	u := fmt.Sprintf("%s/repos/%s/%s/commits/%s",
+		d.cfg.APIBaseURL, d.cfg.Owner, d.cfg.Repo, url.PathEscape(version))
+	resp, err := d.do(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		return nil
+	// GitHub answers 404 for unknown refs and 422 for malformed ones.
+	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnprocessableEntity:
+		return fmt.Errorf("%w: %q does not resolve in %s/%s",
+			ErrVersionNotFound, version, d.cfg.Owner, d.cfg.Repo)
+	default:
+		return apiError("resolve version", resp)
+	}
+}
+
 // ghRun is the subset of a GitHub Actions workflow run we consume.
 type ghRun struct {
 	ID         int64     `json:"id"`

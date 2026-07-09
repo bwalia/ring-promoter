@@ -34,6 +34,10 @@ var (
 	ErrEmptyVersion      = errors.New("version must not be empty")
 	ErrNothingToPromote  = errors.New("source ring has no version to promote")
 	ErrNothingToRollback = errors.New("ring has no previous version to roll back to")
+	// ErrVersionNotFound rejects a seed whose version does not exist in the
+	// application's source repository (only checked for deployers that can
+	// verify it — see deployer.VersionSource).
+	ErrVersionNotFound = deployer.ErrVersionNotFound
 )
 
 // Result describes the outcome of a seed / promote / rollback operation.
@@ -59,6 +63,7 @@ type RingView struct {
 	Healthy         bool      `json:"healthy"`      // last stored health
 	LiveHealthy     bool      `json:"live_healthy"` // fresh check at read time
 	LiveHealthError string    `json:"live_health_error,omitempty"`
+	AutoPromote     bool      `json:"auto_promote"` // continue onward automatically
 	UpdatedAt       time.Time `json:"updated_at"`
 	CanPromoteFrom  bool      `json:"can_promote_from"`
 }
@@ -140,6 +145,7 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			v.CurrentVersion = st.CurrentVersion
 			v.PreviousVersion = st.PreviousVersion
 			v.Healthy = st.Healthy
+			v.AutoPromote = st.AutoPromote
 			v.UpdatedAt = st.UpdatedAt
 		}
 		_, hasNext := ring.Next(r.Name)
@@ -171,6 +177,54 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 	return views, nil
 }
 
+// Versions returns the deployable versions known to the application's source
+// repository. supported is false when the app's deployer cannot enumerate
+// versions (the UI then falls back to free-form input).
+func (p *Promoter) Versions(ctx context.Context, app string) (supported bool, versions []deployer.Version, err error) {
+	if _, ok := p.cfg.App(app); !ok {
+		return false, nil, ErrAppNotFound
+	}
+	vs, ok := p.deployerFor(app).(deployer.VersionSource)
+	if !ok {
+		return false, nil, nil
+	}
+	versions, err = vs.ListVersions(ctx)
+	return true, versions, err
+}
+
+// ValidateSeed checks a seed's preconditions without performing it: the ring
+// must be configured and the effective (possibly ring-pinned) version must
+// exist in the source repository when the deployer can verify that. The API
+// layer calls it before accepting an async seed so a bad version is rejected
+// with a 4xx instead of spawning a doomed job.
+func (p *Promoter) ValidateSeed(ctx context.Context, app, ringName, version string) error {
+	if version == "" {
+		return ErrEmptyVersion
+	}
+	rc, err := p.ringConfig(app, ringName)
+	if err != nil {
+		return err
+	}
+	return p.validateVersion(ctx, app, deployVersion(rc, version))
+}
+
+// validateVersion rejects a version that does not exist in the app's source
+// repository — before anything is dispatched or recorded. Apps whose deployer
+// cannot verify versions (no deployer.VersionSource) always pass.
+func (p *Promoter) validateVersion(ctx context.Context, app, version string) error {
+	vs, ok := p.deployerFor(app).(deployer.VersionSource)
+	if !ok {
+		return nil
+	}
+	if verr := vs.ValidateVersion(ctx, version); verr != nil {
+		if errors.Is(verr, deployer.ErrVersionNotFound) {
+			return verr
+		}
+		return fmt.Errorf("verify version %q: %w", version, verr)
+	}
+	return nil
+}
+
 // Seed sets an initial version for one ring, deploys it and health-checks it.
 // It does not roll back on failure (there is no baseline to return to).
 func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Result, error) {
@@ -184,6 +238,12 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 	// A ring may pin a deploy ref (e.g. acc -> release); if so it deploys and
 	// records that ref regardless of the requested version.
 	version = deployVersion(rc, version)
+
+	// Checked on the effective (pinned) version, since that is what deploys.
+	if err := p.validateVersion(ctx, app, version); err != nil {
+		return Result{}, err
+	}
+
 	unlock, err := p.store.Lock(ctx, "app:"+app)
 	if err != nil {
 		return Result{}, fmt.Errorf("lock application: %w", err)
@@ -215,17 +275,90 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 		rep.FinishStep(StepSuccess, "healthy")
 		res.Message = fmt.Sprintf("seeded %s and healthy", version)
 		p.record(ctx, app, ringName, store.ActionSeed, prev, version, store.ResultSuccess, res.Message)
-	} else {
-		rep.FinishStep(StepFailed, healthErr.Error())
-		res.Message = "seeded but health check failed: " + healthErr.Error()
-		p.record(ctx, app, ringName, store.ActionSeed, prev, version, store.ResultFailure, res.Message)
+		// The seeded ring may have auto-promote enabled: continue onward.
+		return p.autoChain(ctx, app, res)
+	}
+	rep.FinishStep(StepFailed, healthErr.Error())
+	res.Message = "seeded but health check failed: " + healthErr.Error()
+	p.record(ctx, app, ringName, store.ActionSeed, prev, version, store.ResultFailure, res.Message)
+	return res, nil
+}
+
+// SetAutoPromote stores the auto-promote setting for one ring of an app.
+// Enabling requires a next ring (configured for this app) to promote into.
+func (p *Promoter) SetAutoPromote(ctx context.Context, app, ringName string, enabled bool) error {
+	if _, err := p.ringConfig(app, ringName); err != nil {
+		return err
+	}
+	if enabled {
+		next, ok := ring.Next(ringName)
+		if !ok {
+			return ErrNoNextRing
+		}
+		if _, err := p.ringConfig(app, next.Name); err != nil {
+			return fmt.Errorf("target %s: %w", next.Name, err)
+		}
+	}
+	return p.store.SetAutoPromote(ctx, app, ringName, enabled)
+}
+
+// autoChain continues promoting from res.Ring while that ring has auto-promote
+// enabled and a configured next ring — so int → test can carry on to acc (and
+// further) without extra clicks, and stops before any ring whose switch is
+// off. Caller must hold the application lock. A failed hop ends the chain with
+// that hop's (unsuccessful) result; the chain never returns a hard error once
+// the first promotion has succeeded.
+func (p *Promoter) autoChain(ctx context.Context, app string, res Result) (Result, error) {
+	rep := reporterFrom(ctx)
+	for res.Success {
+		st, err := p.store.GetRingState(ctx, app, res.Ring)
+		if err != nil || !st.AutoPromote {
+			return res, nil
+		}
+		next, ok := ring.Next(res.Ring)
+		if !ok {
+			return res, nil
+		}
+		if _, err := p.ringConfig(app, next.Name); err != nil {
+			return res, nil // pipeline ends here for this app
+		}
+		rep.StartStep("auto-promote", fmt.Sprintf("Auto-promote: %s → %s", res.Ring, next.Name))
+		rep.FinishStep(StepSuccess, "auto-promote is on for "+res.Ring)
+		p.log.Info("auto-promote", "app", app, "from", res.Ring, "to", next.Name)
+
+		hop, err := p.promoteHop(ctx, app, res.Ring)
+		if err != nil {
+			// Precondition error mid-chain; what already succeeded stands.
+			res.Message += fmt.Sprintf("; auto-promote to %s aborted: %v", next.Name, err)
+			return res, nil
+		}
+		res = hop
 	}
 	return res, nil
 }
 
 // Promote copies the source ring's current version to the next ring, then
-// health-checks the target and auto-rolls-back on failure.
+// health-checks the target and auto-rolls-back on failure. If the target ring
+// has auto-promote enabled, the promotion continues ring by ring — in the same
+// operation, under the same application lock — until a ring with the setting
+// off, the end of the pipeline, or a failure.
 func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, error) {
+	unlock, err := p.store.Lock(ctx, "app:"+app)
+	if err != nil {
+		return Result{}, fmt.Errorf("lock application: %w", err)
+	}
+	defer unlock()
+
+	res, err := p.promoteHop(ctx, app, fromRing)
+	if err != nil || !res.Success {
+		return res, err
+	}
+	return p.autoChain(ctx, app, res)
+}
+
+// promoteHop performs one source→next promotion. The caller must hold the
+// application lock.
+func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result, error) {
 	srcRC, err := p.ringConfig(app, fromRing)
 	if err != nil {
 		return Result{}, err
@@ -238,12 +371,6 @@ func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, e
 	if err != nil {
 		return Result{}, fmt.Errorf("target %s: %w", nextRing.Name, err)
 	}
-
-	unlock, err := p.store.Lock(ctx, "app:"+app)
-	if err != nil {
-		return Result{}, fmt.Errorf("lock application: %w", err)
-	}
-	defer unlock()
 
 	rep := reporterFrom(ctx)
 	res := Result{App: app, Action: store.ActionPromote, Ring: nextRing.Name, FromRing: fromRing}

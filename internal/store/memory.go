@@ -58,12 +58,29 @@ func (m *Memory) GetRingState(_ context.Context, app, ring string) (RingState, e
 	return s, nil
 }
 
-// UpsertRingState implements Store.
+// UpsertRingState implements Store. The AutoPromote setting is preserved from
+// any existing row — it changes only via SetAutoPromote.
 func (m *Memory) UpsertRingState(_ context.Context, state RingState) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	state.UpdatedAt = m.now().UTC()
+	if prev, ok := m.states[stateKey(state.App, state.Ring)]; ok {
+		state.AutoPromote = prev.AutoPromote
+	}
 	m.states[stateKey(state.App, state.Ring)] = state
+	return nil
+}
+
+// SetAutoPromote implements Store.
+func (m *Memory) SetAutoPromote(_ context.Context, app, ring string, enabled bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.states[stateKey(app, ring)]
+	if !ok {
+		s = RingState{App: app, Ring: ring, UpdatedAt: m.now().UTC()}
+	}
+	s.AutoPromote = enabled
+	m.states[stateKey(app, ring)] = s
 	return nil
 }
 

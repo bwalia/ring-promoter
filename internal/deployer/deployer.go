@@ -3,7 +3,10 @@
 // LogDeployer is a no-op used for local development and tests.
 package deployer
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Target identifies what to deploy and where. It is derived from the
 // per-(app, ring) configuration. The Kubernetes-oriented fields
@@ -40,4 +43,29 @@ type LiveVersioner interface {
 	// LiveVersion returns the image tag currently set on the target Deployment.
 	// An empty string means "unknown".
 	LiveVersion(ctx context.Context, t Target) (string, error)
+}
+
+// ErrVersionNotFound is returned by VersionSource.ValidateVersion when the
+// requested version does not exist in the application's source repository.
+var ErrVersionNotFound = errors.New("version not found in source repository")
+
+// Version is one deployable version known to an application's source
+// repository (a git branch or tag).
+type Version struct {
+	Name string `json:"name"`
+	Type string `json:"type"` // "branch" | "tag"
+}
+
+// VersionSource is an optional capability: enumerating the versions that exist
+// in the application's source repository and validating that a given version
+// exists before it is deployed. Only deployers whose "version" maps onto a
+// verifiable source (e.g. GitHubActionsDeployer, whose versions are git refs)
+// implement it; for the rest the UI falls back to free-form input.
+type VersionSource interface {
+	// ListVersions returns the known branches and tags, branches first.
+	ListVersions(ctx context.Context) ([]Version, error)
+	// ValidateVersion returns nil when version resolves in the source repository
+	// (a branch, tag or commit SHA), ErrVersionNotFound when it does not, and
+	// any other error when the source could not be consulted.
+	ValidateVersion(ctx context.Context, version string) error
 }
