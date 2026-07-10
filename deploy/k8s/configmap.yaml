@@ -21,7 +21,10 @@ data:
     retry:
       count: 3
       delay: 5s
-    operation_timeout: 30m
+    # Bounds ONE seed/promote/rollback end-to-end — and an auto-promote chain
+    # runs as a single operation, so a multi-hop chain of GitHub-workflow
+    # deploys (each taking minutes) shares this budget.
+    operation_timeout: 60m
     apps:
       # wslproxy — OpenResty/Lua app on VMs, deployed via its own GitHub Actions
       # per-environment workflow (deploy-single-environment.yml). Rings are the
