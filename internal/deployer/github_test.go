@@ -144,6 +144,50 @@ func TestGitHub_Deploy_HappyPath(t *testing.T) {
 	}
 }
 
+// TestGitHub_Deploy_OmitsSentinelInputs verifies the "-" sentinel drops the
+// version and mode inputs from the dispatch (as spectoncr requires, whose
+// workflow declares neither) while still sending the env input and any
+// extra_inputs verbatim. GitHub 422s on undeclared inputs, so omission is the
+// point.
+func TestGitHub_Deploy_OmitsSentinelInputs(t *testing.T) {
+	f := &ghFake{conclusion: "success"}
+	srv := newGHServer(t, f)
+	d := NewGitHubActionsDeployer(nil, GitHubActionsConfig{
+		Owner: "o", Repo: "r", Workflow: "wf.yml",
+		Ref:          "main",
+		EnvInput:     "TARGET_ENV",
+		VersionInput: "-", // omit: workflow has no version input
+		ModeInput:    "-", // omit: workflow has no mode input
+		ExtraInputs:  map[string]string{"FORCE": "true"},
+		Token:        "secret-token",
+		APIBaseURL:   srv.URL,
+		PollInterval: time.Millisecond, RunLookupTimeout: 2 * time.Second,
+		ClockSkew: time.Minute,
+	}, nil)
+
+	if err := d.Deploy(context.Background(), Target{App: "spectoncr", Ring: "acc", TargetEnv: "acc"}, "main"); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if got := f.dispatchBody["TARGET_ENV"]; got != "acc" {
+		t.Fatalf("TARGET_ENV = %q, want acc", got)
+	}
+	if got := f.dispatchBody["FORCE"]; got != "true" {
+		t.Fatalf("FORCE = %q, want true", got)
+	}
+	if _, ok := f.dispatchBody["DEPLOY_BRANCH"]; ok {
+		t.Fatalf("DEPLOY_BRANCH should be omitted: %+v", f.dispatchBody)
+	}
+	if _, ok := f.dispatchBody["DEPLOY_MODE"]; ok {
+		t.Fatalf("DEPLOY_MODE should be omitted: %+v", f.dispatchBody)
+	}
+	if len(f.dispatchBody) != 2 {
+		t.Fatalf("expected exactly TARGET_ENV + FORCE, got %+v", f.dispatchBody)
+	}
+}
+
 func TestGitHub_Deploy_FailedRunReturnsError(t *testing.T) {
 	f := &ghFake{conclusion: "failure"}
 	srv := newGHServer(t, f)

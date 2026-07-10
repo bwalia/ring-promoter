@@ -155,7 +155,12 @@ type GitHubDeployConfig struct {
 	DeployMode string `yaml:"deploy_mode"`
 	// Input-name overrides for the dispatch payload. They default to the
 	// wslproxy deploy-single-environment.yml schema (ENV / DEPLOY_BRANCH /
-	// DEPLOY_MODE) but are configurable for other workflows.
+	// DEPLOY_MODE) but are configurable for other workflows. Set any of them to
+	// "-" to OMIT that input entirely — required for workflows that do not
+	// declare it (GitHub 422s on undeclared inputs), e.g. spectoncr's
+	// deploy-spectoncr.yml has no version or mode input. NOTE: leaving a name
+	// blank does NOT omit — a blank name falls back to its default (ENV /
+	// DEPLOY_BRANCH / DEPLOY_MODE) and is still sent; only "-" omits.
 	EnvInput     string `yaml:"env_input"`
 	VersionInput string `yaml:"version_input"`
 	ModeInput    string `yaml:"mode_input"`
@@ -184,8 +189,15 @@ type RingConfig struct {
 	Container string `yaml:"container"`
 	// Image is the image repository (without tag); the tag is the version.
 	Image string `yaml:"image"`
-	// HealthURL is the URL whose 2xx response means the ring is healthy.
+	// HealthURL is the URL whose response is checked for ring health.
 	HealthURL string `yaml:"health_url"`
+	// HealthExpectStatus, when non-zero, is the exact HTTP status code that
+	// means healthy for this ring — instead of the default "any 2xx". Use it
+	// for endpoints whose healthy response is not 2xx: e.g. spectoncr's auth-
+	// gated registry returns 401 on GET /v2/ when it is up (that 401 is exactly
+	// the signal deploy-spectoncr.yml itself asserts as healthy), so its rings
+	// set health_expect_status: 401.
+	HealthExpectStatus int `yaml:"health_expect_status"`
 	// TargetEnv is the environment name a non-Kubernetes deployer ships this
 	// ring to (e.g. "int", "test", "prod"). Required for the "github" deployer;
 	// ignored by the kubectl deployer.
@@ -383,9 +395,12 @@ func (c *Config) Validate() error {
 		if len(a.Rings) == 0 {
 			return fmt.Errorf("application %q has no rings configured", a.Name)
 		}
-		for rname := range a.Rings {
+		for rname, rc := range a.Rings {
 			if !ring.IsValid(rname) {
 				return fmt.Errorf("application %q references unknown ring %q", a.Name, rname)
+			}
+			if s := rc.HealthExpectStatus; s != 0 && (s < 100 || s > 599) {
+				return fmt.Errorf("application %q ring %q has invalid health_expect_status %d (want an HTTP code 100-599, or 0 for any 2xx)", a.Name, rname, s)
 			}
 		}
 		if err := c.validateAppDeployer(a); err != nil {

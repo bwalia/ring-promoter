@@ -353,6 +353,49 @@ named by `token_env` (default `RP_GITHUB_TOKEN`), injected from the Secret. It
 needs `actions:write` (dispatch) and `contents:read` on the repo — a fine-grained
 PAT or a GitHub App token. It is never stored in the ConfigMap.
 
+**Driving a workflow with a different input schema (e.g. spectoncr).** Not every
+workflow takes `ENV`/`DEPLOY_BRANCH`/`DEPLOY_MODE`. GitHub rejects a dispatch that
+carries an input the workflow does not declare (HTTP 422), so map names to the
+target schema and **omit** the inputs it lacks with the `-` sentinel. spectoncr's
+`deploy-spectoncr.yml` is a per-env Helm deploy with only a `TARGET_ENV` input
+(plus optional `HELM_ACTION`/`FORCE`) — no version or mode:
+
+```yaml
+  - name: spectoncr
+    deployer: github
+    github:
+      owner: bwalia
+      repo: diy-tax-return-uk
+      workflow: deploy-spectoncr.yml
+      ref: main
+      token_env: RP_GITHUB_TOKEN
+      env_input: TARGET_ENV       # ring target_env -> TARGET_ENV
+      version_input: "-"          # "-" omits: this workflow has no version input
+      mode_input: "-"             # "-" omits: this workflow has no mode input
+      extra_inputs: { FORCE: "true" }   # static inputs sent verbatim on every dispatch
+    rings:                        # a healthy registry answers /v2/ with 401, not 2xx
+      int:  { target_env: int,  health_url: "https://int-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
+      test: { target_env: test, health_url: "https://test-spectoncr.diytaxreturn.co.uk/v2/", health_expect_status: 401 }
+      acc:  { target_env: acc,  health_url: "https://acc-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
+      prod: { target_env: prod, health_url: "https://spectoncr.diytaxreturn.co.uk/v2/",      health_expect_status: 401 }
+```
+
+Two knobs make this work:
+
+- **`-` sentinel** on `env_input` / `version_input` / `mode_input` drops that
+  input from the dispatch entirely. (Leaving a name **blank** does *not* omit — a
+  blank name falls back to its default `ENV`/`DEPLOY_BRANCH`/`DEPLOY_MODE` and is
+  still sent; only `-` omits.) Here the version
+  is omitted because spectoncr has no version to promote — a promote just
+  (re)deploys the current chart to the next ring — and `FORCE: "true"` is sent via
+  `extra_inputs` so each deploy re-applies the chart past the workflow's
+  "already healthy → skip" preflight.
+- **`health_expect_status`** on a ring makes the `HTTPChecker` treat that exact
+  status as healthy instead of "any 2xx". spectoncr's registry edge enforces
+  basic-auth, so a healthy `/v2/` returns **401** — the same signal the deploy
+  workflow itself asserts post-deploy. Anything else (`000`/`404`/`502`) is
+  unhealthy and triggers the usual rollback.
+
 **Drive it** exactly like any other app — the mechanism is transparent to the API:
 
 ```bash

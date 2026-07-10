@@ -160,7 +160,7 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			defer wg.Done()
 			cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 			defer cancel()
-			if err := p.checker.Check(cctx, rc.HealthURL); err != nil {
+			if err := p.checker.Check(cctx, rc.HealthURL, rc.HealthExpectStatus); err != nil {
 				views[idx].LiveHealthy = false
 				views[idx].LiveHealthError = err.Error()
 			} else {
@@ -267,7 +267,7 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 	rep.FinishStep(StepSuccess, "image set to "+version)
 
 	rep.StartStep("health", fmt.Sprintf("Health check %s", ringName))
-	healthErr := p.checkWithRetries(ctx, rc.HealthURL)
+	healthErr := p.checkWithRetries(ctx, rc.HealthURL, rc.HealthExpectStatus)
 	healthy := healthErr == nil
 	res.State = p.saveState(ctx, app, ringName, prev, version, healthy)
 	res.Success = healthy
@@ -385,7 +385,7 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 
 	// Rule: source ring must be healthy before promoting (live check).
 	rep.StartStep("source-health", fmt.Sprintf("Verify %s (%s) is healthy", fromRing, version))
-	if err := p.checker.Check(ctx, srcRC.HealthURL); err != nil {
+	if err := p.checker.Check(ctx, srcRC.HealthURL, srcRC.HealthExpectStatus); err != nil {
 		rep.FinishStep(StepFailed, err.Error())
 		srcState.Healthy = false
 		_ = p.store.UpsertRingState(ctx, srcState)
@@ -423,7 +423,7 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 
 	// Health-check the target with retries.
 	rep.StartStep("health", fmt.Sprintf("Health check %s", nextRing.Name))
-	if healthErr := p.checkWithRetries(ctx, dstRC.HealthURL); healthErr == nil {
+	if healthErr := p.checkWithRetries(ctx, dstRC.HealthURL, dstRC.HealthExpectStatus); healthErr == nil {
 		rep.FinishStep(StepSuccess, "healthy")
 		res.State = p.saveState(ctx, app, nextRing.Name, dstPrev, version, true)
 		res.Success = true
@@ -518,7 +518,7 @@ func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt dep
 		st, _ := p.store.GetRingState(ctx, app, ringName)
 		return st, false, errors.New(msg)
 	}
-	healthy := p.checkWithRetries(ctx, rc.HealthURL) == nil
+	healthy := p.checkWithRetries(ctx, rc.HealthURL, rc.HealthExpectStatus) == nil
 	st := p.saveState(ctx, app, ringName, from, to, healthy)
 	if healthy {
 		p.record(ctx, app, ringName, store.ActionRollback, from, to, store.ResultSuccess,
@@ -531,8 +531,9 @@ func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt dep
 }
 
 // checkWithRetries runs the health check up to retry.Count+1 times, waiting
-// retry.Delay between attempts.
-func (p *Promoter) checkWithRetries(ctx context.Context, url string) error {
+// retry.Delay between attempts. expectStatus is forwarded to the checker (0 =
+// any 2xx).
+func (p *Promoter) checkWithRetries(ctx context.Context, url string, expectStatus int) error {
 	rep := reporterFrom(ctx)
 	attempts := p.retryCount + 1
 	if attempts < 1 {
@@ -548,7 +549,7 @@ func (p *Promoter) checkWithRetries(ctx context.Context, url string) error {
 			case <-time.After(p.retryDelay):
 			}
 		}
-		if err = p.checker.Check(ctx, url); err == nil {
+		if err = p.checker.Check(ctx, url, expectStatus); err == nil {
 			rep.Log(fmt.Sprintf("attempt %d/%d: healthy", i+1, attempts))
 			return nil
 		}

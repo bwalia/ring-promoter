@@ -81,7 +81,7 @@ func newScriptedChecker(dep *fakeDeployer) *scriptedChecker {
 	return &scriptedChecker{dep: dep, unhealthy: map[string]bool{}, checks: map[string]int{}}
 }
 
-func (c *scriptedChecker) Check(_ context.Context, url string) error {
+func (c *scriptedChecker) Check(_ context.Context, url string, _ int) error {
 	k := strings.TrimPrefix(url, "health://")
 	ver := c.dep.version(k)
 	c.mu.Lock()
