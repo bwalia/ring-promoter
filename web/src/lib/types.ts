@@ -11,6 +11,8 @@ export interface AppsResponse {
   rings: Ring[];
   /** True when the server requires a password for production deployments. */
   prod_protected?: boolean;
+  /** True when the server can explain failed jobs with AI (diagnose endpoint). */
+  ai_enabled?: boolean;
 }
 
 export interface RingView {
@@ -83,6 +85,8 @@ export interface Job {
   steps: JobStep[];
   result?: OperationResult;
   error?: string;
+  /** Cached AI explanation of a failed job (set after a diagnose call). */
+  diagnosis?: string;
   started_at: string;
   finished_at?: string;
 }

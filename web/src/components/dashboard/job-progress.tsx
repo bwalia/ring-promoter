@@ -6,6 +6,7 @@ import {
   ChevronDown,
   CircleSlash,
   Loader2,
+  Sparkles,
   X,
   XCircle,
 } from "lucide-react";
@@ -16,7 +17,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { useActiveJob } from "@/lib/queries";
+import { useActiveJob, useApps, useDiagnoseJob } from "@/lib/queries";
 import { duration } from "@/lib/time";
 import type { Job, JobStep, StepStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -89,7 +90,58 @@ export function JobProgress({ app }: { app: string }) {
           <StepRow key={`${step.id}-${i}`} step={step} />
         ))}
       </ol>
+
+      {job.status === "failed" && <DiagnosisFooter app={app} job={job} />}
     </section>
+  );
+}
+
+/**
+ * Footer of a FAILED job: a "Diagnose with AI" button that asks the server's
+ * LLM to explain the failure in simple language, then the explanation itself.
+ * Hidden entirely when the server has no AI diagnosis configured.
+ */
+function DiagnosisFooter({ app, job }: { app: string; job: Job }) {
+  const { data: apps } = useApps();
+  const diagnose = useDiagnoseJob(app, job.id);
+
+  if (!apps?.ai_enabled) return null;
+
+  return (
+    <div className="border-t bg-muted/20 px-4 py-3">
+      {job.diagnosis ? (
+        <div>
+          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Sparkles aria-hidden className="size-3.5" />
+            AI diagnosis
+          </p>
+          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+            {job.diagnosis}
+          </p>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => diagnose.mutate()}
+            disabled={diagnose.isPending}
+          >
+            {diagnose.isPending ? (
+              <Loader2 aria-hidden className="size-4 animate-spin" />
+            ) : (
+              <Sparkles aria-hidden className="size-4" />
+            )}
+            {diagnose.isPending ? "Analyzing failure…" : "Diagnose with AI"}
+          </Button>
+          {diagnose.isPending && (
+            <span className="text-xs text-muted-foreground">
+              asking the model why this failed — can take a minute
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

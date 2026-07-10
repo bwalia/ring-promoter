@@ -36,8 +36,12 @@ type jobState struct {
 	Steps      []stepView       `json:"steps"`
 	Result     *promoter.Result `json:"result,omitempty"`
 	Error      string           `json:"error,omitempty"`
-	StartedAt  time.Time        `json:"started_at"`
-	FinishedAt *time.Time       `json:"finished_at,omitempty"`
+	// Diagnosis is the cached AI explanation of a failed job (see
+	// handleDiagnoseJob); surfaced in the job JSON so a reloaded UI still
+	// shows it without a second model call.
+	Diagnosis  string     `json:"diagnosis,omitempty"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
 }
 
 // Job tracks the live progress of one operation. It implements promoter.Reporter.
@@ -84,6 +88,13 @@ func (j *Job) FinishStep(status, message string) {
 		t := time.Now().UTC()
 		s.FinishedAt = &t
 	}
+}
+
+// setDiagnosis caches the AI explanation of this (failed) job.
+func (j *Job) setDiagnosis(text string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.st.Diagnosis = text
 }
 
 func (j *Job) markRunning() {

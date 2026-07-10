@@ -98,6 +98,14 @@ export const api = {
   job: (name: string, id: string) =>
     request<Job>(`${app(name)}/jobs/${encodeURIComponent(id)}`),
 
+  // Ask the server's LLM why a failed job failed. Synchronous and potentially
+  // slow (the model generates the answer); the result is cached server-side.
+  diagnoseJob: (name: string, id: string) =>
+    request<{ diagnosis: string }>(
+      `${app(name)}/jobs/${encodeURIComponent(id)}/diagnose`,
+      { method: "POST" },
+    ),
+
   // Mutations always use the async job flow so the UI can render live
   // step-by-step progress; each returns the job id to poll. `password` is the
   // production password, required by the server for prod-bound operations.

@@ -20,6 +20,11 @@ import (
 // app configured in every ring.
 func newTestServer(t *testing.T, prodPass string) http.Handler {
 	t.Helper()
+	return newTestServerWithDiag(t, prodPass, nil)
+}
+
+func newTestServerWithDiag(t *testing.T, prodPass string, diag Diagnoser) http.Handler {
+	t.Helper()
 	rings := map[string]config.RingConfig{}
 	for _, r := range ring.Names() {
 		rings[r] = config.RingConfig{
@@ -35,7 +40,7 @@ func newTestServer(t *testing.T, prodPass string) http.Handler {
 		Apps:     []config.AppConfig{{Name: "web", Rings: rings}},
 	}
 	prom := promoter.New(cfg, store.NewMemory(), nil, deployer.NewLogDeployer(nil), health.AlwaysHealthy{}, nil)
-	return NewServer(prom, "tok", prodPass, http.NotFoundHandler(), time.Minute, nil, BuildInfo{}).Handler()
+	return NewServer(prom, "tok", prodPass, http.NotFoundHandler(), time.Minute, nil, BuildInfo{}, diag).Handler()
 }
 
 func doJSON(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {

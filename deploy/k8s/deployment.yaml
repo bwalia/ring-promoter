@@ -78,6 +78,15 @@ spec:
                   name: ring-promoter
                   key: RP_PROD_PASSWORD
                   optional: true
+            # Secret signing the JWT sent to the Ollama server (x-api-key) for
+            # AI diagnosis of failed jobs. Optional: without it the feature is
+            # simply disabled and the UI hides the button.
+            - name: RP_OLLAMA_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_OLLAMA_JWT_SECRET
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz

@@ -64,8 +64,27 @@ type Config struct {
 
 	Retry    RetryConfig    `yaml:"retry"`
 	Database DatabaseConfig `yaml:"database"`
+	Ollama   OllamaConfig   `yaml:"ollama"`
 	Apps     []AppConfig    `yaml:"apps"`
 }
+
+// OllamaConfig configures the optional AI failure-diagnosis feature: when a
+// seed/promote/rollback fails, the UI can ask an Ollama server to explain why
+// in simple language. The feature is enabled only when both URL and JWTSecret
+// are set; otherwise the diagnose endpoint reports it as unavailable.
+type OllamaConfig struct {
+	// URL is the Ollama server base URL, e.g. "https://ollama.workstation.co.uk".
+	URL string `yaml:"url"`
+	// Model is the Ollama model used for diagnosis. Default "qwen3-coder:30b".
+	Model string `yaml:"model"`
+	// JWTSecret signs the per-request HS256 JWT sent in the x-api-key header
+	// (the auth gateway in front of Ollama verifies it). Prefer setting this
+	// via the RP_OLLAMA_JWT_SECRET environment variable / Secret over the file.
+	JWTSecret string `yaml:"jwt_secret"`
+}
+
+// Enabled reports whether AI diagnosis is fully configured.
+func (o OllamaConfig) Enabled() bool { return o.URL != "" && o.JWTSecret != "" }
 
 // RetryConfig controls the post-deploy health-check retry loop.
 //
@@ -252,6 +271,15 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("RP_HEALTH"); v != "" {
 		c.Health = v
 	}
+	if v := os.Getenv("RP_OLLAMA_URL"); v != "" {
+		c.Ollama.URL = v
+	}
+	if v := os.Getenv("RP_OLLAMA_MODEL"); v != "" {
+		c.Ollama.Model = v
+	}
+	if v := os.Getenv("RP_OLLAMA_JWT_SECRET"); v != "" {
+		c.Ollama.JWTSecret = v
+	}
 	if v := os.Getenv("RP_DB_DRIVER"); v != "" {
 		c.Database.Driver = v
 	}
@@ -300,6 +328,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.OperationTimeout == 0 {
 		c.OperationTimeout = Duration(defaultOpTimeout)
+	}
+	if c.Ollama.Model == "" {
+		c.Ollama.Model = "qwen3-coder:30b"
 	}
 }
 

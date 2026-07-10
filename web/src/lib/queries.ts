@@ -225,6 +225,29 @@ export function useActiveJob(app: string | null) {
   };
 }
 
+/**
+ * Ask the server's LLM to explain a failed job. On success the diagnosis is
+ * written into the cached job so JobProgress re-renders with it (the server
+ * also caches it on the job itself).
+ */
+export function useDiagnoseJob(app: string | null, jobId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => {
+      if (!app || !jobId) throw new Error("no job to diagnose");
+      return api.diagnoseJob(app, jobId);
+    },
+    onSuccess: ({ diagnosis }) => {
+      queryClient.setQueryData<Job>(
+        ["job", app, jobId],
+        (job) => job && { ...job, diagnosis },
+      );
+    },
+    onError: (err: Error) =>
+      toast.error("AI diagnosis failed", { description: err.message }),
+  });
+}
+
 // ---- mutations (async job flow) ----
 
 // ---- application groups (server-side, shared by every user) ----
