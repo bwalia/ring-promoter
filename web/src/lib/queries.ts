@@ -184,7 +184,13 @@ export function useActiveJob(app: string | null) {
     queryKey: ["job", app, active?.jobId],
     queryFn: () => api.job(app!, active!.jobId),
     enabled: !!app && !!active,
-    refetchInterval: (q) => (isTerminal(q.state.data) ? false : JOB_INTERVAL),
+    // Keep polling past the terminal state while an AI diagnosis is being
+    // generated server-side — the answer lands on the job JSON.
+    refetchInterval: (q) =>
+      !isTerminal(q.state.data) ||
+      q.state.data?.diagnosis_status === "running"
+        ? JOB_INTERVAL
+        : false,
     retry: (failureCount, error) =>
       // A 404 means the server restarted or evicted the job — stop tracking.
       error instanceof ApiError && error.status === 404
@@ -223,6 +229,36 @@ export function useActiveJob(app: string | null) {
     running: !!active && !isTerminal(query.data),
     dismiss: () => app && clearActive(app),
   };
+}
+
+/**
+ * Ask the server's LLM to explain a failed job. The generation runs
+ * server-side, detached from this request; the job poll (which keeps running
+ * while diagnosis_status is "running", see useActiveJob) delivers the result.
+ */
+export function useDiagnoseJob(app: string | null, jobId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => {
+      if (!app || !jobId) throw new Error("no job to diagnose");
+      return api.diagnoseJob(app, jobId);
+    },
+    onSuccess: (res) => {
+      // Cached answer (200) renders immediately; otherwise mark the job as
+      // diagnosing so the poll resumes and picks the answer up server-side.
+      queryClient.setQueryData<Job>(
+        ["job", app, jobId],
+        (job) =>
+          job &&
+          (res.diagnosis
+            ? { ...job, diagnosis: res.diagnosis, diagnosis_status: "done" }
+            : { ...job, diagnosis_status: "running" }),
+      );
+      queryClient.invalidateQueries({ queryKey: ["job", app, jobId] });
+    },
+    onError: (err: Error) =>
+      toast.error("AI diagnosis failed", { description: err.message }),
+  });
 }
 
 // ---- mutations (async job flow) ----

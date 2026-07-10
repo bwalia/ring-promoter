@@ -32,6 +32,15 @@ database:
   driver: memory  # memory | postgres
   # dsn: "postgres://ringpromoter:secret@postgres:5432/ringpromoter?sslmode=disable"
 
+# AI failure diagnosis (optional). When a seed/promote/rollback fails, the UI
+# offers "Diagnose with AI": the failure logs go to this Ollama server, which
+# explains the cause in simple language and suggests fixes. The feature stays
+# OFF until the JWT secret is also set — provide it via RP_OLLAMA_JWT_SECRET
+# (or `jwt_secret` here for local experiments; never commit a real secret).
+ollama:
+  url: "https://ollama.workstation.co.uk"
+  model: "qwen3-coder:30b"
+
 # ---------------------------------------------------------------------------
 # Application registry. Add a new managed app by adding an entry here — no code
 # change and no rebuild required (edit the ConfigMap in k3s).

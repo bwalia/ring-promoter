@@ -18,6 +18,7 @@ import (
 	"github.com/example/ring-promoter/internal/api"
 	"github.com/example/ring-promoter/internal/config"
 	"github.com/example/ring-promoter/internal/deployer"
+	"github.com/example/ring-promoter/internal/diagnose"
 	"github.com/example/ring-promoter/internal/health"
 	"github.com/example/ring-promoter/internal/promoter"
 	"github.com/example/ring-promoter/internal/ring"
@@ -71,8 +72,19 @@ func run(configPath string, logger *slog.Logger) error {
 		return err
 	}
 	prom := promoter.New(cfg, st, deployers, defaultDeployer, buildChecker(cfg), logger)
+
+	// AI failure diagnosis (optional): enabled only when both the Ollama URL
+	// and the JWT secret are configured.
+	var diag api.Diagnoser
+	if cfg.Ollama.Enabled() {
+		diag = diagnose.New(cfg.Ollama.URL, cfg.Ollama.Model, cfg.Ollama.JWTSecret, logger)
+		logger.Info("ai diagnosis enabled", "url", cfg.Ollama.URL, "model", cfg.Ollama.Model)
+	} else {
+		logger.Info("ai diagnosis disabled (set ollama.url and RP_OLLAMA_JWT_SECRET to enable)")
+	}
+
 	srv := api.NewServer(prom, cfg.APIToken, cfg.ProdPassword, web.Handler(), cfg.OperationTimeout.Std(), logger,
-		api.BuildInfo{Version: version, Commit: commit, BuildTime: buildTime})
+		api.BuildInfo{Version: version, Commit: commit, BuildTime: buildTime}, diag)
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,

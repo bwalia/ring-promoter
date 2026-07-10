@@ -35,20 +35,22 @@ type Server struct {
 	jobs      *JobManager
 	build     BuildInfo
 	startedAt time.Time
+	diag      Diagnoser
 }
 
 // NewServer constructs an API server. ui serves the embedded web assets and
 // opTimeout bounds each mutating operation. build carries version metadata
 // surfaced on /version. prodPass, when non-empty, is additionally required to
-// deploy anything to the last (production) ring.
-func NewServer(prom *promoter.Promoter, token, prodPass string, ui http.Handler, opTimeout time.Duration, log *slog.Logger, build BuildInfo) *Server {
+// deploy anything to the last (production) ring. diag, when non-nil, enables
+// AI diagnosis of failed jobs.
+func NewServer(prom *promoter.Promoter, token, prodPass string, ui http.Handler, opTimeout time.Duration, log *slog.Logger, build BuildInfo, diag Diagnoser) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
 	if opTimeout <= 0 {
 		opTimeout = 10 * time.Minute
 	}
-	return &Server{prom: prom, token: token, prodPass: prodPass, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now()}
+	return &Server{prom: prom, token: token, prodPass: prodPass, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now(), diag: diag}
 }
 
 // prodRing is the pipeline's last ring — the one the production password
@@ -100,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/apps/{app}/history", s.handleHistory)
 	api.HandleFunc("GET /api/apps/{app}/versions", s.handleVersions)
 	api.HandleFunc("GET /api/apps/{app}/jobs/{id}", s.handleGetJob)
+	api.HandleFunc("POST /api/apps/{app}/jobs/{id}/diagnose", s.handleDiagnoseJob)
 	api.HandleFunc("POST /api/apps/{app}/seed", s.handleSeed)
 	api.HandleFunc("POST /api/apps/{app}/promote", s.handlePromote)
 	api.HandleFunc("POST /api/apps/{app}/rollback", s.handleRollback)
@@ -177,6 +180,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, _ *http.Request) {
 		"rings": ring.All(),
 		// Tells the UI to ask for the production password where needed.
 		"prod_protected": s.prodPass != "",
+		// Tells the UI to offer "Diagnose with AI" on failed jobs.
+		"ai_enabled": s.diag != nil,
 	})
 }
 

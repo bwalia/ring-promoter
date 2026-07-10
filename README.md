@@ -519,6 +519,9 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 | `RP_RETRY_COUNT`  | `retry.count`       | `3`            | Health retries after the first check. `0` = one check, no retries. |
 | `RP_RETRY_DELAY`  | `retry.delay`       | `5s`           | Wait between retries.                   |
 | `RP_OP_TIMEOUT`   | `operation_timeout` | `10m`          | Max time for one seed/promote/rollback (deploy + health + rollback). |
+| `RP_OLLAMA_URL`   | `ollama.url`        | – (optional)   | Ollama server for AI diagnosis of failed jobs (e.g. `https://ollama.workstation.co.uk`). |
+| `RP_OLLAMA_MODEL` | `ollama.model`      | `qwen3-coder:30b` | Model used to explain failures.      |
+| `RP_OLLAMA_JWT_SECRET` | `ollama.jwt_secret` | – (optional) | Signs the HS256 JWT sent as `x-api-key` to the Ollama auth gateway. AI diagnosis is enabled only when both URL and secret are set. |
 | `RP_CONFIG_FILE`  | – (flag `--config`) | `config.yaml`  | Path to the config file.               |
 
 The application registry (`apps:`) lives in the file only.
