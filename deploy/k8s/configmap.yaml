@@ -74,3 +74,40 @@ data:
           test: { target_env: test, health_url: "https://test-api.diytaxreturn.co.uk/fastapi/health" }
           acc:  { target_env: acc,  ref: release, health_url: "https://acc-api.diytaxreturn.co.uk/fastapi/health" }
           # No prod ring: this app has three environments (int/test/acc) only.
+
+      # spectoncr — in-cluster container registry. Its Helm chart lives in the
+      # diy-tax-return-uk repo and is deployed by THAT repo's own GitHub Actions
+      # workflow deploy-spectoncr.yml (a helm upgrade --install per environment).
+      # Unlike wslproxy/diytaxreturn, that workflow has NO version/branch input:
+      # it always deploys the chart at its own ref (main) to TARGET_ENV. So we
+      # OMIT the version and mode inputs (the "-" sentinel — GitHub 422s on any
+      # undeclared input) and send only TARGET_ENV plus FORCE=true. FORCE bypasses
+      # the workflow's "already healthy → skip" preflight so every seed/promote
+      # actually re-applies the chart (spectoncr has no version to promote; a
+      # promote here means "(re)deploy the current chart to the next env").
+      # Token from RP_GITHUB_TOKEN (same repo/token as diytaxreturn).
+      - name: spectoncr
+        deployer: github
+        github:
+          owner: bwalia
+          repo: diy-tax-return-uk
+          workflow: deploy-spectoncr.yml
+          ref: main
+          token_env: RP_GITHUB_TOKEN
+          env_input: TARGET_ENV     # ring target_env -> workflow TARGET_ENV input
+          version_input: "-"        # workflow declares no version input — omit
+          mode_input: "-"           # workflow declares no DEPLOY_MODE input — omit
+          extra_inputs:
+            FORCE: "true"           # force the helm upgrade past the healthy-skip preflight
+          poll_interval: 20s
+          run_lookup_timeout: 120s
+        # Health: the registry edge enforces basic-auth, so a healthy spectoncr
+        # answers GET /v2/ with 401 (auth required) — the exact signal
+        # deploy-spectoncr.yml asserts post-deploy. health_expect_status: 401
+        # makes the checker treat that 401 (not 2xx) as healthy; anything else
+        # (000/404/502) is unhealthy. /v2/ is exposed on every env.
+        rings:                      # target_env -> workflow TARGET_ENV input
+          int:  { target_env: int,  health_url: "https://int-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
+          test: { target_env: test, health_url: "https://test-spectoncr.diytaxreturn.co.uk/v2/", health_expect_status: 401 }
+          acc:  { target_env: acc,  health_url: "https://acc-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
+          prod: { target_env: prod, health_url: "https://spectoncr.diytaxreturn.co.uk/v2/",      health_expect_status: 401 }

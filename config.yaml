@@ -50,3 +50,17 @@ apps:
       test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
       acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }  # pop0
       prod: { target_env: prod, health_url: "https://pop1.diytaxreturn.co.uk/healthz" }   # pop1
+
+  # spectoncr — in-cluster container registry. In PRODUCTION it deploys via its
+  # Helm-chart GitHub Actions workflow (deploy-spectoncr.yml in diy-tax-return-uk)
+  # using the per-app "github" deployer — see the copy in deploy/k8s/configmap.yaml.
+  # Here (local dev) it has NO per-app deployer, so it uses the global
+  # `deployer: log` above and runs offline without dispatching a workflow.
+  # A healthy spectoncr answers GET /v2/ with 401 (basic-auth at the edge), so
+  # its rings pin health_expect_status: 401 instead of the default "any 2xx".
+  - name: spectoncr
+    rings:
+      int:  { target_env: int,  health_url: "https://int-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
+      test: { target_env: test, health_url: "https://test-spectoncr.diytaxreturn.co.uk/v2/", health_expect_status: 401 }
+      acc:  { target_env: acc,  health_url: "https://acc-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
+      prod: { target_env: prod, health_url: "https://spectoncr.diytaxreturn.co.uk/v2/",      health_expect_status: 401 }

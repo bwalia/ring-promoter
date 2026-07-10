@@ -58,6 +58,12 @@ type GitHubActionsConfig struct {
 	//   EnvInput     <- Target.TargetEnv   (default "ENV")
 	//   VersionInput <- version            (default "DEPLOY_BRANCH")
 	//   ModeInput    <- DeployMode         (default "DEPLOY_MODE"; omitted if empty)
+	//
+	// Set any of these to the sentinel "-" to OMIT that input from the
+	// dispatch entirely. This is needed for workflows whose schema does not
+	// declare the input — GitHub rejects a dispatch carrying an undeclared
+	// input with HTTP 422. For example spectoncr's deploy-spectoncr.yml has no
+	// version or mode input, so it sets version_input and mode_input to "-".
 	EnvInput     string
 	VersionInput string
 	ModeInput    string
@@ -169,17 +175,28 @@ func (d *GitHubActionsDeployer) Deploy(ctx context.Context, t Target, version st
 	return nil
 }
 
+// sendInput reports whether a dispatch input with the given configured name
+// should be sent. An empty name or the "-" sentinel means "omit".
+func sendInput(name string) bool { return name != "" && name != "-" }
+
 // dispatch triggers the workflow via the workflow-dispatch API.
 func (d *GitHubActionsDeployer) dispatch(ctx context.Context, env, version string) error {
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/actions/workflows/%s/dispatches",
 		d.cfg.APIBaseURL, d.cfg.Owner, d.cfg.Repo, url.PathEscape(d.cfg.Workflow))
 
-	inputs := map[string]string{
-		d.cfg.VersionInput: version,
-		d.cfg.EnvInput:     env,
+	// An input whose configured name is empty or the "-" sentinel is omitted:
+	// GitHub 422s on any input the target workflow does not declare, so a
+	// workflow lacking a version/mode input (e.g. spectoncr) sets those names
+	// to "-" and only its declared inputs get sent.
+	inputs := map[string]string{}
+	if name := d.cfg.EnvInput; sendInput(name) {
+		inputs[name] = env
 	}
-	if d.cfg.ModeInput != "" && d.cfg.DeployMode != "" {
-		inputs[d.cfg.ModeInput] = d.cfg.DeployMode
+	if name := d.cfg.VersionInput; sendInput(name) {
+		inputs[name] = version
+	}
+	if name := d.cfg.ModeInput; sendInput(name) && d.cfg.DeployMode != "" {
+		inputs[name] = d.cfg.DeployMode
 	}
 	for k, v := range d.cfg.ExtraInputs {
 		inputs[k] = v

@@ -136,7 +136,10 @@ type GitHubDeployConfig struct {
 	DeployMode string `yaml:"deploy_mode"`
 	// Input-name overrides for the dispatch payload. They default to the
 	// wslproxy deploy-single-environment.yml schema (ENV / DEPLOY_BRANCH /
-	// DEPLOY_MODE) but are configurable for other workflows.
+	// DEPLOY_MODE) but are configurable for other workflows. Set any of them to
+	// "-" to OMIT that input entirely — required for workflows that do not
+	// declare it (GitHub 422s on undeclared inputs), e.g. spectoncr's
+	// deploy-spectoncr.yml has no version or mode input.
 	EnvInput     string `yaml:"env_input"`
 	VersionInput string `yaml:"version_input"`
 	ModeInput    string `yaml:"mode_input"`
@@ -165,8 +168,15 @@ type RingConfig struct {
 	Container string `yaml:"container"`
 	// Image is the image repository (without tag); the tag is the version.
 	Image string `yaml:"image"`
-	// HealthURL is the URL whose 2xx response means the ring is healthy.
+	// HealthURL is the URL whose response is checked for ring health.
 	HealthURL string `yaml:"health_url"`
+	// HealthExpectStatus, when non-zero, is the exact HTTP status code that
+	// means healthy for this ring — instead of the default "any 2xx". Use it
+	// for endpoints whose healthy response is not 2xx: e.g. spectoncr's auth-
+	// gated registry returns 401 on GET /v2/ when it is up (that 401 is exactly
+	// the signal deploy-spectoncr.yml itself asserts as healthy), so its rings
+	// set health_expect_status: 401.
+	HealthExpectStatus int `yaml:"health_expect_status"`
 	// TargetEnv is the environment name a non-Kubernetes deployer ships this
 	// ring to (e.g. "int", "test", "prod"). Required for the "github" deployer;
 	// ignored by the kubectl deployer.
