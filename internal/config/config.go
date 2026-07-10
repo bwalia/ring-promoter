@@ -139,7 +139,9 @@ type GitHubDeployConfig struct {
 	// DEPLOY_MODE) but are configurable for other workflows. Set any of them to
 	// "-" to OMIT that input entirely — required for workflows that do not
 	// declare it (GitHub 422s on undeclared inputs), e.g. spectoncr's
-	// deploy-spectoncr.yml has no version or mode input.
+	// deploy-spectoncr.yml has no version or mode input. NOTE: leaving a name
+	// blank does NOT omit — a blank name falls back to its default (ENV /
+	// DEPLOY_BRANCH / DEPLOY_MODE) and is still sent; only "-" omits.
 	EnvInput     string `yaml:"env_input"`
 	VersionInput string `yaml:"version_input"`
 	ModeInput    string `yaml:"mode_input"`
@@ -362,9 +364,12 @@ func (c *Config) Validate() error {
 		if len(a.Rings) == 0 {
 			return fmt.Errorf("application %q has no rings configured", a.Name)
 		}
-		for rname := range a.Rings {
+		for rname, rc := range a.Rings {
 			if !ring.IsValid(rname) {
 				return fmt.Errorf("application %q references unknown ring %q", a.Name, rname)
+			}
+			if s := rc.HealthExpectStatus; s != 0 && (s < 100 || s > 599) {
+				return fmt.Errorf("application %q ring %q has invalid health_expect_status %d (want an HTTP code 100-599, or 0 for any 2xx)", a.Name, rname, s)
 			}
 		}
 		if err := c.validateAppDeployer(a); err != nil {

@@ -383,7 +383,9 @@ target schema and **omit** the inputs it lacks with the `-` sentinel. spectoncr'
 Two knobs make this work:
 
 - **`-` sentinel** on `env_input` / `version_input` / `mode_input` drops that
-  input from the dispatch entirely (an empty name does the same). Here the version
+  input from the dispatch entirely. (Leaving a name **blank** does *not* omit — a
+  blank name falls back to its default `ENV`/`DEPLOY_BRANCH`/`DEPLOY_MODE` and is
+  still sent; only `-` omits.) Here the version
   is omitted because spectoncr has no version to promote — a promote just
   (re)deploys the current chart to the next ring — and `FORCE: "true"` is sent via
   `extra_inputs` so each deploy re-applies the chart past the workflow's

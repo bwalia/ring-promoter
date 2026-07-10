@@ -87,6 +87,39 @@ func TestNegativeRetryCountRejected(t *testing.T) {
 	}
 }
 
+// A ring may pin an exact healthy status code (e.g. spectoncr's 401 on /v2/).
+func TestHealthExpectStatusValid(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	body := `
+apps:
+  - name: spectoncr
+    rings:
+      int: { target_env: int, health_url: "http://x/v2/", health_expect_status: 401 }
+`
+	cfg, err := Load(writeConfig(t, body))
+	if err != nil {
+		t.Fatalf("valid health_expect_status should load: %v", err)
+	}
+	if got := cfg.Apps[0].Rings["int"].HealthExpectStatus; got != 401 {
+		t.Fatalf("HealthExpectStatus = %d, want 401", got)
+	}
+}
+
+// An out-of-range health_expect_status is a config error (a typo like 4010
+// would otherwise silently never match and keep the ring "unhealthy" forever).
+func TestHealthExpectStatusOutOfRangeRejected(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	body := `
+apps:
+  - name: spectoncr
+    rings:
+      int: { target_env: int, health_url: "http://x/v2/", health_expect_status: 4010 }
+`
+	if _, err := Load(writeConfig(t, body)); err == nil {
+		t.Fatal("expected error for out-of-range health_expect_status")
+	}
+}
+
 // A valid per-app github deployer must load and resolve to DeployerGitHub.
 const githubApp = `
 apps:

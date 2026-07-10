@@ -176,7 +176,10 @@ func (d *GitHubActionsDeployer) Deploy(ctx context.Context, t Target, version st
 }
 
 // sendInput reports whether a dispatch input with the given configured name
-// should be sent. An empty name or the "-" sentinel means "omit".
+// should be sent. The "-" sentinel means "omit". (An empty name is also
+// treated as omit defensively, but note NewGitHubActionsDeployer defaults empty
+// Env/Version/Mode input names to ENV/DEPLOY_BRANCH/DEPLOY_MODE, so a name only
+// reaches here empty if a caller sets one explicitly — normal config uses "-".)
 func sendInput(name string) bool { return name != "" && name != "-" }
 
 // dispatch triggers the workflow via the workflow-dispatch API.
@@ -184,10 +187,11 @@ func (d *GitHubActionsDeployer) dispatch(ctx context.Context, env, version strin
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/actions/workflows/%s/dispatches",
 		d.cfg.APIBaseURL, d.cfg.Owner, d.cfg.Repo, url.PathEscape(d.cfg.Workflow))
 
-	// An input whose configured name is empty or the "-" sentinel is omitted:
-	// GitHub 422s on any input the target workflow does not declare, so a
-	// workflow lacking a version/mode input (e.g. spectoncr) sets those names
-	// to "-" and only its declared inputs get sent.
+	// An input whose configured name is the "-" sentinel is omitted: GitHub
+	// 422s on any input the target workflow does not declare, so a workflow
+	// lacking a version/mode input (e.g. spectoncr) sets those names to "-" and
+	// only its declared inputs get sent. (Blank names were already defaulted by
+	// the constructor, so they are sent, not omitted.)
 	inputs := map[string]string{}
 	if name := d.cfg.EnvInput; sendInput(name) {
 		inputs[name] = env
