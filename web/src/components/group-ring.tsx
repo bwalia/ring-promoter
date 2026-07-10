@@ -72,18 +72,6 @@ function connectorPath(angle: number) {
   return `M ${s.x} ${s.y} Q ${m.x + px} ${m.y + py} ${e.x} ${e.y}`;
 }
 
-function initials(name: string) {
-  return (
-    name
-      .split(/[\s-_]+/)
-      .filter(Boolean)
-      .slice(0, 3)
-      .map((w) => w[0])
-      .join("")
-      .toUpperCase() || "?"
-  );
-}
-
 function appAngle(i: number, n: number) {
   return (i / n) * 2 * Math.PI - Math.PI / 2;
 }
@@ -404,13 +392,22 @@ export function GroupRing({
           />
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <motion.div
-              className="flex flex-col items-center gap-1.5 text-center"
+              className="flex max-w-[58%] flex-col items-center gap-1.5 text-center"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.4, duration: 0.5 }}
             >
-              <p className="text-4xl font-semibold tracking-tight text-neutral-50 md:text-5xl">
-                {initials(group.name)}
+              {/* Full group name, sized down (and clamped) for long names so
+                  it always fits inside the orbit. */}
+              <p
+                className={cn(
+                  "line-clamp-2 break-words font-semibold leading-tight tracking-tight text-neutral-50",
+                  group.name.length <= 10
+                    ? "text-3xl md:text-4xl"
+                    : "text-xl md:text-2xl",
+                )}
+              >
+                {group.name}
               </p>
               <p className="text-sm font-medium" style={{ color: hex }}>
                 {summaryLine[aggregate]}
