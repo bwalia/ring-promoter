@@ -36,13 +36,24 @@ type jobState struct {
 	Steps      []stepView       `json:"steps"`
 	Result     *promoter.Result `json:"result,omitempty"`
 	Error      string           `json:"error,omitempty"`
-	// Diagnosis is the cached AI explanation of a failed job (see
-	// handleDiagnoseJob); surfaced in the job JSON so a reloaded UI still
-	// shows it without a second model call.
-	Diagnosis  string     `json:"diagnosis,omitempty"`
-	StartedAt  time.Time  `json:"started_at"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	// AI diagnosis of a failed job (see handleDiagnoseJob). The generation
+	// runs detached from the request, so the UI polls the job for these:
+	// DiagnosisStatus moves "" → running → done|failed, and Diagnosis carries
+	// the answer once done (also lets a reloaded UI show it without a second
+	// model call).
+	Diagnosis       string     `json:"diagnosis,omitempty"`
+	DiagnosisStatus string     `json:"diagnosis_status,omitempty"`
+	DiagnosisError  string     `json:"diagnosis_error,omitempty"`
+	StartedAt       time.Time  `json:"started_at"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
 }
+
+// Diagnosis status values.
+const (
+	diagRunning = "running"
+	diagDone    = "done"
+	diagFailed  = "failed"
+)
 
 // Job tracks the live progress of one operation. It implements promoter.Reporter.
 type Job struct {
@@ -90,10 +101,32 @@ func (j *Job) FinishStep(status, message string) {
 	}
 }
 
-// setDiagnosis caches the AI explanation of this (failed) job.
-func (j *Job) setDiagnosis(text string) {
+// startDiagnosis marks a diagnosis as in flight and reports whether the caller
+// won the right to run it. It returns false when one is already running or an
+// answer is already stored — the single-flight guard that stops concurrent
+// clicks from firing duplicate model calls. A previously failed diagnosis can
+// be restarted.
+func (j *Job) startDiagnosis() bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if j.st.DiagnosisStatus == diagRunning || j.st.Diagnosis != "" {
+		return false
+	}
+	j.st.DiagnosisStatus = diagRunning
+	j.st.DiagnosisError = ""
+	return true
+}
+
+// finishDiagnosis records the outcome of an in-flight diagnosis.
+func (j *Job) finishDiagnosis(text string, err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err != nil {
+		j.st.DiagnosisStatus = diagFailed
+		j.st.DiagnosisError = err.Error()
+		return
+	}
+	j.st.DiagnosisStatus = diagDone
 	j.st.Diagnosis = text
 }
 

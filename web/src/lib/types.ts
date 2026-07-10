@@ -85,8 +85,14 @@ export interface Job {
   steps: JobStep[];
   result?: OperationResult;
   error?: string;
-  /** Cached AI explanation of a failed job (set after a diagnose call). */
+  /**
+   * AI diagnosis of a failed job. The generation runs server-side, detached
+   * from the request: diagnosis_status moves running → done|failed and
+   * diagnosis carries the answer once done.
+   */
   diagnosis?: string;
+  diagnosis_status?: "running" | "done" | "failed";
+  diagnosis_error?: string;
   started_at: string;
   finished_at?: string;
 }

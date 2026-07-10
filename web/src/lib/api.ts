@@ -98,10 +98,11 @@ export const api = {
   job: (name: string, id: string) =>
     request<Job>(`${app(name)}/jobs/${encodeURIComponent(id)}`),
 
-  // Ask the server's LLM why a failed job failed. Synchronous and potentially
-  // slow (the model generates the answer); the result is cached server-side.
+  // Ask the server's LLM why a failed job failed. The generation runs
+  // server-side detached from this request: 202 + running means poll the job
+  // until diagnosis_status resolves; 200 + diagnosis is the cached answer.
   diagnoseJob: (name: string, id: string) =>
-    request<{ diagnosis: string }>(
+    request<{ diagnosis?: string; diagnosis_status?: string }>(
       `${app(name)}/jobs/${encodeURIComponent(id)}/diagnose`,
       { method: "POST" },
     ),

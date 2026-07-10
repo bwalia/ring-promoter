@@ -107,6 +107,12 @@ function DiagnosisFooter({ app, job }: { app: string; job: Job }) {
 
   if (!apps?.ai_enabled) return null;
 
+  // The generation runs server-side; "running" comes from the polled job, so
+  // the state survives reloads and shows other users' in-flight diagnoses too.
+  const running =
+    diagnose.isPending || job.diagnosis_status === "running";
+  const failed = !running && job.diagnosis_status === "failed";
+
   return (
     <div className="border-t bg-muted/20 px-4 py-3">
       {job.diagnosis ? (
@@ -120,25 +126,36 @@ function DiagnosisFooter({ app, job }: { app: string; job: Job }) {
           </p>
         </div>
       ) : (
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => diagnose.mutate()}
-            disabled={diagnose.isPending}
-          >
-            {diagnose.isPending ? (
-              <Loader2 aria-hidden className="size-4 animate-spin" />
-            ) : (
-              <Sparkles aria-hidden className="size-4" />
-            )}
-            {diagnose.isPending ? "Analyzing failure…" : "Diagnose with AI"}
-          </Button>
-          {diagnose.isPending && (
-            <span className="text-xs text-muted-foreground">
-              asking the model why this failed — can take a minute
-            </span>
+        <div className="space-y-2">
+          {failed && (
+            <p className="text-xs text-status-critical">
+              Diagnosis failed: {job.diagnosis_error ?? "unknown error"}
+            </p>
           )}
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => diagnose.mutate()}
+              disabled={running}
+            >
+              {running ? (
+                <Loader2 aria-hidden className="size-4 animate-spin" />
+              ) : (
+                <Sparkles aria-hidden className="size-4" />
+              )}
+              {running
+                ? "Analyzing failure…"
+                : failed
+                  ? "Try again"
+                  : "Diagnose with AI"}
+            </Button>
+            {running && (
+              <span className="text-xs text-muted-foreground">
+                asking the model why this failed — can take a minute
+              </span>
+            )}
+          </div>
         </div>
       )}
     </div>

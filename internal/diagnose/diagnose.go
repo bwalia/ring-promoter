@@ -57,9 +57,6 @@ func New(baseURL, model, secret string, log *slog.Logger) *Client {
 	}
 }
 
-// Model reports the configured model name (for logging / the UI).
-func (c *Client) Model() string { return c.model }
-
 // chat request/response wire types for POST /api/chat (stream=false).
 type chatMessage struct {
 	Role    string `json:"role"`

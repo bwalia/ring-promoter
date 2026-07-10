@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Diagnoser produces a plain-language explanation of a failure report
@@ -23,9 +24,16 @@ const (
 	maxReportBytes     = 16_000
 )
 
+// diagnoseTimeout bounds one detached diagnosis end-to-end. It must exceed the
+// diagnose client's own HTTP timeout so the client, not this context, decides.
+const diagnoseTimeout = 4 * time.Minute
+
 // handleDiagnoseJob explains a FAILED job: it sends the job's error and step
-// logs to the configured LLM and returns (and caches on the job) its
-// plain-language diagnosis. Synchronous — the UI shows a spinner meanwhile.
+// logs to the configured LLM and stores the plain-language answer on the job.
+// The generation runs DETACHED from the request — a client disconnect or proxy
+// timeout must not abort (and waste) a minutes-long model call — and is
+// single-flight per job, so concurrent clicks share one call. The handler
+// returns 202 while the diagnosis runs; the UI polls the job for the result.
 func (s *Server) handleDiagnoseJob(w http.ResponseWriter, r *http.Request) {
 	if s.diag == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("AI diagnosis is not configured on this server"))
@@ -50,15 +58,23 @@ func (s *Server) handleDiagnoseJob(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"diagnosis": snap.Diagnosis})
 		return
 	}
-
-	text, err := s.diag.Diagnose(r.Context(), failureReport(snap))
-	if err != nil {
-		s.log.Error("ai diagnosis failed", "job", snap.ID, "err", err)
-		writeError(w, http.StatusBadGateway, fmt.Errorf("diagnosis failed: %w", err))
+	if !job.startDiagnosis() {
+		// Lost the single-flight race: a diagnosis is being generated right
+		// now (or just landed) — the job poll picks it up either way.
+		writeJSON(w, http.StatusAccepted, map[string]string{"diagnosis_status": diagRunning})
 		return
 	}
-	job.setDiagnosis(text)
-	writeJSON(w, http.StatusOK, map[string]string{"diagnosis": text})
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), diagnoseTimeout)
+	go func() {
+		defer cancel()
+		text, err := s.diag.Diagnose(ctx, failureReport(snap))
+		if err != nil {
+			s.log.Error("ai diagnosis failed", "job", snap.ID, "err", err)
+		}
+		job.finishDiagnosis(text, err)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]string{"diagnosis_status": diagRunning})
 }
 
 // failureReport renders a failed job as the plain-text report handed to the
