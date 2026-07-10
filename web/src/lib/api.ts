@@ -2,6 +2,7 @@ import { useAuthStore } from "@/lib/stores";
 import type {
   AppGroup,
   AppsResponse,
+  HistoryDiagnosis,
   HistoryEntry,
   Job,
   RingView,
@@ -97,6 +98,20 @@ export const api = {
 
   job: (name: string, id: string) =>
     request<Job>(`${app(name)}/jobs/${encodeURIComponent(id)}`),
+
+  // Newest job per app, shared by every user of the control plane — this is
+  // how a promotion started on one screen shows up on all the others.
+  jobs: () => request<{ jobs: Job[] }>("/api/jobs"),
+
+  // AI diagnosis of a failed HISTORY entry (no logs — works from the recorded
+  // summary; the answer is persisted server-side, shared by everyone).
+  diagnoseHistory: (name: string, id: number) =>
+    request<HistoryDiagnosis>(`${app(name)}/history/${id}/diagnose`, {
+      method: "POST",
+    }),
+
+  historyDiagnosis: (name: string, id: number) =>
+    request<HistoryDiagnosis>(`${app(name)}/history/${id}/diagnose`),
 
   // Ask the server's LLM why a failed job failed. The generation runs
   // server-side detached from this request: 202 + running means poll the job

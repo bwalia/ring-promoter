@@ -51,15 +51,19 @@ type Group struct {
 
 // HistoryEntry is one recorded seed / promote / rollback event.
 type HistoryEntry struct {
-	ID          int64     `json:"id"`
-	App         string    `json:"app"`
-	Ring        string    `json:"ring"`
-	Action      string    `json:"action"`
-	FromVersion string    `json:"from_version"`
-	ToVersion   string    `json:"to_version"`
-	Result      string    `json:"result"`
-	Message     string    `json:"message"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          int64  `json:"id"`
+	App         string `json:"app"`
+	Ring        string `json:"ring"`
+	Action      string `json:"action"`
+	FromVersion string `json:"from_version"`
+	ToVersion   string `json:"to_version"`
+	Result      string `json:"result"`
+	Message     string `json:"message"`
+	// Diagnosis is the stored AI explanation of a failed entry (empty until
+	// someone asks for one). Persisted so every user sees the same answer and
+	// it survives restarts.
+	Diagnosis string    `json:"diagnosis,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Store is the persistence interface. Implementations must be safe for
@@ -78,6 +82,12 @@ type Store interface {
 	AddHistory(ctx context.Context, entry HistoryEntry) error
 	// ListHistory returns the history for an application, newest first.
 	ListHistory(ctx context.Context, app string) ([]HistoryEntry, error)
+	// GetHistoryEntry returns one history entry of an application. It returns
+	// ErrNotFound when no such entry exists (or it belongs to another app).
+	GetHistoryEntry(ctx context.Context, app string, id int64) (HistoryEntry, error)
+	// SetHistoryDiagnosis stores the AI diagnosis for a history entry. It
+	// returns ErrNotFound when the entry does not exist.
+	SetHistoryDiagnosis(ctx context.Context, id int64, diagnosis string) error
 	// ListGroups returns all application groups, ordered by name.
 	ListGroups(ctx context.Context) ([]Group, error)
 	// CreateGroup stores a new group (the caller assigns a unique ID).

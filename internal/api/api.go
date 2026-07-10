@@ -36,6 +36,7 @@ type Server struct {
 	build     BuildInfo
 	startedAt time.Time
 	diag      Diagnoser
+	histDiag  historyDiagnoses
 }
 
 // NewServer constructs an API server. ui serves the embedded web assets and
@@ -50,7 +51,8 @@ func NewServer(prom *promoter.Promoter, token, prodPass string, ui http.Handler,
 	if opTimeout <= 0 {
 		opTimeout = 10 * time.Minute
 	}
-	return &Server{prom: prom, token: token, prodPass: prodPass, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now(), diag: diag}
+	return &Server{prom: prom, token: token, prodPass: prodPass, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now(), diag: diag,
+		histDiag: historyDiagnoses{state: make(map[int64]historyDiagState)}}
 }
 
 // prodRing is the pipeline's last ring — the one the production password
@@ -103,6 +105,11 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/apps/{app}/versions", s.handleVersions)
 	api.HandleFunc("GET /api/apps/{app}/jobs/{id}", s.handleGetJob)
 	api.HandleFunc("POST /api/apps/{app}/jobs/{id}/diagnose", s.handleDiagnoseJob)
+	api.HandleFunc("POST /api/apps/{app}/history/{id}/diagnose", s.handleDiagnoseHistory)
+	api.HandleFunc("GET /api/apps/{app}/history/{id}/diagnose", s.handleGetHistoryDiagnosis)
+	// Newest job per app — shared by every user, so one person's promotion is
+	// visible on everyone's screen.
+	api.HandleFunc("GET /api/jobs", s.handleListJobs)
 	api.HandleFunc("POST /api/apps/{app}/seed", s.handleSeed)
 	api.HandleFunc("POST /api/apps/{app}/promote", s.handlePromote)
 	api.HandleFunc("POST /api/apps/{app}/rollback", s.handleRollback)
@@ -387,6 +394,12 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+// handleListJobs returns the newest job of every application. Every browser
+// polls this, so a promotion started on one screen shows on all of them.
+func (s *Server) handleListJobs(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": s.jobs.latestPerApp()})
+}
+
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	job, ok := s.jobs.get(r.PathValue("id"))
 	if !ok || job.snapshot().App != r.PathValue("app") {
@@ -422,7 +435,7 @@ func statusForErr(err error) int {
 	switch {
 	case errors.Is(err, promoter.ErrAppNotFound), errors.Is(err, promoter.ErrRingNotConfigured):
 		return http.StatusNotFound
-	case errors.Is(err, promoter.ErrGroupNotFound):
+	case errors.Is(err, promoter.ErrGroupNotFound), errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, promoter.ErrNoNextRing), errors.Is(err, promoter.ErrEmptyVersion),
 		errors.Is(err, promoter.ErrVersionNotFound), errors.Is(err, promoter.ErrEmptyGroupName),

@@ -225,6 +225,31 @@ func (m *JobManager) get(id string) (*Job, bool) {
 	return j, ok
 }
 
+// latestPerApp returns the newest job of every app, most recent first — the
+// shared view the UI polls so one user's operation is visible to all users.
+func (m *JobManager) latestPerApp() []jobState {
+	m.mu.Lock()
+	jobs := make([]*Job, 0, len(m.order))
+	for i := len(m.order) - 1; i >= 0; i-- {
+		if j, ok := m.jobs[m.order[i]]; ok {
+			jobs = append(jobs, j)
+		}
+	}
+	m.mu.Unlock()
+
+	seen := map[string]bool{}
+	out := []jobState{}
+	for _, j := range jobs {
+		st := j.snapshot()
+		if seen[st.App] {
+			continue
+		}
+		seen[st.App] = true
+		out = append(out, st)
+	}
+	return out
+}
+
 // run starts fn in the background under a request-detached, timeout-bounded
 // context that carries the Job as the progress Reporter. It returns immediately
 // with the Job so the caller can hand back its ID.

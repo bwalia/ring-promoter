@@ -88,31 +88,29 @@ export const usePrefsStore = create<PrefsState>()(
   ),
 );
 
-// ---- active jobs (one per app; persisted so a refresh resumes tracking) ----
-
-export interface ActiveJob {
-  jobId: string;
-  action: string;
-}
+// ---- job cards ----
+//
+// Jobs themselves are SHARED server state (GET /api/jobs): everyone sees the
+// same running/finished cards. Only the dismissal of a finished card is a
+// per-browser choice, tracked here.
 
 interface JobsState {
-  active: Record<string, ActiveJob>;
-  setActive: (app: string, job: ActiveJob) => void;
-  clearActive: (app: string) => void;
+  /** Keys (`app:jobId:startedAt`) of job cards this browser dismissed. */
+  dismissed: string[];
+  dismiss: (key: string) => void;
 }
 
 export const useJobsStore = create<JobsState>()(
   persist(
     (set) => ({
-      active: {},
-      setActive: (app, job) =>
-        set((s) => ({ active: { ...s.active, [app]: job } })),
-      clearActive: (app) =>
-        set((s) => {
-          const next = { ...s.active };
-          delete next[app];
-          return { active: next };
-        }),
+      dismissed: [],
+      dismiss: (key) =>
+        set((s) => ({
+          dismissed: [key, ...s.dismissed.filter((k) => k !== key)].slice(
+            0,
+            100,
+          ),
+        })),
     }),
     { name: "rp-jobs" },
   ),

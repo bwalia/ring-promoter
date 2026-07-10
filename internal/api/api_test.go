@@ -20,10 +20,13 @@ import (
 // app configured in every ring.
 func newTestServer(t *testing.T, prodPass string) http.Handler {
 	t.Helper()
-	return newTestServerWithDiag(t, prodPass, nil)
+	h, _ := newTestServerWithDiag(t, prodPass, nil)
+	return h
 }
 
-func newTestServerWithDiag(t *testing.T, prodPass string, diag Diagnoser) http.Handler {
+// newTestServerWithDiag additionally wires a Diagnoser and returns the backing
+// store so tests can seed history entries directly.
+func newTestServerWithDiag(t *testing.T, prodPass string, diag Diagnoser) (http.Handler, store.Store) {
 	t.Helper()
 	rings := map[string]config.RingConfig{}
 	for _, r := range ring.Names() {
@@ -39,8 +42,9 @@ func newTestServerWithDiag(t *testing.T, prodPass string, diag Diagnoser) http.H
 		Retry:    config.RetryConfig{Count: &zero, Delay: &delay},
 		Apps:     []config.AppConfig{{Name: "web", Rings: rings}},
 	}
-	prom := promoter.New(cfg, store.NewMemory(), nil, deployer.NewLogDeployer(nil), health.AlwaysHealthy{}, nil)
-	return NewServer(prom, "tok", prodPass, http.NotFoundHandler(), time.Minute, nil, BuildInfo{}, diag).Handler()
+	st := store.NewMemory()
+	prom := promoter.New(cfg, st, nil, deployer.NewLogDeployer(nil), health.AlwaysHealthy{}, nil)
+	return NewServer(prom, "tok", prodPass, http.NotFoundHandler(), time.Minute, nil, BuildInfo{}, diag).Handler(), st
 }
 
 func doJSON(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
