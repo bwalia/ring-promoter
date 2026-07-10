@@ -126,6 +126,19 @@ func (p *Promoter) History(ctx context.Context, app string) ([]store.HistoryEntr
 	return p.store.ListHistory(ctx, app)
 }
 
+// HistoryEntry returns one history entry of an application.
+func (p *Promoter) HistoryEntry(ctx context.Context, app string, id int64) (store.HistoryEntry, error) {
+	if _, ok := p.cfg.App(app); !ok {
+		return store.HistoryEntry{}, ErrAppNotFound
+	}
+	return p.store.GetHistoryEntry(ctx, app, id)
+}
+
+// SetHistoryDiagnosis stores the AI diagnosis for a history entry.
+func (p *Promoter) SetHistoryDiagnosis(ctx context.Context, id int64, diagnosis string) error {
+	return p.store.SetHistoryDiagnosis(ctx, id, diagnosis)
+}
+
 // Rings returns the read model for every ring of an application, including a
 // fresh (live) health check and live version where available.
 func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {

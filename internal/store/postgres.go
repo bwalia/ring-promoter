@@ -112,7 +112,7 @@ func (p *Postgres) AddHistory(ctx context.Context, e HistoryEntry) error {
 // ListHistory implements Store, newest first.
 func (p *Postgres) ListHistory(ctx context.Context, app string) ([]HistoryEntry, error) {
 	const q = `
-		SELECT id, app, ring, action, from_version, to_version, result, message, created_at
+		SELECT id, app, ring, action, from_version, to_version, result, message, diagnosis, created_at
 		FROM history WHERE app = $1 ORDER BY id DESC`
 	rows, err := p.db.QueryContext(ctx, q, app)
 	if err != nil {
@@ -123,12 +123,41 @@ func (p *Postgres) ListHistory(ctx context.Context, app string) ([]HistoryEntry,
 	var out []HistoryEntry
 	for rows.Next() {
 		var e HistoryEntry
-		if err := rows.Scan(&e.ID, &e.App, &e.Ring, &e.Action, &e.FromVersion, &e.ToVersion, &e.Result, &e.Message, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.App, &e.Ring, &e.Action, &e.FromVersion, &e.ToVersion, &e.Result, &e.Message, &e.Diagnosis, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan history: %w", err)
 		}
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// GetHistoryEntry implements Store.
+func (p *Postgres) GetHistoryEntry(ctx context.Context, app string, id int64) (HistoryEntry, error) {
+	const q = `
+		SELECT id, app, ring, action, from_version, to_version, result, message, diagnosis, created_at
+		FROM history WHERE id = $1 AND app = $2`
+	var e HistoryEntry
+	err := p.db.QueryRowContext(ctx, q, id, app).Scan(
+		&e.ID, &e.App, &e.Ring, &e.Action, &e.FromVersion, &e.ToVersion, &e.Result, &e.Message, &e.Diagnosis, &e.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return HistoryEntry{}, ErrNotFound
+	}
+	if err != nil {
+		return HistoryEntry{}, fmt.Errorf("get history entry: %w", err)
+	}
+	return e, nil
+}
+
+// SetHistoryDiagnosis implements Store.
+func (p *Postgres) SetHistoryDiagnosis(ctx context.Context, id int64, diagnosis string) error {
+	res, err := p.db.ExecContext(ctx, `UPDATE history SET diagnosis = $2 WHERE id = $1`, id, diagnosis)
+	if err != nil {
+		return fmt.Errorf("set history diagnosis: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ListGroups implements Store, ordered by name.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRight, ListFilter, Search } from "lucide-react";
+import { ArrowRight, ListFilter, Loader2, Search, Sparkles } from "lucide-react";
 import { RelativeTime } from "@/components/relative-time";
 import { ActionBadge, ResultIcon } from "@/components/status";
 import { ErrorState } from "@/components/error-state";
@@ -16,6 +16,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  useApps,
+  useDiagnoseHistory,
+  useHistoryDiagnosis,
+} from "@/lib/queries";
 import type { HistoryEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -23,12 +28,14 @@ const PAGE = 15;
 
 /** Filterable deployment history for the selected app, newest first. */
 export function HistoryPanel({
+  app,
   history,
   isPending,
   error,
   onRetry,
   className,
 }: {
+  app: string;
   history: HistoryEntry[] | undefined;
   isPending: boolean;
   error: Error | null;
@@ -41,6 +48,10 @@ export function HistoryPanel({
   const [text, setText] = useState("");
   const [limit, setLimit] = useState(PAGE);
   const [showFilters, setShowFilters] = useState(false);
+  // History row whose AI diagnosis is expanded (one at a time).
+  const [diagnosing, setDiagnosing] = useState<number | null>(null);
+  const { data: apps } = useApps();
+  const diagnose = useDiagnoseHistory(app);
 
   const rings = useMemo(
     () => [...new Set((history ?? []).map((h) => h.ring))],
@@ -195,7 +206,41 @@ export function HistoryPanel({
                     iso={h.created_at}
                     className="text-xs text-muted-foreground"
                   />
+                  {h.result === "failure" && apps?.ai_enabled && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 shrink-0"
+                      aria-label="Diagnose with AI"
+                      title="Diagnose with AI"
+                      onClick={() => {
+                        if (diagnosing === h.id) {
+                          setDiagnosing(null);
+                          return;
+                        }
+                        setDiagnosing(h.id);
+                        // Already-stored answers just expand; anything else
+                        // (re)starts the server-side generation.
+                        if (!h.diagnosis) diagnose.mutate(h.id);
+                      }}
+                    >
+                      <Sparkles
+                        aria-hidden
+                        className={cn(
+                          "size-3.5",
+                          diagnosing === h.id && "text-primary",
+                        )}
+                      />
+                    </Button>
+                  )}
                 </span>
+                {diagnosing === h.id && (
+                  <HistoryDiagnosis
+                    app={app}
+                    entry={h}
+                    onRetry={() => diagnose.mutate(h.id)}
+                  />
+                )}
               </li>
             ))}
           </ol>
@@ -213,5 +258,55 @@ export function HistoryPanel({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Expanded AI explanation of one failed history entry. History rows carry no
+ * step logs, so the model works from the recorded summary; the answer is
+ * stored server-side and shared by every user.
+ */
+function HistoryDiagnosis({
+  app,
+  entry,
+  onRetry,
+}: {
+  app: string;
+  entry: HistoryEntry;
+  onRetry: () => void;
+}) {
+  // Polls while the model runs; entry.diagnosis covers already-stored answers.
+  const { data } = useHistoryDiagnosis(app, entry.diagnosis ? null : entry.id);
+  const status = entry.diagnosis
+    ? "done"
+    : (data?.diagnosis_status ?? "running");
+  const text = entry.diagnosis || data?.diagnosis;
+
+  return (
+    <div className="basis-full rounded-md bg-muted/40 px-3 py-2">
+      {status === "done" && text ? (
+        <>
+          <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Sparkles aria-hidden className="size-3" />
+            AI diagnosis
+          </p>
+          <p className="text-sm leading-relaxed whitespace-pre-wrap">{text}</p>
+        </>
+      ) : status === "failed" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-status-critical">
+            Diagnosis failed: {data?.diagnosis_error ?? "unknown error"}
+          </p>
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            Try again
+          </Button>
+        </div>
+      ) : (
+        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 aria-hidden className="size-3.5 animate-spin" />
+          Analyzing failure — can take a minute…
+        </p>
+      )}
+    </div>
   );
 }

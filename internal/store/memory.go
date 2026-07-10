@@ -113,6 +113,31 @@ func (m *Memory) ListHistory(_ context.Context, app string) ([]HistoryEntry, err
 	return out, nil
 }
 
+// GetHistoryEntry implements Store.
+func (m *Memory) GetHistoryEntry(_ context.Context, app string, id int64) (HistoryEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, e := range m.history {
+		if e.ID == id && e.App == app {
+			return e, nil
+		}
+	}
+	return HistoryEntry{}, ErrNotFound
+}
+
+// SetHistoryDiagnosis implements Store.
+func (m *Memory) SetHistoryDiagnosis(_ context.Context, id int64, diagnosis string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.history {
+		if m.history[i].ID == id {
+			m.history[i].Diagnosis = diagnosis
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 // ListGroups implements Store, ordered by name (then ID for stability).
 func (m *Memory) ListGroups(_ context.Context) ([]Group, error) {
 	m.mu.RLock()

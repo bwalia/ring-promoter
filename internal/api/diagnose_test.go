@@ -3,11 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/example/ring-promoter/internal/store"
 )
 
 // fakeDiagnoser records the reports it receives and returns a canned answer.
@@ -88,7 +91,7 @@ func failJob(t *testing.T, h http.Handler) string {
 
 func TestDiagnoseJob_RunsDetachedAndCaches(t *testing.T) {
 	diag := &fakeDiagnoser{}
-	h := newTestServerWithDiag(t, "", diag)
+	h, _ := newTestServerWithDiag(t, "", diag)
 	id := failJob(t, h)
 
 	// The first request starts the diagnosis and returns immediately.
@@ -126,7 +129,7 @@ func TestDiagnoseJob_RunsDetachedAndCaches(t *testing.T) {
 
 func TestDiagnoseJob_SingleFlight(t *testing.T) {
 	diag := &fakeDiagnoser{block: make(chan struct{})}
-	h := newTestServerWithDiag(t, "", diag)
+	h, _ := newTestServerWithDiag(t, "", diag)
 	id := failJob(t, h)
 
 	// Concurrent clicks while the model is thinking share ONE generation.
@@ -147,7 +150,7 @@ func TestDiagnoseJob_SingleFlight(t *testing.T) {
 
 func TestDiagnoseJob_Guards(t *testing.T) {
 	diag := &fakeDiagnoser{}
-	h := newTestServerWithDiag(t, "", diag)
+	h, _ := newTestServerWithDiag(t, "", diag)
 
 	// Unknown job.
 	if rec := doJSON(t, h, "POST", "/api/apps/web/jobs/job-999/diagnose", ""); rec.Code != http.StatusNotFound {
@@ -169,5 +172,122 @@ func TestDiagnoseJob_Guards(t *testing.T) {
 	id = failJob(t, h)
 	if rec := doJSON(t, h, "POST", "/api/apps/web/jobs/"+id+"/diagnose", ""); rec.Code != http.StatusNotImplemented {
 		t.Errorf("no diagnoser: status %d, want 501", rec.Code)
+	}
+}
+
+// seedHistory writes one history entry straight into the store and returns it.
+func seedHistory(t *testing.T, st store.Store, result, message string) store.HistoryEntry {
+	t.Helper()
+	if err := st.AddHistory(context.Background(), store.HistoryEntry{
+		App: "web", Ring: "int", Action: store.ActionPromote,
+		FromVersion: "v1", ToVersion: "v2", Result: result, Message: message,
+	}); err != nil {
+		t.Fatalf("seed history: %v", err)
+	}
+	entries, err := st.ListHistory(context.Background(), "web")
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("list history: %v", err)
+	}
+	return entries[0]
+}
+
+func TestDiagnoseHistory_RunsDetachedAndPersists(t *testing.T) {
+	diag := &fakeDiagnoser{}
+	h, st := newTestServerWithDiag(t, "", diag)
+	entry := seedHistory(t, st, store.ResultFailure, "health check failed; rolled back")
+	path := fmt.Sprintf("/api/apps/web/history/%d/diagnose", entry.ID)
+
+	// Nothing has been requested yet.
+	if rec := doJSON(t, h, "GET", path, ""); !strings.Contains(rec.Body.String(), `"diagnosis_status":"none"`) {
+		t.Fatalf("initial status: %s", rec.Body)
+	}
+
+	// Start it: 202, then the answer becomes visible via GET.
+	if rec := doJSON(t, h, "POST", path, ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("diagnose: status %d body %s", rec.Code, rec.Body)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec := doJSON(t, h, "GET", path, "")
+		if strings.Contains(rec.Body.String(), `"diagnosis_status":"done"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("diagnosis did not finish: %s", rec.Body)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// The report says logs are gone and carries the recorded failure message.
+	report, _ := diag.report.Load().(string)
+	for _, want := range []string{"Application: web", "Failure message: health check failed; rolled back", "logs have expired"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report missing %q:\n%s", want, report)
+		}
+	}
+
+	// Persisted on the entry (shared by all users, survives restarts) and the
+	// history listing now carries it.
+	got, err := st.GetHistoryEntry(context.Background(), "web", entry.ID)
+	if err != nil || !strings.Contains(got.Diagnosis, "nothing to roll back") {
+		t.Fatalf("stored diagnosis = %q, err %v", got.Diagnosis, err)
+	}
+
+	// Re-POST reuses the stored answer: 200, no extra model call.
+	if rec := doJSON(t, h, "POST", path, ""); rec.Code != http.StatusOK {
+		t.Fatalf("cached diagnose: status %d", rec.Code)
+	}
+	if got := diag.calls.Load(); got != 1 {
+		t.Errorf("model called %d times, want 1", got)
+	}
+}
+
+func TestDiagnoseHistory_Guards(t *testing.T) {
+	diag := &fakeDiagnoser{}
+	h, st := newTestServerWithDiag(t, "", diag)
+	okEntry := seedHistory(t, st, store.ResultSuccess, "promoted")
+
+	// Successful entries cannot be diagnosed.
+	if rec := doJSON(t, h, "POST", fmt.Sprintf("/api/apps/web/history/%d/diagnose", okEntry.ID), ""); rec.Code != http.StatusConflict {
+		t.Errorf("success entry: status %d, want 409", rec.Code)
+	}
+	// Unknown id and malformed id.
+	if rec := doJSON(t, h, "POST", "/api/apps/web/history/999/diagnose", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown entry: status %d, want 404", rec.Code)
+	}
+	if rec := doJSON(t, h, "POST", "/api/apps/web/history/nope/diagnose", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad id: status %d, want 400", rec.Code)
+	}
+	if got := diag.calls.Load(); got != 0 {
+		t.Errorf("model called %d times, want 0", got)
+	}
+}
+
+// TestListJobs_SharedAcrossClients: /api/jobs carries no per-browser state, so
+// a job started by one client is visible to any other client polling it.
+func TestListJobs_SharedAcrossClients(t *testing.T) {
+	h := newTestServer(t, "")
+
+	// Before any job: empty list, not null.
+	rec := doJSON(t, h, "GET", "/api/jobs", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"jobs":[]`) {
+		t.Fatalf("empty jobs: status %d body %s", rec.Code, rec.Body)
+	}
+
+	// "User A" starts a seed; "user B" (a state-free GET) sees it.
+	id := startJob(t, h, "/api/apps/web/seed?async=1", `{"ring":"int","version":"v1"}`)
+	waitForJob(t, h, id, jobSuccess)
+	rec = doJSON(t, h, "GET", "/api/jobs", "")
+	body := rec.Body.String()
+	if !strings.Contains(body, `"id":"`+id+`"`) || !strings.Contains(body, `"app":"web"`) {
+		t.Fatalf("jobs list missing the seed job: %s", body)
+	}
+
+	// A newer job replaces it as the app's latest.
+	id2 := failJob(t, h)
+	rec = doJSON(t, h, "GET", "/api/jobs", "")
+	body = rec.Body.String()
+	if !strings.Contains(body, `"id":"`+id2+`"`) || strings.Contains(body, `"id":"`+id+`"`) {
+		t.Fatalf("jobs list should hold only the newest job per app: %s", body)
 	}
 }
