@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, ListFilter, Loader2, Search, Sparkles } from "lucide-react";
 import { RelativeTime } from "@/components/relative-time";
 import { ActionBadge, ResultIcon } from "@/components/status";
@@ -213,16 +213,9 @@ export function HistoryPanel({
                       className="size-6 shrink-0"
                       aria-label="Diagnose with AI"
                       title="Diagnose with AI"
-                      onClick={() => {
-                        if (diagnosing === h.id) {
-                          setDiagnosing(null);
-                          return;
-                        }
-                        setDiagnosing(h.id);
-                        // Already-stored answers just expand; anything else
-                        // (re)starts the server-side generation.
-                        if (!h.diagnosis) diagnose.mutate(h.id);
-                      }}
+                      onClick={() =>
+                        setDiagnosing(diagnosing === h.id ? null : h.id)
+                      }
                     >
                       <Sparkles
                         aria-hidden
@@ -238,7 +231,7 @@ export function HistoryPanel({
                   <HistoryDiagnosis
                     app={app}
                     entry={h}
-                    onRetry={() => diagnose.mutate(h.id)}
+                    onStart={() => diagnose.mutate(h.id)}
                   />
                 )}
               </li>
@@ -262,25 +255,35 @@ export function HistoryPanel({
 }
 
 /**
- * Expanded AI explanation of one failed history entry. History rows carry no
- * step logs, so the model works from the recorded summary; the answer is
- * stored server-side and shared by every user.
+ * Expanded AI explanation of one failed history entry. Recent failures include
+ * the step logs saved when they happened; older entries fall back to the
+ * recorded summary. The answer is stored server-side, shared by every user.
+ *
+ * Expanding starts a diagnosis ONLY when the server reports none has run yet;
+ * a previously failed one shows its error and waits for "Try again" instead
+ * of silently restarting the model call.
  */
 function HistoryDiagnosis({
   app,
   entry,
-  onRetry,
+  onStart,
 }: {
   app: string;
   entry: HistoryEntry;
-  onRetry: () => void;
+  onStart: () => void;
 }) {
   // Polls while the model runs; entry.diagnosis covers already-stored answers.
   const { data } = useHistoryDiagnosis(app, entry.diagnosis ? null : entry.id);
-  const status = entry.diagnosis
-    ? "done"
-    : (data?.diagnosis_status ?? "running");
+  const status = entry.diagnosis ? "done" : data?.diagnosis_status;
   const text = entry.diagnosis || data?.diagnosis;
+
+  const started = useRef(false);
+  useEffect(() => {
+    if (status === "none" && !started.current) {
+      started.current = true;
+      onStart();
+    }
+  }, [status, onStart]);
 
   return (
     <div className="basis-full rounded-md bg-muted/40 px-3 py-2">
@@ -297,7 +300,7 @@ function HistoryDiagnosis({
           <p className="text-xs text-status-critical">
             Diagnosis failed: {data?.diagnosis_error ?? "unknown error"}
           </p>
-          <Button variant="outline" size="sm" onClick={onRetry}>
+          <Button variant="outline" size="sm" onClick={onStart}>
             Try again
           </Button>
         </div>

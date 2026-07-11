@@ -103,8 +103,9 @@ export const api = {
   // how a promotion started on one screen shows up on all the others.
   jobs: () => request<{ jobs: Job[] }>("/api/jobs"),
 
-  // AI diagnosis of a failed HISTORY entry (no logs — works from the recorded
-  // summary; the answer is persisted server-side, shared by everyone).
+  // AI diagnosis of a failed HISTORY entry. Recent failures carry the step
+  // logs saved when they happened; older ones fall back to the recorded
+  // summary. The answer is persisted server-side, shared by everyone.
   diagnoseHistory: (name: string, id: number) =>
     request<HistoryDiagnosis>(`${app(name)}/history/${id}/diagnose`, {
       method: "POST",
