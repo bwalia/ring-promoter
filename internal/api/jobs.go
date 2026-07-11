@@ -101,6 +101,14 @@ func (j *Job) FinishStep(status, message string) {
 	}
 }
 
+// StepLogs implements promoter.StepLogsProvider: it renders the steps and logs
+// collected so far (capped like a diagnosis report). The promoter persists
+// this with a failure's history entry so the failure can still be properly
+// diagnosed after this in-memory job is gone.
+func (j *Job) StepLogs() string {
+	return stepsReport(j.snapshot().Steps)
+}
+
 // startDiagnosis marks a diagnosis as in flight and reports whether the caller
 // won the right to run it. It returns false when one is already running or an
 // answer is already stored — the single-flight guard that stops concurrent

@@ -96,16 +96,36 @@ func (m *Memory) AddHistory(_ context.Context, entry HistoryEntry) error {
 		entry.CreatedAt = m.now().UTC()
 	}
 	m.history = append(m.history, entry)
+	if entry.Logs != "" {
+		m.trimFailureLogsLocked(entry.App)
+	}
 	return nil
 }
 
-// ListHistory implements Store, newest first.
+// trimFailureLogsLocked keeps detailed logs on only the newest KeepFailureLogs
+// entries of an app, clearing older ones. Callers must hold m.mu.
+func (m *Memory) trimFailureLogsLocked(app string) {
+	kept := 0
+	for i := len(m.history) - 1; i >= 0; i-- {
+		e := &m.history[i]
+		if e.App != app || e.Logs == "" {
+			continue
+		}
+		kept++
+		if kept > KeepFailureLogs {
+			e.Logs = ""
+		}
+	}
+}
+
+// ListHistory implements Store, newest first. Logs are omitted.
 func (m *Memory) ListHistory(_ context.Context, app string) ([]HistoryEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var out []HistoryEntry
 	for _, e := range m.history {
 		if e.App == app {
+			e.Logs = ""
 			out = append(out, e)
 		}
 	}

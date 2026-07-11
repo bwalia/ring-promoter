@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -289,5 +290,61 @@ func TestListJobs_SharedAcrossClients(t *testing.T) {
 	body = rec.Body.String()
 	if !strings.Contains(body, `"id":"`+id2+`"`) || strings.Contains(body, `"id":"`+id+`"`) {
 		t.Fatalf("jobs list should hold only the newest job per app: %s", body)
+	}
+}
+
+// failingChecker makes every health check fail so deploys are recorded as
+// failures (with their step logs).
+type failingChecker struct{}
+
+func (failingChecker) Check(context.Context, string, int) error {
+	return errors.New("connection refused (port closed)")
+}
+
+// A real failed operation saves its step logs on the history entry, and the
+// history diagnosis feeds them to the model instead of "logs have expired".
+func TestDiagnoseHistory_UsesSavedFailureLogs(t *testing.T) {
+	diag := &fakeDiagnoser{}
+	h, st := newTestServerFull(t, "", diag, failingChecker{})
+
+	// Seed fails: deploy succeeds (log deployer) but the health check fails.
+	id := startJob(t, h, "/api/apps/web/seed?async=1", `{"ring":"int","version":"v1"}`)
+	waitForJob(t, h, id, jobFailed)
+
+	// The recorded failure carries the step logs...
+	entries, err := st.ListHistory(context.Background(), "web")
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("history: %v (%d entries)", err, len(entries))
+	}
+	entry, err := st.GetHistoryEntry(context.Background(), "web", entries[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Result != store.ResultFailure || !strings.Contains(entry.Logs, "connection refused") {
+		t.Fatalf("entry result=%s logs=%q — want failure with health-check logs", entry.Result, entry.Logs)
+	}
+
+	// ...and the diagnosis report includes them.
+	path := fmt.Sprintf("/api/apps/web/history/%d/diagnose", entry.ID)
+	if rec := doJSON(t, h, "POST", path, ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("diagnose: status %d body %s", rec.Code, rec.Body)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec := doJSON(t, h, "GET", path, "")
+		if strings.Contains(rec.Body.String(), `"diagnosis_status":"done"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("diagnosis did not finish: %s", rec.Body)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	report, _ := diag.report.Load().(string)
+	if !strings.Contains(report, "connection refused") || !strings.Contains(report, "Steps:") {
+		t.Errorf("report missing saved step logs:\n%s", report)
+	}
+	if strings.Contains(report, "logs have expired") {
+		t.Errorf("report claims logs expired despite saved logs:\n%s", report)
 	}
 }

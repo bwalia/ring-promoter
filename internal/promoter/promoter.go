@@ -592,11 +592,20 @@ func (p *Promoter) saveState(ctx context.Context, app, ringName, prev, cur strin
 }
 
 func (p *Promoter) record(ctx context.Context, app, ringName, action, from, to, result, msg string) {
-	err := p.store.AddHistory(ctx, store.HistoryEntry{
+	entry := store.HistoryEntry{
 		App: app, Ring: ringName, Action: action,
 		FromVersion: from, ToVersion: to, Result: result, Message: msg,
-	})
-	if err != nil {
+	}
+	// Failures keep the step logs collected so far (when the reporter can
+	// provide them) so they can be diagnosed properly later, after the
+	// in-memory job is gone. The store retains them for the newest
+	// KeepFailureLogs failures per app.
+	if result == store.ResultFailure {
+		if lp, ok := reporterFrom(ctx).(StepLogsProvider); ok {
+			entry.Logs = lp.StepLogs()
+		}
+	}
+	if err := p.store.AddHistory(ctx, entry); err != nil {
 		p.log.Error("record history failed", "err", err, "app", app, "ring", ringName, "action", action)
 	}
 }

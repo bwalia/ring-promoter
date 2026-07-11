@@ -28,6 +28,13 @@ func newTestServer(t *testing.T, prodPass string) http.Handler {
 // store so tests can seed history entries directly.
 func newTestServerWithDiag(t *testing.T, prodPass string, diag Diagnoser) (http.Handler, store.Store) {
 	t.Helper()
+	return newTestServerFull(t, prodPass, diag, health.AlwaysHealthy{})
+}
+
+// newTestServerFull also lets the test choose the health checker (a failing
+// one turns every deploy into a recorded failure).
+func newTestServerFull(t *testing.T, prodPass string, diag Diagnoser, checker health.Checker) (http.Handler, store.Store) {
+	t.Helper()
 	rings := map[string]config.RingConfig{}
 	for _, r := range ring.Names() {
 		rings[r] = config.RingConfig{
@@ -43,7 +50,7 @@ func newTestServerWithDiag(t *testing.T, prodPass string, diag Diagnoser) (http.
 		Apps:     []config.AppConfig{{Name: "web", Rings: rings}},
 	}
 	st := store.NewMemory()
-	prom := promoter.New(cfg, st, nil, deployer.NewLogDeployer(nil), health.AlwaysHealthy{}, nil)
+	prom := promoter.New(cfg, st, nil, deployer.NewLogDeployer(nil), checker, nil)
 	return NewServer(prom, "tok", prodPass, http.NotFoundHandler(), time.Minute, nil, BuildInfo{}, diag).Handler(), st
 }
 

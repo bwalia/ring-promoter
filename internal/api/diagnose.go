@@ -209,10 +209,15 @@ func (s *Server) handleGetHistoryDiagnosis(w http.ResponseWriter, r *http.Reques
 }
 
 // historyReport renders a history entry as the report handed to the model.
-// Unlike a live job it has no step logs, and the prompt says so.
+// Recent failures carry the step logs captured when they happened; older ones
+// only the recorded summary, and the prompt says so.
 func historyReport(e store.HistoryEntry) string {
 	var b strings.Builder
-	b.WriteString("This failure comes from the deployment history. The detailed step logs have expired, so explain from this recorded summary.\n\n")
+	if e.Logs != "" {
+		b.WriteString("This failure comes from the deployment history; its step-by-step logs were saved when it happened and are included below.\n\n")
+	} else {
+		b.WriteString("This failure comes from the deployment history. The detailed step logs have expired, so explain from this recorded summary.\n\n")
+	}
 	fmt.Fprintf(&b, "Application: %s\nAction: %s\nTarget ring: %s\n", e.App, e.Action, e.Ring)
 	if e.FromVersion != "" {
 		fmt.Fprintf(&b, "From version: %s\n", e.FromVersion)
@@ -221,29 +226,39 @@ func historyReport(e store.HistoryEntry) string {
 		fmt.Fprintf(&b, "To version: %s\n", e.ToVersion)
 	}
 	fmt.Fprintf(&b, "When: %s\nFailure message: %s\n", e.CreatedAt.UTC().Format(time.RFC3339), e.Message)
+	if e.Logs != "" {
+		b.WriteString("\nSteps:\n")
+		b.WriteString(e.Logs)
+	}
 	return b.String()
+}
+
+// stepsReport renders steps with their logs, capped per step and in total so a
+// log-heavy job cannot blow the model's context window. Logs are truncated
+// from the front: the tail (where the failure surfaces) is the signal.
+func stepsReport(steps []stepView) string {
+	var b strings.Builder
+	for i, st := range steps {
+		fmt.Fprintf(&b, "%d. [%s] %s\n", i+1, st.Status, st.Title)
+		logs := st.Logs
+		if len(logs) > maxLogLinesPerStep {
+			fmt.Fprintf(&b, "   (... %d earlier log lines omitted)\n", len(logs)-maxLogLinesPerStep)
+			logs = logs[len(logs)-maxLogLinesPerStep:]
+		}
+		for _, line := range logs {
+			fmt.Fprintf(&b, "   %s\n", line)
+		}
+	}
+	text := b.String()
+	if len(text) > maxReportBytes {
+		text = "(... report truncated, showing the end)\n" + text[len(text)-maxReportBytes:]
+	}
+	return text
 }
 
 // failureReport renders a failed job as the plain-text report handed to the
 // model: what ran, the terminal error, then each step with its last log lines.
 func failureReport(js jobState) string {
-	var steps strings.Builder
-	for i, st := range js.Steps {
-		fmt.Fprintf(&steps, "%d. [%s] %s\n", i+1, st.Status, st.Title)
-		logs := st.Logs
-		if len(logs) > maxLogLinesPerStep {
-			fmt.Fprintf(&steps, "   (... %d earlier log lines omitted)\n", len(logs)-maxLogLinesPerStep)
-			logs = logs[len(logs)-maxLogLinesPerStep:]
-		}
-		for _, line := range logs {
-			fmt.Fprintf(&steps, "   %s\n", line)
-		}
-	}
-	stepsText := steps.String()
-	if len(stepsText) > maxReportBytes {
-		stepsText = "(... report truncated, showing the end)\n" + stepsText[len(stepsText)-maxReportBytes:]
-	}
-
 	var b strings.Builder
 	fmt.Fprintf(&b, "Application: %s\nAction: %s\n", js.App, js.Action)
 	if js.Error != "" {
@@ -264,6 +279,6 @@ func failureReport(js jobState) string {
 		}
 	}
 	b.WriteString("\nSteps:\n")
-	b.WriteString(stepsText)
+	b.WriteString(stepsReport(js.Steps))
 	return b.String()
 }
