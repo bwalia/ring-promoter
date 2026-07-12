@@ -26,6 +26,14 @@ type Reporter interface {
 	FinishStep(status, message string)
 }
 
+// StepLogsProvider is optionally implemented by a Reporter that can render the
+// step-by-step logs collected so far. When an operation fails, the promoter
+// persists these logs with the failure's history entry so AI diagnosis has
+// real evidence even after the in-memory job is gone.
+type StepLogsProvider interface {
+	StepLogs() string
+}
+
 type reporterKey struct{}
 
 // WithReporter attaches a Reporter to ctx so promoter operations emit progress.

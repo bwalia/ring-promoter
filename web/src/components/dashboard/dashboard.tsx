@@ -47,6 +47,7 @@ export function Dashboard({ app }: { app: string }) {
 
       <div className="grid items-start gap-6 xl:grid-cols-3">
         <HistoryPanel
+          app={app}
           history={history.data}
           isPending={history.isPending}
           error={history.error}

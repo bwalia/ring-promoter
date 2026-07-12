@@ -5,8 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/example/ring-promoter/internal/store"
 )
 
 // Diagnoser produces a plain-language explanation of a failure report
@@ -77,26 +81,184 @@ func (s *Server) handleDiagnoseJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"diagnosis_status": diagRunning})
 }
 
-// failureReport renders a failed job as the plain-text report handed to the
-// model: what ran, the terminal error, then each step with its last log lines.
-func failureReport(js jobState) string {
-	var steps strings.Builder
-	for i, st := range js.Steps {
-		fmt.Fprintf(&steps, "%d. [%s] %s\n", i+1, st.Status, st.Title)
+// ---- history diagnosis ----
+//
+// History entries persist in the store (they outlive restarts and job
+// eviction) but carry no step logs, so their diagnosis works from the recorded
+// summary. The finished answer is stored on the entry itself — shared by every
+// user and durable; only the transient running/failed state lives here.
+
+// historyDiagnoses tracks in-flight and failed history diagnoses per entry id.
+type historyDiagnoses struct {
+	mu    sync.Mutex
+	state map[int64]historyDiagState
+}
+
+type historyDiagState struct {
+	Status string // diagRunning or diagFailed
+	Err    string
+}
+
+// start marks entry id as being diagnosed; false means one is already running.
+// A previously failed diagnosis can be restarted.
+func (h *historyDiagnoses) start(id int64) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.state[id].Status == diagRunning {
+		return false
+	}
+	h.state[id] = historyDiagState{Status: diagRunning}
+	return true
+}
+
+// finish clears a successful run (the store now holds the answer) or records
+// the failure so the UI can show it and offer a retry.
+func (h *historyDiagnoses) finish(id int64, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err != nil {
+		h.state[id] = historyDiagState{Status: diagFailed, Err: err.Error()}
+		return
+	}
+	delete(h.state, id)
+}
+
+func (h *historyDiagnoses) get(id int64) (historyDiagState, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	st, ok := h.state[id]
+	return st, ok
+}
+
+// historyEntryFor resolves the {app}/{id} path into a history entry, writing
+// the error response itself when the entry cannot be diagnosed.
+func (s *Server) historyEntryFor(w http.ResponseWriter, r *http.Request) (store.HistoryEntry, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid history id"))
+		return store.HistoryEntry{}, false
+	}
+	entry, err := s.prom.HistoryEntry(r.Context(), r.PathValue("app"), id)
+	if err != nil {
+		writeError(w, statusForErr(err), err)
+		return store.HistoryEntry{}, false
+	}
+	return entry, true
+}
+
+// handleDiagnoseHistory starts (or reuses) the AI diagnosis of a FAILED
+// history entry. Same contract as job diagnosis: detached, single-flight,
+// 202 while running; the answer is persisted on the entry.
+func (s *Server) handleDiagnoseHistory(w http.ResponseWriter, r *http.Request) {
+	if s.diag == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("AI diagnosis is not configured on this server"))
+		return
+	}
+	entry, ok := s.historyEntryFor(w, r)
+	if !ok {
+		return
+	}
+	if entry.Result != store.ResultFailure {
+		writeError(w, http.StatusConflict, errors.New("only failed entries can be diagnosed"))
+		return
+	}
+	if entry.Diagnosis != "" {
+		writeJSON(w, http.StatusOK, map[string]string{"diagnosis_status": diagDone, "diagnosis": entry.Diagnosis})
+		return
+	}
+	if !s.histDiag.start(entry.ID) {
+		writeJSON(w, http.StatusAccepted, map[string]string{"diagnosis_status": diagRunning})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), diagnoseTimeout)
+	go func() {
+		defer cancel()
+		text, err := s.diag.Diagnose(ctx, historyReport(entry))
+		if err == nil {
+			err = s.prom.SetHistoryDiagnosis(ctx, entry.ID, text)
+		}
+		if err != nil {
+			s.log.Error("ai history diagnosis failed", "entry", entry.ID, "err", err)
+		}
+		s.histDiag.finish(entry.ID, err)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]string{"diagnosis_status": diagRunning})
+}
+
+// handleGetHistoryDiagnosis reports where a history entry's diagnosis stands:
+// none, running, failed (with the error) or done (with the stored answer).
+func (s *Server) handleGetHistoryDiagnosis(w http.ResponseWriter, r *http.Request) {
+	entry, ok := s.historyEntryFor(w, r)
+	if !ok {
+		return
+	}
+	if entry.Diagnosis != "" {
+		writeJSON(w, http.StatusOK, map[string]string{"diagnosis_status": diagDone, "diagnosis": entry.Diagnosis})
+		return
+	}
+	if st, ok := s.histDiag.get(entry.ID); ok {
+		out := map[string]string{"diagnosis_status": st.Status}
+		if st.Err != "" {
+			out["diagnosis_error"] = st.Err
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"diagnosis_status": "none"})
+}
+
+// historyReport renders a history entry as the report handed to the model.
+// Recent failures carry the step logs captured when they happened; older ones
+// only the recorded summary, and the prompt says so.
+func historyReport(e store.HistoryEntry) string {
+	var b strings.Builder
+	if e.Logs != "" {
+		b.WriteString("This failure comes from the deployment history; its step-by-step logs were saved when it happened and are included below.\n\n")
+	} else {
+		b.WriteString("This failure comes from the deployment history. The detailed step logs have expired, so explain from this recorded summary.\n\n")
+	}
+	fmt.Fprintf(&b, "Application: %s\nAction: %s\nTarget ring: %s\n", e.App, e.Action, e.Ring)
+	if e.FromVersion != "" {
+		fmt.Fprintf(&b, "From version: %s\n", e.FromVersion)
+	}
+	if e.ToVersion != "" {
+		fmt.Fprintf(&b, "To version: %s\n", e.ToVersion)
+	}
+	fmt.Fprintf(&b, "When: %s\nFailure message: %s\n", e.CreatedAt.UTC().Format(time.RFC3339), e.Message)
+	if e.Logs != "" {
+		b.WriteString("\nSteps:\n")
+		b.WriteString(e.Logs)
+	}
+	return b.String()
+}
+
+// stepsReport renders steps with their logs, capped per step and in total so a
+// log-heavy job cannot blow the model's context window. Logs are truncated
+// from the front: the tail (where the failure surfaces) is the signal.
+func stepsReport(steps []stepView) string {
+	var b strings.Builder
+	for i, st := range steps {
+		fmt.Fprintf(&b, "%d. [%s] %s\n", i+1, st.Status, st.Title)
 		logs := st.Logs
 		if len(logs) > maxLogLinesPerStep {
-			fmt.Fprintf(&steps, "   (... %d earlier log lines omitted)\n", len(logs)-maxLogLinesPerStep)
+			fmt.Fprintf(&b, "   (... %d earlier log lines omitted)\n", len(logs)-maxLogLinesPerStep)
 			logs = logs[len(logs)-maxLogLinesPerStep:]
 		}
 		for _, line := range logs {
-			fmt.Fprintf(&steps, "   %s\n", line)
+			fmt.Fprintf(&b, "   %s\n", line)
 		}
 	}
-	stepsText := steps.String()
-	if len(stepsText) > maxReportBytes {
-		stepsText = "(... report truncated, showing the end)\n" + stepsText[len(stepsText)-maxReportBytes:]
+	text := b.String()
+	if len(text) > maxReportBytes {
+		text = "(... report truncated, showing the end)\n" + text[len(text)-maxReportBytes:]
 	}
+	return text
+}
 
+// failureReport renders a failed job as the plain-text report handed to the
+// model: what ran, the terminal error, then each step with its last log lines.
+func failureReport(js jobState) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Application: %s\nAction: %s\n", js.App, js.Action)
 	if js.Error != "" {
@@ -117,6 +279,6 @@ func failureReport(js jobState) string {
 		}
 	}
 	b.WriteString("\nSteps:\n")
-	b.WriteString(stepsText)
+	b.WriteString(stepsReport(js.Steps))
 	return b.String()
 }

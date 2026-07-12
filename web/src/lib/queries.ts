@@ -8,7 +8,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useNow } from "@/lib/use-now";
 import { useAuthStore, useJobsStore, usePrefsStore } from "@/lib/stores";
 import type { HistoryEntry, Job, RingView } from "@/lib/types";
 
@@ -17,7 +18,7 @@ import type { HistoryEntry, Job, RingView } from "@/lib/types";
 const RINGS_INTERVAL = 10_000;
 const HISTORY_INTERVAL = 30_000;
 const APPS_INTERVAL = 60_000;
-const JOB_INTERVAL = 1_000;
+const JOBS_INTERVAL = 2_000;
 
 export function useApps() {
   const token = useAuthStore((s) => s.token);
@@ -107,44 +108,30 @@ export function useGroupRings(apps: string[]): GroupAppRings[] {
 }
 
 /**
- * Which of the given apps currently have a seed/promote/rollback running.
- * Polls only the apps with a tracked job; finished jobs drop out on their own.
+ * Newest job per application — SHARED server state, so a promotion started on
+ * one person's screen is visible on everyone's.
+ */
+export function useJobs() {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["jobs"],
+    queryFn: api.jobs,
+    enabled: !!token,
+    refetchInterval: JOBS_INTERVAL,
+    select: (data) => data.jobs ?? [],
+  });
+}
+
+/**
+ * Which of the given apps currently have a seed/promote/rollback running —
+ * by anyone, not just this browser.
  */
 export function useDeployingApps(apps: string[]): Set<string> {
-  const token = useAuthStore((s) => s.token);
-  const active = useJobsStore((s) => s.active);
-  const clearActive = useJobsStore((s) => s.clearActive);
-  const tracked = apps.filter((a) => active[a]);
-  const results = useQueries({
-    queries: tracked.map((app) => ({
-      queryKey: ["job", app, active[app].jobId],
-      queryFn: () => api.job(app, active[app].jobId),
-      enabled: !!token,
-      // Stop polling once the job is terminal OR gone (a dead id would
-      // otherwise be re-fetched every 2s forever).
-      refetchInterval: (q: { state: { data?: Job; error: Error | null } }) =>
-        q.state.error || isTerminal(q.state.data) ? false : 2_000,
-      retry: false,
-    })),
-  });
-
-  // Untrack jobs the server no longer knows (restart / eviction) so stale
-  // localStorage entries don't linger.
-  useEffect(() => {
-    results.forEach((r, i) => {
-      if (r.error instanceof ApiError && r.error.status === 404) {
-        clearActive(tracked[i]);
-      }
-    });
-  });
-
-  // "Deploying" requires a CONFIRMED non-terminal job — an unresolved fetch
-  // must not flash apps blue on page load.
+  const { data: jobs } = useJobs();
   return new Set(
-    tracked.filter((_, i) => {
-      const job = results[i].data;
-      return !!job && !isTerminal(job);
-    }),
+    (jobs ?? [])
+      .filter((j) => apps.includes(j.app) && !isTerminal(j))
+      .map((j) => j.app),
   );
 }
 
@@ -166,49 +153,46 @@ function isTerminal(job: Job | undefined): boolean {
   return job?.status === "success" || job?.status === "failed";
 }
 
-// Module-level so several components can watch the same job (the query itself
-// is deduped by key) without duplicating the completion toast/invalidation.
+/** Stable identity of a job card (ids restart with the server, dates don't). */
+const jobKey = (job: Job) => `${job.app}:${job.id}:${job.started_at}`;
+
+// Module-level so several components watching the same job don't duplicate
+// the completion toast/invalidation.
 const handledJobs = new Set<string>();
+// Jobs this browser saw running: their completion deserves a toast. A job
+// first seen already-finished (e.g. on page load) does not.
+const seenRunning = new Set<string>();
+
+/** How long a finished card stays visible to users who never saw it run. */
+const FINISHED_CARD_WINDOW_MS = 15 * 60 * 1000;
 
 /**
- * Polls the app's active job (if any) every second and, on completion, shows a
- * toast and refreshes rings + history so the dashboard reflects the outcome
- * immediately. The finished job stays visible until dismissed.
+ * The app's newest job from the SHARED server list — every user sees the same
+ * card, whoever started the operation. On completion it shows a toast and
+ * refreshes rings + history. The finished card stays visible until dismissed
+ * (dismissal is per-browser); old finished jobs don't reappear on page load.
  */
 export function useActiveJob(app: string | null) {
   const queryClient = useQueryClient();
-  const active = useJobsStore((s) => (app ? s.active[app] : undefined));
-  const clearActive = useJobsStore((s) => s.clearActive);
+  const { data: jobs } = useJobs();
+  const dismissed = useJobsStore((s) => s.dismissed);
+  const dismissKey = useJobsStore((s) => s.dismiss);
+  const now = useNow(60_000);
 
-  const query = useQuery({
-    queryKey: ["job", app, active?.jobId],
-    queryFn: () => api.job(app!, active!.jobId),
-    enabled: !!app && !!active,
-    // Keep polling past the terminal state while an AI diagnosis is being
-    // generated server-side — the answer lands on the job JSON.
-    refetchInterval: (q) =>
-      !isTerminal(q.state.data) ||
-      q.state.data?.diagnosis_status === "running"
-        ? JOB_INTERVAL
-        : false,
-    retry: (failureCount, error) =>
-      // A 404 means the server restarted or evicted the job — stop tracking.
-      error instanceof ApiError && error.status === 404
-        ? false
-        : failureCount < 3,
-  });
+  const job = app ? jobs?.find((j) => j.app === app) : undefined;
 
   useEffect(() => {
-    if (!app) return;
-    if (query.error instanceof ApiError && query.error.status === 404) {
-      clearActive(app);
+    if (!job) return;
+    if (!isTerminal(job)) {
+      seenRunning.add(jobKey(job));
       return;
     }
-    const job = query.data;
-    if (!job || !isTerminal(job)) return;
-    const key = `${app}:${job.id}:${job.status}`;
+    const key = `${jobKey(job)}:${job.status}`;
     if (handledJobs.has(key)) return;
     handledJobs.add(key);
+    // Only completions we watched happen get a toast — not history replayed
+    // into a freshly opened tab.
+    if (!seenRunning.has(jobKey(job))) return;
 
     const label = `${job.action} · ${job.app}`;
     if (job.status === "success") {
@@ -220,21 +204,31 @@ export function useActiveJob(app: string | null) {
         description: job.error ?? job.result?.message ?? "operation failed",
       });
     }
-    queryClient.invalidateQueries({ queryKey: ["rings", app] });
-    queryClient.invalidateQueries({ queryKey: ["history", app] });
-  }, [app, query.data, query.error, clearActive, queryClient]);
+    queryClient.invalidateQueries({ queryKey: ["rings", job.app] });
+    queryClient.invalidateQueries({ queryKey: ["history", job.app] });
+  }, [job, queryClient]);
+
+  // A finished card is shown if this browser saw it run or it finished
+  // recently; anything older is stale context, not news.
+  const finishedRecently =
+    !job?.finished_at ||
+    now - new Date(job.finished_at).getTime() < FINISHED_CARD_WINDOW_MS;
+  const visible =
+    !!job &&
+    !dismissed.includes(jobKey(job)) &&
+    (!isTerminal(job) || seenRunning.has(jobKey(job)) || finishedRecently);
 
   return {
-    job: query.data,
-    running: !!active && !isTerminal(query.data),
-    dismiss: () => app && clearActive(app),
+    job: visible ? job : undefined,
+    running: !!job && !isTerminal(job),
+    dismiss: () => job && dismissKey(jobKey(job)),
   };
 }
 
 /**
  * Ask the server's LLM to explain a failed job. The generation runs
- * server-side, detached from this request; the job poll (which keeps running
- * while diagnosis_status is "running", see useActiveJob) delivers the result.
+ * server-side, detached from this request; the shared jobs poll delivers the
+ * result to every viewer.
  */
 export function useDiagnoseJob(app: string | null, jobId: string | undefined) {
   const queryClient = useQueryClient();
@@ -245,16 +239,57 @@ export function useDiagnoseJob(app: string | null, jobId: string | undefined) {
     },
     onSuccess: (res) => {
       // Cached answer (200) renders immediately; otherwise mark the job as
-      // diagnosing so the poll resumes and picks the answer up server-side.
-      queryClient.setQueryData<Job>(
-        ["job", app, jobId],
-        (job) =>
-          job &&
-          (res.diagnosis
-            ? { ...job, diagnosis: res.diagnosis, diagnosis_status: "done" }
-            : { ...job, diagnosis_status: "running" }),
+      // diagnosing so the button disables while the server generates.
+      queryClient.setQueryData<{ jobs: Job[] }>(
+        ["jobs"],
+        (data) =>
+          data && {
+            jobs: data.jobs.map((j) =>
+              j.app === app && j.id === jobId
+                ? res.diagnosis
+                  ? {
+                      ...j,
+                      diagnosis: res.diagnosis,
+                      diagnosis_status: "done" as const,
+                    }
+                  : { ...j, diagnosis_status: "running" as const }
+                : j,
+            ),
+          },
       );
-      queryClient.invalidateQueries({ queryKey: ["job", app, jobId] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+    onError: (err: Error) =>
+      toast.error("AI diagnosis failed", { description: err.message }),
+  });
+}
+
+/**
+ * State of a failed HISTORY entry's diagnosis; polls while the model runs.
+ */
+export function useHistoryDiagnosis(app: string | null, id: number | null) {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["history-diagnosis", app, id],
+    queryFn: () => api.historyDiagnosis(app!, id!),
+    enabled: !!token && !!app && id !== null,
+    refetchInterval: (q) =>
+      q.state.data?.diagnosis_status === "running" ? JOBS_INTERVAL : false,
+  });
+}
+
+/** Start the AI diagnosis of a failed history entry. */
+export function useDiagnoseHistory(app: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => {
+      if (!app) throw new Error("no application selected");
+      return api.diagnoseHistory(app, id);
+    },
+    onSuccess: (_res, id) => {
+      queryClient.invalidateQueries({
+        queryKey: ["history-diagnosis", app, id],
+      });
     },
     onError: (err: Error) =>
       toast.error("AI diagnosis failed", { description: err.message }),
@@ -331,7 +366,7 @@ export function useProdProtection() {
 }
 
 export function useSeedMutation(app: string | null) {
-  const setActive = useJobsStore((s) => s.setActive);
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       ring,
@@ -345,8 +380,9 @@ export function useSeedMutation(app: string | null) {
       if (!app) throw new Error("no application selected");
       return api.seed(app, ring, version, password);
     },
-    onSuccess: ({ job_id }, { ring, version }) => {
-      setActive(app!, { jobId: job_id, action: "seed" });
+    onSuccess: (_res, { ring, version }) => {
+      // The shared jobs poll picks the new job up; refetch now for snappiness.
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
       toast.info("Seed started", {
         description: `${app}: ${version} → ${ring}`,
       });
@@ -357,7 +393,7 @@ export function useSeedMutation(app: string | null) {
 }
 
 export function usePromoteMutation(app: string | null) {
-  const setActive = useJobsStore((s) => s.setActive);
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       fromRing,
@@ -369,8 +405,8 @@ export function usePromoteMutation(app: string | null) {
       if (!app) throw new Error("no application selected");
       return api.promote(app, fromRing, password);
     },
-    onSuccess: ({ job_id }, { fromRing }) => {
-      setActive(app!, { jobId: job_id, action: "promote" });
+    onSuccess: (_res, { fromRing }) => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
       toast.info("Promotion started", {
         description: `${app}: promoting from ${fromRing}`,
       });
@@ -426,14 +462,14 @@ export function useAutoPromoteMutation(app: string | null) {
 }
 
 export function useRollbackMutation(app: string | null) {
-  const setActive = useJobsStore((s) => s.setActive);
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ ring }: { ring: string }) => {
       if (!app) throw new Error("no application selected");
       return api.rollback(app, ring);
     },
-    onSuccess: ({ job_id }, { ring }) => {
-      setActive(app!, { jobId: job_id, action: "rollback" });
+    onSuccess: (_res, { ring }) => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
       toast.info("Rollback started", {
         description: `${app}: rolling back ${ring}`,
       });

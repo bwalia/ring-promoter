@@ -25,6 +25,13 @@ data:
     # runs as a single operation, so a multi-hop chain of GitHub-workflow
     # deploys (each taking minutes) shares this budget.
     operation_timeout: 60m
+    # AI failure diagnosis: "Diagnose with AI" on failed jobs sends the failure
+    # logs to this Ollama server, which explains the cause and suggests fixes.
+    # Active only when RP_OLLAMA_JWT_SECRET is also provided (Secret) — it signs
+    # the HS256 JWT sent in the x-api-key header to the auth gateway.
+    ollama:
+      url: "https://ollama.workstation.co.uk"
+      model: "qwen3-coder:30b"
     apps:
       # wslproxy — OpenResty/Lua app on VMs, deployed via its own GitHub Actions
       # per-environment workflow (deploy-single-environment.yml). Rings are the

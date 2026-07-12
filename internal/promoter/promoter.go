@@ -126,6 +126,19 @@ func (p *Promoter) History(ctx context.Context, app string) ([]store.HistoryEntr
 	return p.store.ListHistory(ctx, app)
 }
 
+// HistoryEntry returns one history entry of an application.
+func (p *Promoter) HistoryEntry(ctx context.Context, app string, id int64) (store.HistoryEntry, error) {
+	if _, ok := p.cfg.App(app); !ok {
+		return store.HistoryEntry{}, ErrAppNotFound
+	}
+	return p.store.GetHistoryEntry(ctx, app, id)
+}
+
+// SetHistoryDiagnosis stores the AI diagnosis for a history entry.
+func (p *Promoter) SetHistoryDiagnosis(ctx context.Context, id int64, diagnosis string) error {
+	return p.store.SetHistoryDiagnosis(ctx, id, diagnosis)
+}
+
 // Rings returns the read model for every ring of an application, including a
 // fresh (live) health check and live version where available.
 func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
@@ -579,11 +592,20 @@ func (p *Promoter) saveState(ctx context.Context, app, ringName, prev, cur strin
 }
 
 func (p *Promoter) record(ctx context.Context, app, ringName, action, from, to, result, msg string) {
-	err := p.store.AddHistory(ctx, store.HistoryEntry{
+	entry := store.HistoryEntry{
 		App: app, Ring: ringName, Action: action,
 		FromVersion: from, ToVersion: to, Result: result, Message: msg,
-	})
-	if err != nil {
+	}
+	// Failures keep the step logs collected so far (when the reporter can
+	// provide them) so they can be diagnosed properly later, after the
+	// in-memory job is gone. The store retains them for the newest
+	// KeepFailureLogs failures per app.
+	if result == store.ResultFailure {
+		if lp, ok := reporterFrom(ctx).(StepLogsProvider); ok {
+			entry.Logs = lp.StepLogs()
+		}
+	}
+	if err := p.store.AddHistory(ctx, entry); err != nil {
 		p.log.Error("record history failed", "err", err, "app", app, "ring", ringName, "action", action)
 	}
 }

@@ -50,7 +50,16 @@ export interface HistoryEntry {
   to_version: string;
   result: HistoryResult;
   message: string;
+  /** Stored AI explanation of a failed entry (shared, survives restarts). */
+  diagnosis?: string;
   created_at: string;
+}
+
+/** State of a history entry's AI diagnosis (GET .../history/{id}/diagnose). */
+export interface HistoryDiagnosis {
+  diagnosis_status: "none" | "running" | "done" | "failed";
+  diagnosis?: string;
+  diagnosis_error?: string;
 }
 
 export interface OperationResult {

@@ -51,16 +51,29 @@ type Group struct {
 
 // HistoryEntry is one recorded seed / promote / rollback event.
 type HistoryEntry struct {
-	ID          int64     `json:"id"`
-	App         string    `json:"app"`
-	Ring        string    `json:"ring"`
-	Action      string    `json:"action"`
-	FromVersion string    `json:"from_version"`
-	ToVersion   string    `json:"to_version"`
-	Result      string    `json:"result"`
-	Message     string    `json:"message"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          int64  `json:"id"`
+	App         string `json:"app"`
+	Ring        string `json:"ring"`
+	Action      string `json:"action"`
+	FromVersion string `json:"from_version"`
+	ToVersion   string `json:"to_version"`
+	Result      string `json:"result"`
+	Message     string `json:"message"`
+	// Diagnosis is the stored AI explanation of a failed entry (empty until
+	// someone asks for one). Persisted so every user sees the same answer and
+	// it survives restarts.
+	Diagnosis string `json:"diagnosis,omitempty"`
+	// Logs holds the step-by-step logs captured when this entry failed, so AI
+	// diagnosis has real evidence even after the in-memory job is gone. Kept
+	// only for the newest KeepFailureLogs failures per app (older entries are
+	// trimmed back to ""); never serialized to API clients.
+	Logs      string    `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
 }
+
+// KeepFailureLogs is how many recent failures per application retain their
+// detailed step logs (older ones keep only the summary fields).
+const KeepFailureLogs = 3
 
 // Store is the persistence interface. Implementations must be safe for
 // concurrent use.
@@ -74,10 +87,20 @@ type Store interface {
 	// SetAutoPromote flips the auto-promote setting for (app, ring), creating
 	// the row (with empty versions) if none exists yet.
 	SetAutoPromote(ctx context.Context, app, ring string, enabled bool) error
-	// AddHistory appends an entry to the history log.
+	// AddHistory appends an entry to the history log. Storing an entry with
+	// Logs also trims logs of older entries beyond the newest KeepFailureLogs
+	// for that app.
 	AddHistory(ctx context.Context, entry HistoryEntry) error
-	// ListHistory returns the history for an application, newest first.
+	// ListHistory returns the history for an application, newest first. Logs
+	// are omitted (potentially large) — use GetHistoryEntry for them.
 	ListHistory(ctx context.Context, app string) ([]HistoryEntry, error)
+	// GetHistoryEntry returns one history entry of an application, including
+	// its Logs. It returns ErrNotFound when no such entry exists (or it
+	// belongs to another app).
+	GetHistoryEntry(ctx context.Context, app string, id int64) (HistoryEntry, error)
+	// SetHistoryDiagnosis stores the AI diagnosis for a history entry. It
+	// returns ErrNotFound when the entry does not exist.
+	SetHistoryDiagnosis(ctx context.Context, id int64, diagnosis string) error
 	// ListGroups returns all application groups, ordered by name.
 	ListGroups(ctx context.Context) ([]Group, error)
 	// CreateGroup stores a new group (the caller assigns a unique ID).

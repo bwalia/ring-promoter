@@ -96,21 +96,66 @@ func (m *Memory) AddHistory(_ context.Context, entry HistoryEntry) error {
 		entry.CreatedAt = m.now().UTC()
 	}
 	m.history = append(m.history, entry)
+	if entry.Logs != "" {
+		m.trimFailureLogsLocked(entry.App)
+	}
 	return nil
 }
 
-// ListHistory implements Store, newest first.
+// trimFailureLogsLocked keeps detailed logs on only the newest KeepFailureLogs
+// entries of an app, clearing older ones. Callers must hold m.mu.
+func (m *Memory) trimFailureLogsLocked(app string) {
+	kept := 0
+	for i := len(m.history) - 1; i >= 0; i-- {
+		e := &m.history[i]
+		if e.App != app || e.Logs == "" {
+			continue
+		}
+		kept++
+		if kept > KeepFailureLogs {
+			e.Logs = ""
+		}
+	}
+}
+
+// ListHistory implements Store, newest first. Logs are omitted.
 func (m *Memory) ListHistory(_ context.Context, app string) ([]HistoryEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var out []HistoryEntry
 	for _, e := range m.history {
 		if e.App == app {
+			e.Logs = ""
 			out = append(out, e)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 	return out, nil
+}
+
+// GetHistoryEntry implements Store.
+func (m *Memory) GetHistoryEntry(_ context.Context, app string, id int64) (HistoryEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, e := range m.history {
+		if e.ID == id && e.App == app {
+			return e, nil
+		}
+	}
+	return HistoryEntry{}, ErrNotFound
+}
+
+// SetHistoryDiagnosis implements Store.
+func (m *Memory) SetHistoryDiagnosis(_ context.Context, id int64, diagnosis string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.history {
+		if m.history[i].ID == id {
+			m.history[i].Diagnosis = diagnosis
+			return nil
+		}
+	}
+	return ErrNotFound
 }
 
 // ListGroups implements Store, ordered by name (then ID for stability).

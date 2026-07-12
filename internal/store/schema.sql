@@ -36,7 +36,16 @@ CREATE TABLE IF NOT EXISTS history (
     to_version   TEXT        NOT NULL DEFAULT '',
     result       TEXT        NOT NULL,
     message      TEXT        NOT NULL DEFAULT '',
+    -- Stored AI explanation of a failed entry (empty until requested).
+    diagnosis    TEXT        NOT NULL DEFAULT '',
+    -- Step logs captured at failure time (kept for the newest 3 failures per
+    -- app; older entries are trimmed back to '').
+    logs         TEXT        NOT NULL DEFAULT '',
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Upgrade pre-existing databases created before diagnosis/logs (idempotent).
+ALTER TABLE history ADD COLUMN IF NOT EXISTS diagnosis TEXT NOT NULL DEFAULT '';
+ALTER TABLE history ADD COLUMN IF NOT EXISTS logs TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_history_app_created ON history (app, created_at DESC, id DESC);
