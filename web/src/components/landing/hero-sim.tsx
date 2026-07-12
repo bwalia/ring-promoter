@@ -99,6 +99,13 @@ export function HeroSim() {
   const reduce = useReducedMotion();
   const [pos, setPos] = useState({ mode: "happy" as "happy" | "fail", i: 0, cycle: 0 });
   const [ledger, setLedger] = useState<Line[]>([]);
+  // The loop is gated twice: `booted` waits for the CSS assembly entrance
+  // (rail draw + station pops) to finish, and `awake` pauses the whole
+  // machine while the sim is offscreen or the tab is hidden — a committed
+  // state is still; it shouldn't burn CPU nobody is watching.
+  const [booted, setBooted] = useState(false);
+  const [awake, setAwake] = useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
   const lastLogKey = useRef("");
   const lineId = useRef(0);
   const clock = useRef(50527); // fake wall clock, starts at 14:02:07
@@ -106,8 +113,34 @@ export function HeroSim() {
   const script = pos.mode === "happy" ? HAPPY : FAIL;
   const step = script[pos.i];
 
+  useEffect(() => {
+    const t = setTimeout(() => setBooted(true), reduce ? 0 : 1250);
+    return () => clearTimeout(t);
+  }, [reduce]);
+
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    let visible = true;
+    const update = () => setAwake(visible && !document.hidden);
+    const io = new IntersectionObserver(
+      ([e]) => {
+        visible = e.isIntersecting;
+        update();
+      },
+      { threshold: 0.05 },
+    );
+    io.observe(el);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      io.disconnect();
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, []);
+
   // Advance the timeline.
   useEffect(() => {
+    if (!booted || !awake) return;
     const t = setTimeout(() => {
       setPos((p) => {
         const s = p.mode === "happy" ? HAPPY : FAIL;
@@ -119,10 +152,11 @@ export function HeroSim() {
       });
     }, step.d);
     return () => clearTimeout(t);
-  }, [pos, step.d]);
+  }, [pos, step.d, booted, awake]);
 
   // Append this step's ledger line exactly once (guards StrictMode).
   useEffect(() => {
+    if (!booted) return;
     const key = `${pos.mode}:${pos.i}:${pos.cycle}`;
     if (!step.log || lastLogKey.current === key) return;
     lastLogKey.current = key;
@@ -132,15 +166,21 @@ export function HeroSim() {
       ...l.slice(-4),
       { id: lineId.current++, time, text: step.log!, tone: step.tone ?? "info" },
     ]);
-  }, [pos, step]);
+  }, [pos, step, booted]);
 
   const chipPct = (step.chip / (RINGS.length - 1)) * 100;
   const spring = reduce
     ? { duration: 0 }
     : { type: "spring" as const, stiffness: 60, damping: 16 };
+  // Until the assembly entrance finishes, the chip holds back and then
+  // decelerates in from just left of its station.
+  const chipDelay = booted ? 0 : 0.95;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0c] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]">
+    <div
+      ref={rootRef}
+      className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0c] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]"
+    >
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-2.5 sm:px-5">
         <div className="flex min-w-0 items-center gap-2.5 font-mono text-xs text-neutral-500">
@@ -156,12 +196,13 @@ export function HeroSim() {
         <button
           type="button"
           onClick={() => setPos((p) => (p.mode === "fail" ? p : { mode: "fail", i: 0, cycle: p.cycle }))}
-          disabled={pos.mode === "fail"}
+          disabled={pos.mode === "fail" || !booted}
           className={cn(
-            "flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
+            "flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-all duration-300",
             pos.mode === "fail"
               ? "cursor-default border-amber-500/25 text-amber-400/90"
               : "border-red-500/30 text-red-400 hover:bg-red-500/10",
+            !booted && "opacity-40",
           )}
         >
           <TriangleAlert aria-hidden className="size-3.5" />
@@ -181,8 +222,8 @@ export function HeroSim() {
           }}
         />
         <div className="relative mx-4 h-[104px] sm:mx-6">
-          {/* the line + progress */}
-          <div className="absolute left-0 right-0 top-[28px] h-px bg-white/10" />
+          {/* the line + progress — the rail draws itself on first paint */}
+          <div className="ls-rail-draw absolute left-0 right-0 top-[28px] h-px bg-white/10" />
           <motion.div
             className="absolute left-0 top-[28px] h-px bg-emerald-500/50"
             animate={{ width: `${chipPct}%` }}
@@ -197,9 +238,15 @@ export function HeroSim() {
             return (
               <div
                 key={r.key}
-                className="absolute top-0 flex w-24 -translate-x-1/2 flex-col items-center"
+                className="absolute top-0 w-24 -translate-x-1/2"
                 style={{ left: `${(i / (RINGS.length - 1)) * 100}%` }}
               >
+                {/* pop entrance lives on an inner node so it can't fight the
+                    centering translate above */}
+                <div
+                  className="ls-station-pop flex flex-col items-center"
+                  style={{ "--d": `${0.15 + (i / 3) * 0.55}s` } as React.CSSProperties}
+                >
                 <div className="relative size-14">
                   {/* guide ring */}
                   <svg viewBox="0 0 56 56" className="absolute inset-0">
@@ -241,17 +288,22 @@ export function HeroSim() {
                 >
                   {version}
                 </p>
+                </div>
               </div>
             );
           })}
 
-          {/* travelling version chip */}
+          {/* travelling version chip — the release enters the system from the
+              left and decelerates into its station */}
           <motion.div
             key={pos.cycle}
             className="absolute top-[28px] z-10 -translate-x-1/2 -translate-y-1/2"
-            initial={{ opacity: 0, left: `${chipPct}%` }}
+            initial={{ opacity: 0, left: `${chipPct - 8}%` }}
             animate={{ opacity: 1, left: `${chipPct}%` }}
-            transition={{ left: spring, opacity: { duration: reduce ? 0 : 0.5 } }}
+            transition={{
+              left: { ...spring, delay: reduce ? 0 : chipDelay },
+              opacity: { duration: reduce ? 0 : 0.45, delay: reduce ? 0 : chipDelay },
+            }}
           >
             <span className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md border border-white/15 bg-white/[0.07] px-1.5 py-0.5 font-mono text-[10px] text-neutral-100 shadow-lg backdrop-blur-sm">
               {N}

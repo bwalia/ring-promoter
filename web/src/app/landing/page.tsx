@@ -2,19 +2,26 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   CalendarOff,
-  Container,
   FileCode2,
   Gauge,
   History,
-  Lock,
   MessagesSquare,
   Percent,
-  RotateCcw,
   Users,
   Workflow,
 } from "lucide-react";
+import { AutoPromoteDiagram } from "@/components/landing/autopromote-diagram";
+import { CtaTerminal } from "@/components/landing/cta-terminal";
+import { DeployerPaths } from "@/components/landing/deployer-paths";
+import { FactStrip } from "@/components/landing/fact-strip";
+import { ScrollRefresh } from "@/components/landing/gsap/scroll-refresh";
 import { HeroSim } from "@/components/landing/hero-sim";
+import { JobPanel } from "@/components/landing/job-panel";
+import { ProdGateCards } from "@/components/landing/prod-gate-cards";
+import { ProtocolSection } from "@/components/landing/protocol-scrub";
 import { Reveal } from "@/components/landing/reveal";
+import { Spine } from "@/components/landing/spine";
+import { YamlPanel } from "@/components/landing/yaml-parse";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -29,7 +36,9 @@ const GITHUB = "https://github.com/bwalia/ring-promoter";
 // (explicit colors, independent of the console's theme toggle).
 export default function LandingPage() {
   return (
-    <div className="min-h-screen overflow-x-clip bg-[#090909] text-neutral-300 antialiased selection:bg-emerald-500/25 selection:text-white">
+    <div className="relative min-h-screen overflow-x-clip bg-[#090909] text-neutral-300 antialiased selection:bg-emerald-500/25 selection:text-white">
+      <ScrollRefresh />
+      <Spine />
       <Nav />
       <main>
         <Hero />
@@ -152,20 +161,34 @@ function Hero() {
       />
       <div className="relative mx-auto max-w-6xl px-4 pb-20 pt-20 sm:px-6 sm:pt-28">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-xs text-neutral-400">
+          <p
+            className="ls-rise inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-xs text-neutral-400"
+            style={{ "--d": "0.3s" } as React.CSSProperties}
+          >
             <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden />
             int → test → acc → prod
           </p>
-          <h1 className="mt-6 text-balance text-4xl font-semibold leading-[1.06] tracking-tight text-neutral-50 sm:text-6xl">
-            Every release earns production.
+          <h1 className="mt-6 text-4xl font-semibold leading-[1.06] tracking-tight text-neutral-50 sm:text-6xl">
+            <span className="ls-mask-line">
+              <span>Every release</span>
+            </span>
+            <span className="ls-mask-line" style={{ "--d": "0.12s" } as React.CSSProperties}>
+              <span>earns production.</span>
+            </span>
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-base leading-relaxed text-neutral-400 sm:text-lg">
+          <p
+            className="ls-rise mx-auto mt-6 max-w-2xl text-pretty text-base leading-relaxed text-neutral-400 sm:text-lg"
+            style={{ "--d": "0.4s" } as React.CSSProperties}
+          >
             Ring Promoter is a small control plane that moves application versions
             through deployment rings — health-gated at every hop, rolled back
             automatically on failure, and written to history every time.
             Kubernetes and VM apps, one Go binary.
           </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div
+            className="ls-rise mt-8 flex flex-wrap items-center justify-center gap-3"
+            style={{ "--d": "0.52s" } as React.CSSProperties}
+          >
             <Link
               href="/"
               className="rounded-md bg-neutral-100 px-5 py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-white"
@@ -184,35 +207,13 @@ function Hero() {
         </div>
         <div className="mx-auto mt-14 max-w-4xl sm:mt-16">
           <HeroSim />
-          <p className="mt-3 text-center font-mono text-[11px] text-neutral-600">
+          <p
+            className="ls-rise mt-3 text-center font-mono text-[11px] text-neutral-600"
+            style={{ "--d": "0.8s" } as React.CSSProperties}
+          >
             A scripted simulation of the real promotion protocol — try failing a health check.
           </p>
         </div>
-      </div>
-    </section>
-  );
-}
-
-/* ── fact strip ──────────────────────────────────────────────────────── */
-
-function FactStrip() {
-  const facts = [
-    ["Single Go binary", "UI, API and promoter in one process"],
-    ["Kubernetes + VMs", "kubectl and GitHub Actions, side by side"],
-    ["Safe across replicas", "Postgres advisory locks serialize every op"],
-    ["Onboard in YAML", "new apps are configuration, not code"],
-  ] as const;
-  return (
-    <section className="border-y border-white/[0.07]">
-      <div className="mx-auto grid max-w-6xl grid-cols-2 divide-white/[0.07] max-lg:gap-px lg:grid-cols-4 lg:divide-x">
-        {facts.map(([title, sub]) => (
-          <div key={title} className="px-4 py-6 sm:px-6">
-            <p className="font-mono text-[11px] uppercase tracking-widest text-neutral-500">
-              {title}
-            </p>
-            <p className="mt-1.5 text-sm text-neutral-300">{sub}</p>
-          </div>
-        ))}
       </div>
     </section>
   );
@@ -232,7 +233,7 @@ function SectionHead({
   center?: boolean;
 }) {
   return (
-    <Reveal className={cn("max-w-2xl", center && "mx-auto text-center")}>
+    <Reveal variant="mask" className={cn("max-w-2xl", center && "mx-auto text-center")}>
       <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-emerald-500/90">
         {eyebrow}
       </p>
@@ -246,38 +247,10 @@ function SectionHead({
   );
 }
 
-/* ── the protocol ────────────────────────────────────────────────────── */
+/* ── the protocol (pinned scroll-scrubbed stage; see protocol-scrub.tsx) ── */
 
 function Protocol() {
-  const rules = [
-    ["One ring at a time", "Promote always targets the next ring in the pipeline. Skipping is impossible by design — not by policy."],
-    ["The source must prove it", "A live health check on the source ring gates every promotion before anything deploys."],
-    ["The target must earn it", "After deploying, health checks run with configurable retries before the hop is called good."],
-    ["Failure undoes itself", "If the target stays unhealthy, it is rolled back to its previous version automatically."],
-    ["Everything is written down", "Every seed, promote and rollback lands in history — success or failure, per app, per ring."],
-  ] as const;
-  return (
-    <section id="protocol" className="scroll-mt-20">
-      <div className="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-        <SectionHead
-          eyebrow="The protocol"
-          title="Promotion is a protocol, not a script."
-          lede="Five rules, enforced by the control plane on every operation. They are what make a promotion safe to run at 5pm on a Friday."
-        />
-        <div className="mt-12 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.07] sm:grid-cols-2 lg:grid-cols-5">
-          {rules.map(([title, body], i) => (
-            <Reveal key={title} delay={i * 0.05} className="bg-[#0b0b0c] p-5">
-              <p className="font-mono text-xs text-emerald-500/80">
-                {String(i + 1).padStart(2, "0")}
-              </p>
-              <h3 className="mt-3 text-sm font-semibold text-neutral-100">{title}</h3>
-              <p className="mt-2 text-[13px] leading-relaxed text-neutral-500">{body}</p>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
+  return <ProtocolSection />;
 }
 
 /* ── auto-promote ────────────────────────────────────────────────────── */
@@ -297,49 +270,7 @@ function AutoPromote() {
             with the flag off, so nothing reaches production without a human.
           </p>
         </Reveal>
-        <Reveal delay={0.1}>
-          <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#090909] px-4 py-6 font-mono text-xs sm:px-5">
-            <div className="flex min-w-[360px] items-center justify-between gap-1">
-              {(
-                [
-                  ["int", "auto", true],
-                  ["test", "auto", true],
-                  ["acc", "hold", false],
-                  ["prod", null, false],
-                ] as const
-              ).map(([ring, gate, on]) => (
-                <div key={ring} className="flex flex-1 items-center gap-1 last:flex-none">
-                  <span className="rounded-md border border-white/15 bg-white/[0.05] px-1.5 py-1.5 text-neutral-200 sm:px-2.5">
-                    {ring}
-                  </span>
-                  {gate && (
-                    <span className="flex flex-1 items-center gap-1.5 px-1">
-                      <span className={cn("h-px flex-1", on ? "bg-emerald-500/50" : "bg-white/15")} />
-                      <span
-                        className={cn(
-                          "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]",
-                          on
-                            ? "border-emerald-500/30 text-emerald-400"
-                            : "border-amber-500/30 text-amber-400",
-                        )}
-                      >
-                        <span
-                          className={cn("size-1 rounded-full", on ? "bg-emerald-400" : "bg-amber-400")}
-                        />
-                        {gate}
-                      </span>
-                      <span className={cn("h-px flex-1", on ? "bg-emerald-500/50" : "bg-white/15")} />
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-            <p className="mt-4 text-[11px] leading-relaxed text-neutral-600">
-              # a healthy int → test carries on to acc automatically;{" "}
-              <span className="text-amber-500/80">acc holds for a human</span> before prod
-            </p>
-          </div>
-        </Reveal>
+        <AutoPromoteDiagram />
       </div>
     </section>
   );
@@ -379,60 +310,9 @@ function LiveOps() {
             </ul>
           </Reveal>
         </div>
-        <Reveal delay={0.15}>
-          <JobPanel />
-        </Reveal>
+        <JobPanel />
       </div>
     </section>
-  );
-}
-
-function JobPanel() {
-  const steps = [
-    ["done", "acquire app lock", "0.0s"],
-    ["done", "source health check — int", "0.3s"],
-    ["done", "deploy v2.14.0 to test", "8.2s"],
-    ["run", "health check test — attempt 2/3", "4.1s"],
-    ["todo", "record history", "—"],
-  ] as const;
-  return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0c] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]">
-      <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2.5 font-mono text-xs text-neutral-500">
-        <span>
-          <span className="text-neutral-300">PROMOTE</span> payments-api · int → test
-        </span>
-        <span>job 8f3a…c2</span>
-      </div>
-      <ul className="space-y-1 px-4 py-4 font-mono text-xs">
-        {steps.map(([state, label, dur]) => (
-          <li key={label} className="flex items-center gap-3 py-1">
-            {state === "done" ? (
-              <span className="flex size-4 items-center justify-center rounded-full bg-emerald-500/15 text-[10px] text-emerald-400">
-                ✓
-              </span>
-            ) : state === "run" ? (
-              <span className="relative flex size-4 items-center justify-center">
-                <span className="absolute inset-0 animate-ping rounded-full bg-sky-500/40" />
-                <span className="relative size-2 rounded-full bg-sky-400" />
-              </span>
-            ) : (
-              <span className="flex size-4 items-center justify-center">
-                <span className="size-2 rounded-full border border-neutral-700" />
-              </span>
-            )}
-            <span className={cn("flex-1", state === "todo" ? "text-neutral-600" : state === "run" ? "text-sky-300" : "text-neutral-300")}>
-              {label}
-            </span>
-            <span className="text-neutral-600">{dur}</span>
-          </li>
-        ))}
-      </ul>
-      <div className="border-t border-white/[0.07] bg-black/40 px-4 py-3.5 font-mono text-[11px] leading-relaxed text-neutral-500">
-        <p className="text-neutral-400">$ kubectl set image deploy/payments-api web=…:v2.14.0</p>
-        <p>deployment.apps/payments-api image updated</p>
-        <p>waiting for rollout: 2/3 replicas updated…</p>
-      </div>
-    </div>
   );
 }
 
@@ -440,7 +320,7 @@ function JobPanel() {
 
 function ProdGate() {
   return (
-    <section className="border-y border-white/[0.07] bg-[#0b0b0c]">
+    <section id="gate" className="scroll-mt-20 border-y border-white/[0.07] bg-[#0b0b0c]">
       <div className="mx-auto max-w-6xl px-4 py-24 sm:px-6">
         <SectionHead
           center
@@ -448,39 +328,7 @@ function ProdGate() {
           title="Harder to enter than to leave."
           lede="Production deserves asymmetry: deliberate on the way in, instant on the way out."
         />
-        <div className="mx-auto mt-12 grid max-w-4xl grid-cols-1 gap-5 sm:grid-cols-2">
-          <Reveal delay={0.05}>
-            <div className="h-full rounded-xl border border-amber-500/20 bg-[#090909] p-6">
-              <span className="flex size-9 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10">
-                <Lock aria-hidden className="size-4 text-amber-400" />
-              </span>
-              <h3 className="mt-4 font-semibold text-neutral-100">
-                Entering prod asks for the password
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-neutral-500">
-                With <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono text-xs text-neutral-300">RP_PROD_PASSWORD</code>{" "}
-                set, anything that lands in the last ring — a promotion, a direct
-                seed, even enabling auto-promote into it — must carry the
-                production password.
-              </p>
-            </div>
-          </Reveal>
-          <Reveal delay={0.12}>
-            <div className="h-full rounded-xl border border-emerald-500/20 bg-[#090909] p-6">
-              <span className="flex size-9 items-center justify-center rounded-lg border border-emerald-500/25 bg-emerald-500/10">
-                <RotateCcw aria-hidden className="size-4 text-emerald-400" />
-              </span>
-              <h3 className="mt-4 font-semibold text-neutral-100">
-                Leaving prod never waits
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-neutral-500">
-                Rollbacks are deliberately exempt from the gate. When you are
-                paged at 3am, incident response is never blocked by a password
-                prompt.
-              </p>
-            </div>
-          </Reveal>
-        </div>
+        <ProdGateCards />
       </div>
     </section>
   );
@@ -497,43 +345,7 @@ function Deployers() {
           title="It meets your infrastructure where it is."
           lede="The deployer is chosen per application — one control plane promotes Kubernetes services and VM apps side by side, under the same rules."
         />
-        <div className="mt-12 grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <Reveal delay={0.05}>
-            <div className="h-full rounded-xl border border-white/[0.07] bg-[#0b0b0c] p-6">
-              <div className="flex items-center gap-3">
-                <span className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]">
-                  <Container aria-hidden className="size-4 text-neutral-300" />
-                </span>
-                <h3 className="font-semibold text-neutral-100">Kubernetes apps</h3>
-              </div>
-              <p className="mt-4 text-sm leading-relaxed text-neutral-500">
-                The kubectl deployer runs{" "}
-                <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono text-xs text-neutral-300">set image</code>{" "}
-                +{" "}
-                <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono text-xs text-neutral-300">rollout status</code>,
-                authenticated in-cluster via the pod&rsquo;s ServiceAccount.
-                Battle-tested rollout semantics with a tiny dependency tree.
-              </p>
-            </div>
-          </Reveal>
-          <Reveal delay={0.12}>
-            <div className="h-full rounded-xl border border-white/[0.07] bg-[#0b0b0c] p-6">
-              <div className="flex items-center gap-3">
-                <span className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]">
-                  <Workflow aria-hidden className="size-4 text-neutral-300" />
-                </span>
-                <h3 className="font-semibold text-neutral-100">VM apps with existing CI</h3>
-              </div>
-              <p className="mt-4 text-sm leading-relaxed text-neutral-500">
-                The GitHub Actions deployer dispatches the workflow you already
-                have and waits for the run to conclude — same health checks, same
-                auto-rollback. Seeded versions are validated against the
-                repo&rsquo;s real branches and tags, so a typo&rsquo;d ref never
-                launches a doomed run.
-              </p>
-            </div>
-          </Reveal>
-        </div>
+        <DeployerPaths />
       </div>
     </section>
   );
@@ -552,46 +364,10 @@ function Config() {
             lede="No plugin, no SDK, no rebuild. Declare where each ring lives and how to check its health, apply the config, and the app appears in the console. Apps only define the rings they actually live in."
           />
         </div>
-        <Reveal delay={0.1}>
-          <div className="overflow-hidden rounded-xl border border-white/10 bg-[#090909]">
-            <div className="border-b border-white/[0.07] px-4 py-2 font-mono text-[11px] text-neutral-500">
-              config.yaml
-            </div>
-            <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed">
-              <code>
-                <Y k="apps" />{"\n"}
-                {"  - "}<Y k="name" v="billing-worker" />{"\n"}
-                {"    "}<Y k="rings" />{"\n"}
-                {"      "}<Y k="int" />{"\n"}
-                {"        "}<Y k="namespace" v="int" />{"\n"}
-                {"        "}<Y k="deployment" v="billing-worker" />{"\n"}
-                {"        "}<Y k="container" v="worker" />{"\n"}
-                {"        "}<Y k="image" v="registry.example.com/billing-worker" />{"\n"}
-                {"        "}<Y k="health_url" v="http://billing-worker.int.svc/health" />{"\n"}
-                {"      "}<Y k="test" />{"\n"}
-                {"        "}<C t="# …same shape, per ring" />{"\n"}
-                {"      "}<Y k="prod" />{"\n"}
-                {"        "}<C t="# only the rings the app lives in" />
-              </code>
-            </pre>
-          </div>
-        </Reveal>
+        <YamlPanel />
       </div>
     </section>
   );
-}
-
-function Y({ k, v }: { k: string; v?: string }) {
-  return (
-    <>
-      <span className="text-neutral-400">{k}:</span>
-      {v && <span className="text-neutral-100"> {v}</span>}
-    </>
-  );
-}
-
-function C({ t }: { t: string }) {
-  return <span className="text-neutral-600">{t}</span>;
 }
 
 /* ── roadmap ─────────────────────────────────────────────────────────── */
@@ -616,7 +392,15 @@ function Roadmap() {
         <div className="mt-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {items.map(([Icon, title, body, stage], i) => (
             <Reveal key={title} delay={i * 0.05}>
-              <div className="h-full rounded-xl border border-white/[0.07] bg-[#0b0b0c] p-5">
+              {/* exploring stays dashed — the future is visibly uncommitted */}
+              <div
+                className={cn(
+                  "h-full rounded-xl border bg-[#0b0b0c] p-5",
+                  stage === "exploring"
+                    ? "border-dashed border-white/[0.13]"
+                    : "border-white/[0.07]",
+                )}
+              >
                 <div className="flex items-center justify-between">
                   <span className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]">
                     <Icon aria-hidden className="size-4 text-neutral-300" />
@@ -675,7 +459,7 @@ function Faq() {
         <Reveal delay={0.1}>
           <div className="mt-10 divide-y divide-white/[0.07] rounded-xl border border-white/[0.07] bg-[#0b0b0c]">
             {qas.map(([q, a]) => (
-              <details key={q} className="group px-5 py-4 open:pb-5">
+              <details key={q} className="ls-faq group px-5 py-4 open:pb-5">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-medium text-neutral-200 [&::-webkit-details-marker]:hidden">
                   {q}
                   <span
@@ -699,7 +483,7 @@ function Faq() {
 
 function ClosingCta() {
   return (
-    <section className="relative overflow-hidden border-t border-white/[0.07]">
+    <section id="cta" className="relative overflow-hidden border-t border-white/[0.07]">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
@@ -719,32 +503,7 @@ function ClosingCta() {
             Try it in one command — the defaults use an in-memory store and a
             no-op deployer, so there is nothing to install and nothing to break.
           </p>
-          <div className="mx-auto mt-8 max-w-xl overflow-hidden rounded-xl border border-white/10 bg-[#0b0b0c] text-left">
-            <pre className="overflow-x-auto px-4 py-3.5 font-mono text-xs leading-relaxed">
-              <code>
-                <span className="text-neutral-600">$ </span>
-                <span className="text-neutral-100">go run ./cmd/ringpromoter --config config.yaml</span>
-                {"\n"}
-                <span className="text-neutral-600"># → http://localhost:8080 · token: local-dev-token</span>
-              </code>
-            </pre>
-          </div>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/"
-              className="rounded-md bg-neutral-100 px-5 py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-white"
-            >
-              Open the console
-            </Link>
-            <a
-              href={GITHUB}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/[0.06]"
-            >
-              View on GitHub
-            </a>
-          </div>
+          <CtaTerminal github={GITHUB} />
         </Reveal>
       </div>
     </section>
