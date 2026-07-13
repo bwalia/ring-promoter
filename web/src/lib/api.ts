@@ -2,6 +2,7 @@ import { useAuthStore } from "@/lib/stores";
 import type {
   AppGroup,
   AppsResponse,
+  BuildInfo,
   HistoryDiagnosis,
   HistoryEntry,
   Job,
@@ -63,6 +64,9 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, `server error (${res.status})`);
     return true;
   },
+
+  /** Build metadata of the running server. Served outside the auth mux. */
+  buildInfo: () => request<BuildInfo>("/version"),
 
   apps: () => request<AppsResponse>("/api/apps"),
 

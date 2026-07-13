@@ -3,6 +3,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleDot } from "lucide-react";
+import { AppFooter } from "@/components/app-footer";
 import { CommandPalette } from "@/components/command-palette";
 import { Dashboard } from "@/components/dashboard/dashboard";
 import { GroupView } from "@/components/group-view";
@@ -183,6 +184,7 @@ export function AppShell() {
             <NoAppSelected />
           )}
         </main>
+        <AppFooter />
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
