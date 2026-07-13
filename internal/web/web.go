@@ -9,6 +9,8 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"path"
+	"strings"
 )
 
 // The all: prefix is required: the Next.js export contains _next/, and plain
@@ -19,10 +21,26 @@ var files embed.FS
 
 // Handler returns an http.Handler serving the embedded static assets from the
 // root path.
+//
+// The Next.js export writes non-root routes as flat files ("landing.html",
+// not "landing/index.html"), which http.FileServer alone would not resolve
+// for a clean URL like /landing — so extensionless paths fall back to the
+// matching .html file when one exists.
 func Handler() http.Handler {
 	sub, err := fs.Sub(files, "static")
 	if err != nil {
 		panic(err)
 	}
-	return http.FileServer(http.FS(sub))
+	fileServer := http.FileServer(http.FS(sub))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if p != "" && p != "." && path.Ext(p) == "" {
+			if f, err := sub.Open(p + ".html"); err == nil {
+				f.Close()
+				http.ServeFileFS(w, r, sub, p+".html")
+				return
+			}
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }
