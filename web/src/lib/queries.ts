@@ -19,6 +19,20 @@ const RINGS_INTERVAL = 10_000;
 const HISTORY_INTERVAL = 30_000;
 const APPS_INTERVAL = 60_000;
 const JOBS_INTERVAL = 2_000;
+const BUILD_INFO_INTERVAL = 60_000;
+
+/**
+ * Build metadata of the server this tab is talking to. Constant for the life
+ * of a process, but re-polled so an open tab notices a redeploy under it.
+ */
+export function useBuildInfo() {
+  return useQuery({
+    queryKey: ["build-info"],
+    queryFn: api.buildInfo,
+    refetchInterval: BUILD_INFO_INTERVAL,
+    staleTime: BUILD_INFO_INTERVAL,
+  });
+}
 
 export function useApps() {
   const token = useAuthStore((s) => s.token);

@@ -122,3 +122,16 @@ export interface VersionsResponse {
   supported: boolean;
   versions: AppVersion[];
 }
+
+/** Build metadata of the running Ring Promoter server itself (GET /version). */
+export interface BuildInfo {
+  /** Image tag the binary was built as, e.g. "sha-1a2b3c4" ("dev" locally). */
+  version: string;
+  commit: string;
+  built_at: string;
+  /**
+   * When this process started. The image is immutable, so with a rolling
+   * deploy this is also when this build was rolled out.
+   */
+  started_at: string;
+}
