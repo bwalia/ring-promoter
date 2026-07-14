@@ -51,6 +51,7 @@ data:
       # at deploy-wslproxy-delivery-pipeline.yml (cumulative cascade to prod).
       # Token from RP_GITHUB_TOKEN (Secret).
       - name: wslproxy
+        display_name: "diytaxreturn proxy"
         deployer: github
         github:
           owner: bwalia
@@ -109,6 +110,7 @@ data:
       # promote here means "(re)deploy the current chart to the next env").
       # Token from RP_GITHUB_TOKEN (same repo/token as diytaxreturn).
       - name: spectoncr
+        display_name: "diytaxreturn registry"
         deployer: github
         github:
           owner: bwalia

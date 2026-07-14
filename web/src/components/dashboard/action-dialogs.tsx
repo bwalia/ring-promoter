@@ -59,6 +59,7 @@ import {
   useRollbackMutation,
   useSeedMutation,
   useVersions,
+  useAppTitle,
 } from "@/lib/queries";
 import { useUiStore } from "@/lib/ui-store";
 import type { AppVersion, RingView } from "@/lib/types";
@@ -129,6 +130,7 @@ function SeedDialog({
   initialRing?: string;
   onClose: () => void;
 }) {
+  const title = useAppTitle();
   // Mounted fresh on every open (see ActionDialogs), so initial state is enough.
   const configured = rings.filter((r) => r.configured);
   const [ring, setRing] = useState(
@@ -170,7 +172,7 @@ function SeedDialog({
             <DialogTitle>Seed a version</DialogTitle>
             <DialogDescription>
               Deploy a specific version (image tag, branch or commit) directly
-              into one ring of <span className="font-medium">{app}</span>.
+              into one ring of <span className="font-medium">{title(app)}</span>.
             </DialogDescription>
           </DialogHeader>
 
@@ -383,6 +385,7 @@ function PromoteDialog({
   fromRing: string | null;
   onClose: () => void;
 }) {
+  const title = useAppTitle();
   const promote = usePromoteMutation(app);
   const { prodProtected, prodRing } = useProdProtection();
   const [password, setPassword] = useState("");
@@ -422,7 +425,7 @@ function PromoteDialog({
                 </span>{" "}
                 moves from <span className="font-medium">{fromRing}</span> to{" "}
                 <span className="font-medium">{target?.ring.name}</span> for{" "}
-                <span className="font-medium">{app}</span>.
+                <span className="font-medium">{title(app)}</span>.
               </p>
               <p>
                 The source ring is health-checked first. After deploying, the
@@ -482,6 +485,7 @@ function AutoPromoteDialog({
   ring: string;
   onClose: () => void;
 }) {
+  const title = useAppTitle();
   const autoPromote = useAutoPromoteMutation(app);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -508,7 +512,7 @@ function AutoPromoteDialog({
               <p>
                 Every version that lands healthy in{" "}
                 <span className="font-medium">{ring}</span> for{" "}
-                <span className="font-medium">{app}</span> will deploy to
+                <span className="font-medium">{title(app)}</span> will deploy to
                 Production automatically — no further confirmation, no
                 password prompt per deploy.
               </p>
@@ -556,6 +560,7 @@ function RollbackDialog({
   ring: string | null;
   onClose: () => void;
 }) {
+  const title = useAppTitle();
   const rollback = useRollbackMutation(app);
   const view = rings.find((r) => r.ring.name === ring);
 
@@ -567,7 +572,7 @@ function RollbackDialog({
           <AlertDialogDescription asChild>
             <div className="space-y-2">
               <p>
-                <span className="font-medium">{app}</span> in{" "}
+                <span className="font-medium">{title(app)}</span> in{" "}
                 <span className="font-medium">{ring}</span> returns from{" "}
                 <span className="font-mono font-medium">
                   {view?.current_version || "—"}

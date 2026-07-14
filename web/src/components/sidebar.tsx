@@ -36,6 +36,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   useApps,
+  useAppTitle,
   useDeleteGroup,
   useGroups,
   useUpdateGroup,
@@ -64,7 +65,9 @@ export function Sidebar({
   const groups = useGroups().data ?? [];
 
   const q = filter.trim().toLowerCase();
-  const match = (a: string) => a.toLowerCase().includes(q);
+  const title = useAppTitle();
+  const match = (a: string) =>
+    a.toLowerCase().includes(q) || title(a).toLowerCase().includes(q);
   const known = (a: string) => apps.includes(a);
 
   const favApps = favorites.filter(known).filter(match);
@@ -342,6 +345,7 @@ function GroupSection({
 }
 
 function AppRow({ app, onNavigate }: { app: string; onNavigate?: () => void }) {
+  const title = useAppTitle();
   const selectedApp = usePrefsStore((s) => s.selectedApp);
   const groupActive = usePrefsStore((s) => !!s.selectedGroup);
   const selectApp = usePrefsStore((s) => s.selectApp);
@@ -374,7 +378,7 @@ function AppRow({ app, onNavigate }: { app: string; onNavigate?: () => void }) {
           onNavigate?.();
         }}
       >
-        <span className="truncate">{app}</span>
+        <span className="truncate">{title(app)}</span>
         {favorite && (
           <Star
             aria-hidden
@@ -388,7 +392,7 @@ function AppRow({ app, onNavigate }: { app: string; onNavigate?: () => void }) {
             variant="ghost"
             size="icon"
             className="mr-1 size-6 shrink-0 opacity-0 group-hover/row:opacity-100 data-[state=open]:opacity-100"
-            aria-label={`${app} options`}
+            aria-label={`${title(app)} options`}
           >
             <MoreHorizontal aria-hidden className="size-3.5" />
           </Button>

@@ -26,12 +26,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useGroups } from "@/lib/queries";
+import { useAppTitle, useGroups } from "@/lib/queries";
 import { useAuthStore, usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
 import { cn } from "@/lib/utils";
 
 export function Topbar() {
+  const title = useAppTitle();
   const selectedApp = usePrefsStore((s) => s.selectedApp);
   const selectedGroup = usePrefsStore((s) => s.selectedGroup);
   const groups = useGroups().data ?? [];
@@ -63,7 +64,7 @@ export function Topbar() {
 
       <div className="flex min-w-0 items-center gap-1.5">
         <h1 className="truncate text-sm font-semibold md:text-base">
-          {activeGroup?.name ?? selectedApp ?? "Dashboard"}
+          {activeGroup?.name ?? (selectedApp ? title(selectedApp) : "Dashboard")}
         </h1>
         {!activeGroup && selectedApp && (
           <Tooltip>

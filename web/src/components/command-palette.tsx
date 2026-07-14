@@ -28,7 +28,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { useApps, useGroups, useRings } from "@/lib/queries";
+import { useApps, useAppTitle, useGroups, useRings } from "@/lib/queries";
 import { useAuthStore, usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
 import type { RingView } from "@/lib/types";
@@ -42,6 +42,7 @@ export function CommandPalette({
 }) {
   const [query, setQuery] = useState("");
   const { data } = useApps();
+  const title = useAppTitle();
   const apps = data?.apps ?? [];
   const selectedApp = usePrefsStore((s) => s.selectedApp);
   const selectApp = usePrefsStore((s) => s.selectApp);
@@ -105,11 +106,11 @@ export function CommandPalette({
           {apps.map((app) => (
             <CommandItem
               key={app}
-              value={`app ${app}`}
+              value={`app ${app} ${title(app)}`}
               onSelect={run(() => selectApp(app))}
             >
               <Boxes aria-hidden className="size-4" />
-              <span className="truncate">{app}</span>
+              <span className="truncate">{title(app)}</span>
               {favorites.includes(app) && (
                 <Star
                   aria-hidden
@@ -150,13 +151,13 @@ export function CommandPalette({
               {versionHits.map((h) => (
                 <CommandItem
                   key={`${h.app}-${h.ring}-${h.version}`}
-                  value={`version ${h.app} ${h.ring} ${h.version}`}
+                  value={`version ${h.app} ${title(h.app)} ${h.ring} ${h.version}`}
                   onSelect={run(() => selectApp(h.app))}
                 >
                   <Tag aria-hidden className="size-4" />
                   <span className="truncate font-mono text-xs">{h.version}</span>
                   <span className="ml-auto text-xs text-muted-foreground">
-                    {h.app} · {h.ring}
+                    {title(h.app)} · {h.ring}
                   </span>
                 </CommandItem>
               ))}
@@ -170,7 +171,7 @@ export function CommandPalette({
         {selectedApp && !selectedGroup && (
           <>
             <CommandSeparator />
-            <CommandGroup heading={`Actions · ${selectedApp}`}>
+            <CommandGroup heading={`Actions · ${title(selectedApp)}`}>
               <CommandItem
                 value="seed a version"
                 onSelect={run(() => setPendingAction({ type: "seed", app: selectedApp }))}

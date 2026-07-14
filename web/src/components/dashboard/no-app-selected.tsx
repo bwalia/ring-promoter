@@ -2,11 +2,12 @@
 
 import { CircleDashed } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useApps } from "@/lib/queries";
+import { useApps, useAppTitle } from "@/lib/queries";
 import { usePrefsStore } from "@/lib/stores";
 
 export function NoAppSelected() {
   const { data } = useApps();
+  const title = useAppTitle();
   const apps = data?.apps ?? [];
   const favorites = usePrefsStore((s) => s.favorites);
   const selectApp = usePrefsStore((s) => s.selectApp);
@@ -39,7 +40,7 @@ export function NoAppSelected() {
               size="sm"
               onClick={() => selectApp(app)}
             >
-              {app}
+              {title(app)}
             </Button>
           ))}
         </div>

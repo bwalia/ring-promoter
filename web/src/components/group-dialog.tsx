@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useCreateGroup, useUpdateGroup } from "@/lib/queries";
+import { useAppTitle, useCreateGroup, useUpdateGroup } from "@/lib/queries";
 import type { AppGroup } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,7 @@ export function GroupDialog({
   group?: AppGroup;
   apps: string[];
 }) {
+  const title = useAppTitle();
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
   const saving = createGroup.isPending || updateGroup.isPending;
@@ -104,7 +105,7 @@ export function GroupDialog({
                     >
                       {checked ? "✓" : ""}
                     </span>
-                    <span className="truncate">{app}</span>
+                    <span className="truncate">{title(app)}</span>
                   </button>
                 );
               })}

@@ -121,6 +121,21 @@ func (p *Promoter) Apps() []string {
 	return names
 }
 
+// AppTitles maps each app name to its display title (config display_name,
+// falling back to the name). The UI shows titles; API paths and stored state
+// keep using the name.
+func (p *Promoter) AppTitles() map[string]string {
+	titles := make(map[string]string, len(p.cfg.Apps))
+	for _, a := range p.cfg.Apps {
+		if a.DisplayName != "" {
+			titles[a.Name] = a.DisplayName
+		} else {
+			titles[a.Name] = a.Name
+		}
+	}
+	return titles
+}
+
 // History returns an application's history, newest first.
 func (p *Promoter) History(ctx context.Context, app string) ([]store.HistoryEntry, error) {
 	if _, ok := p.cfg.App(app); !ok {

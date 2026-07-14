@@ -65,6 +65,7 @@ ollama:
 # ---------------------------------------------------------------------------
 apps:
   - name: wslproxy
+    display_name: "diytaxreturn proxy"
     rings:
       int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
       test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
@@ -79,6 +80,7 @@ apps:
   # A healthy spectoncr answers GET /v2/ with 401 (basic-auth at the edge), so
   # its rings pin health_expect_status: 401 instead of the default "any 2xx".
   - name: spectoncr
+    display_name: "diytaxreturn registry"
     rings:
       int:  { target_env: int,  health_url: "https://int-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
       test: { target_env: test, health_url: "https://test-spectoncr.diytaxreturn.co.uk/v2/", health_expect_status: 401 }

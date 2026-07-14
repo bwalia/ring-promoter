@@ -17,7 +17,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { useActiveJob, useApps, useDiagnoseJob } from "@/lib/queries";
+import { useActiveJob, useApps, useAppTitle, useDiagnoseJob } from "@/lib/queries";
 import { duration } from "@/lib/time";
 import type { Job, JobStep, StepStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
  */
 export function JobProgress({ app }: { app: string }) {
   const { job, running, dismiss } = useActiveJob(app);
+  const title = useAppTitle();
 
   // Tick every second while running so durations count up smoothly.
   const [, setTick] = useState(0);
@@ -56,7 +57,7 @@ export function JobProgress({ app }: { app: string }) {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">
             {meta?.label ?? job.action}
-            <span className="text-muted-foreground"> · {job.app}</span>
+            <span className="text-muted-foreground"> · {title(job.app)}</span>
           </p>
           <p className="truncate text-xs text-muted-foreground">
             {finished
