@@ -127,6 +127,11 @@ type DatabaseConfig struct {
 // each ring.
 type AppConfig struct {
 	Name string `yaml:"name"`
+	// DisplayName is the human-friendly title the UI shows for this app (e.g.
+	// "diytaxreturn proxy"). Optional; empty means "show the name". Only a
+	// label: API paths, stored ring state and history keep using Name, so
+	// changing the display name never orphans data.
+	DisplayName string `yaml:"display_name"`
 	// Deployer selects the deploy mechanism for THIS app, overriding the global
 	// `deployer`. One of "kubectl", "log" or "github". Empty means "use the
 	// global deployer". This lets one control plane manage Kubernetes apps and

@@ -16,6 +16,7 @@ import { ringHealth } from "@/components/status";
 import { summarizeRings } from "@/lib/app-health";
 import {
   useApps,
+  useAppTitle,
   useDeployingApps,
   useGroupRings,
   type GroupAppRings,
@@ -61,6 +62,7 @@ function healthSummary(r: GroupAppRings): string {
 
 /** Group page: the deployment ring stage plus member list and activity. */
 export function GroupView({ group }: { group: AppGroup }) {
+  const title = useAppTitle();
   const { data } = useApps();
   const known = data?.apps ?? [];
   const members = group.apps.filter((a) => known.includes(a));
@@ -140,7 +142,7 @@ export function GroupView({ group }: { group: AppGroup }) {
                         )}
                       />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {r.app}
+                        {title(r.app)}
                       </span>
                       {r.isPending ? (
                         <Skeleton className="h-4 w-24" />

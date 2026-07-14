@@ -183,8 +183,11 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleListApps(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"apps":  s.prom.Apps(),
-		"rings": ring.All(),
+		"apps": s.prom.Apps(),
+		// Display titles per app (config display_name, falling back to the
+		// name). Purely cosmetic: every API path still uses the app name.
+		"titles": s.prom.AppTitles(),
+		"rings":  ring.All(),
 		// Tells the UI to ask for the production password where needed.
 		"prod_protected": s.prodPass != "",
 		// Tells the UI to offer "Diagnose with AI" on failed jobs.

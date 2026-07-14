@@ -11,6 +11,7 @@ import {
 import { X } from "lucide-react";
 import { RelativeTime } from "@/components/relative-time";
 import { summarizeRings } from "@/lib/app-health";
+import { useAppTitle } from "@/lib/queries";
 import type { GroupAppRings } from "@/lib/queries";
 import type { AppGroup } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -107,6 +108,7 @@ export function GroupRing({
   onOpen: (app: string) => void;
   onSeed: (app: string) => void;
 }) {
+  const title = useAppTitle();
   const gradId = useId();
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
@@ -463,7 +465,7 @@ export function GroupRing({
                 >
                   <motion.button
                     type="button"
-                    aria-label={`${app}: ${STATUS_WORD[status]}`}
+                    aria-label={`${title(app)}: ${STATUS_WORD[status]}`}
                     onClick={toggleFocus}
                     onMouseEnter={() => hoverIn(app)}
                     onMouseLeave={hoverOut}
@@ -564,10 +566,10 @@ export function GroupRing({
                           className="flex size-4 shrink-0 items-center justify-center rounded-[5px] border bg-gradient-to-b from-white/15 to-white/5 text-[9px] font-semibold text-neutral-200"
                           style={{ borderColor: `${shex}55` }}
                         >
-                          {app[0]?.toUpperCase()}
+                          {title(app)[0]?.toUpperCase()}
                         </span>
                         <span className="max-w-28 truncate text-xs font-medium text-neutral-200">
-                          {app}
+                          {title(app)}
                         </span>
                   </button>
                 </motion.div>
@@ -598,6 +600,7 @@ function NodeCard({
   onOpen: (app: string) => void;
   onSeed: (app: string) => void;
 }) {
+  const title = useAppTitle();
   const hex = STATUS_HEX[status];
   const { active, healthy, latest, lastDeploy } = summarizeRings(rings?.rings);
 
@@ -612,10 +615,10 @@ function NodeCard({
             className="flex size-6 shrink-0 items-center justify-center rounded-md border bg-gradient-to-b from-white/15 to-white/5 text-[11px] font-semibold text-neutral-100"
             style={{ borderColor: `${hex}55` }}
           >
-            {app[0]?.toUpperCase()}
+            {title(app)[0]?.toUpperCase()}
           </span>
           <p className="min-w-0 truncate text-sm font-semibold text-neutral-50">
-            {app}
+            {title(app)}
           </p>
         </div>
         {pinned && (

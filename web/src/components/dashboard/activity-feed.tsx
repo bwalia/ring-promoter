@@ -3,7 +3,7 @@
 import { RelativeTime } from "@/components/relative-time";
 import { ACTION_META } from "@/components/status";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useActivityFeed, useApps } from "@/lib/queries";
+import { useActivityFeed, useApps, useAppTitle } from "@/lib/queries";
 import { usePrefsStore } from "@/lib/stores";
 import type { HistoryEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,7 @@ function describe(h: HistoryEntry): string {
  */
 export function ActivityFeed({ apps: only }: { apps?: string[] } = {}) {
   const { data } = useApps();
+  const title = useAppTitle();
   const apps = only ?? data?.apps ?? [];
   const { items, isPending } = useActivityFeed(apps);
   const selectApp = usePrefsStore((s) => s.selectApp);
@@ -73,7 +74,7 @@ export function ActivityFeed({ apps: only }: { apps?: string[] } = {}) {
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm">
-                      <span className="font-medium">{h.app}</span>{" "}
+                      <span className="font-medium">{title(h.app)}</span>{" "}
                       <span className="text-muted-foreground">
                         {describe(h)}
                       </span>

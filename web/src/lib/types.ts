@@ -8,6 +8,8 @@ export interface Ring {
 
 export interface AppsResponse {
   apps: string[];
+  /** Display title per app (config display_name), falling back to the name. */
+  titles?: Record<string, string>;
   rings: Ring[];
   /** True when the server requires a password for production deployments. */
   prod_protected?: boolean;

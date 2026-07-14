@@ -4,6 +4,7 @@ import { RelativeTime } from "@/components/relative-time";
 import { ACTION_META } from "@/components/status";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VersionLabel } from "@/components/version-label";
+import { useAppTitle } from "@/lib/queries";
 import { usePrefsStore } from "@/lib/stores";
 import { useNow } from "@/lib/use-now";
 import type { HistoryEntry, RingView } from "@/lib/types";
@@ -21,6 +22,7 @@ export function OverviewCards({
   history: HistoryEntry[] | undefined;
   updatedAt: number;
 }) {
+  const title = useAppTitle();
   const autoRefresh = usePrefsStore((s) => s.autoRefresh);
   const now = useNow(5_000);
 
@@ -81,7 +83,7 @@ export function OverviewCards({
             </span>
           </span>
         ) : (
-          <span className="text-muted-foreground">none for {app}</span>
+          <span className="text-muted-foreground">none for {title(app)}</span>
         )}
       </Stat>
 

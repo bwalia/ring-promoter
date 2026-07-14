@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import {
   useMutation,
   useQueries,
@@ -43,6 +43,16 @@ export function useApps() {
     refetchInterval: APPS_INTERVAL,
     staleTime: 30_000,
   });
+}
+
+/**
+ * Lookup from app name to its display title (config `display_name`), falling
+ * back to the name. Purely cosmetic — every API call keeps using the name.
+ */
+export function useAppTitle(): (app: string) => string {
+  const { data } = useApps();
+  const titles = data?.titles;
+  return useCallback((app: string) => titles?.[app] ?? app, [titles]);
 }
 
 export function useRings(app: string | null) {
