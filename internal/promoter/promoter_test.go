@@ -629,6 +629,40 @@ func TestPinnedRef_RecordsReportedVersion(t *testing.T) {
 	}
 }
 
+// TestPinnedRef_RollbackChecksStatusOnly: rolling a pinned ring back to old
+// state whose previous version is the literal pin ("release") must not demand
+// the endpoint report that string — the rollback is healthy on status alone,
+// and the recorded version is what the endpoint says is running.
+func TestPinnedRef_RollbackChecksStatusOnly(t *testing.T) {
+	p, _, chk, st := newHarnessWithRings(t, 0, func(r string, rc *config.RingConfig) {
+		if r == "acc" {
+			rc.Ref = "release"
+			rc.HealthVersionField = "version"
+		}
+	})
+	ctx := context.Background()
+
+	// Pre-upgrade state: acc's previous version is the ref name itself.
+	if err := st.UpsertRingState(ctx, store.RingState{
+		App: testApp, Ring: "acc", CurrentVersion: "v-broken", PreviousVersion: "release",
+	}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+	chk.reportVersion(testApp, "acc", "v1.0.36") // what /health answers after the rollback
+
+	res, err := p.Rollback(ctx, testApp, "acc")
+	if err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if !res.Success || !res.RolledBack {
+		t.Fatalf("rollback to the pin must be healthy on status alone, got %+v", res)
+	}
+	s := mustState(t, st, testApp, "acc")
+	if s.CurrentVersion != "v1.0.36" || !s.Healthy {
+		t.Fatalf("acc state = %+v, want healthy v1.0.36 (the reported version)", s)
+	}
+}
+
 func TestSeed_RejectsVersionMissingFromSource(t *testing.T) {
 	dep := &validatingDeployer{fakeDeployer: newFakeDeployer(), known: map[string]bool{"v1": true}}
 	st := store.NewMemory()

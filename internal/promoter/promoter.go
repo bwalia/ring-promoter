@@ -564,7 +564,23 @@ func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt dep
 		st, _ := p.store.GetRingState(ctx, app, ringName)
 		return st, false, errors.New(msg)
 	}
-	healthy := p.checkWithRetries(ctx, probe(rc, to)) == nil
+	// A pinned ring's health check cannot demand a version — the pipeline
+	// decides what the pin ships, and a rollback to old state may redeploy the
+	// pin itself (e.g. "release"). Check status only, like the forward paths,
+	// and read the running version back for the record.
+	want := to
+	if rc.Ref != "" {
+		want = ""
+	}
+	healthy := p.checkWithRetries(ctx, probe(rc, want)) == nil
+	if healthy && rc.Ref != "" {
+		if vr, ok := p.checker.(health.VersionReporter); ok && verifiesVersion(rc) {
+			if v, err := vr.ReportedVersion(ctx, probe(rc, "")); err == nil && v != "" {
+				reporterFrom(ctx).Log("endpoint reports " + v)
+				to = v
+			}
+		}
+	}
 	st := p.saveState(ctx, app, ringName, from, to, healthy)
 	if healthy {
 		p.record(ctx, app, ringName, store.ActionRollback, from, to, store.ResultSuccess,
