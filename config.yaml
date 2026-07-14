@@ -45,6 +45,17 @@ ollama:
 # Application registry. Add a new managed app by adding an entry here — no code
 # change and no rebuild required (edit the ConfigMap in k3s).
 #
+# Optional per-ring version verification: a URL answering "200 OK" can still
+# be the OLD version right after a deploy. If the app's health endpoint reports
+# its running version, set ONE of these on the ring and every post-deploy check
+# will also require the reported version to equal the version just deployed
+# (mismatch -> failed check -> auto-rollback):
+#   health_version_field:  "version"        # JSON body field ({"version":"v1"});
+#                                           # dotted path ok, e.g. "build.version"
+#   health_version_header: "X-App-Version"  # or a response header
+# The endpoint must report the exact deployed version string (image tag /
+# branch). Leave both unset to keep the plain status-only check.
+#
 # The only app is wslproxy. In PRODUCTION it deploys via its own GitHub Actions
 # per-environment workflow using the per-app "github" deployer — see the copy in
 # deploy/k8s/configmap.yaml. Here (local dev) it deliberately has NO per-app

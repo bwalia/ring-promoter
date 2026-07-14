@@ -45,6 +45,20 @@ in **configuration**, not code.
   check is performed).
 - After deploying the source version to the target ring, the service runs a
   **health check with a configurable number of retries**.
+- **Version-verified health checks (optional, per ring).** A plain URL check
+  can be fooled: the deploy "succeeds" but the old version is still answering
+  "200 OK". If a ring sets `health_version_field` (a JSON field in the health
+  response, e.g. `version` — dotted paths like `build.version` work too) or
+  `health_version_header` (a response header, e.g. `X-App-Version`), every
+  post-deploy check also requires the endpoint to **report the exact version
+  that was just deployed** — otherwise the check fails and the usual
+  auto-rollback kicks in. The same source verifies the *source* ring really
+  runs the version about to be promoted. The app must expose the deployed
+  version string (image tag / branch) on its health endpoint.
+  On a **ref-pinned ring** (`ref: release`) the expected version isn't knowable
+  up front — the pipeline decides what the ref ships — so there the field is
+  used the other way round: after a healthy deploy the ring **records the
+  version the endpoint reports** (e.g. `v1.0.36`) instead of the ref name.
 - If the target is still unhealthy after all retries, it is **automatically
   rolled back** to its previous version.
 - Every **seed / promote / rollback** is written to history, success or failure.

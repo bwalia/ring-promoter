@@ -120,6 +120,39 @@ apps:
 	}
 }
 
+// A ring may report its version via a JSON field OR a header, not both.
+func TestHealthVersionSources(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+
+	body := `
+apps:
+  - name: web
+    rings:
+      int: { health_url: "http://x/healthz", health_version_field: "build.version" }
+      test: { health_url: "http://y/healthz", health_version_header: "X-App-Version" }
+`
+	cfg, err := Load(writeConfig(t, body))
+	if err != nil {
+		t.Fatalf("valid version sources should load: %v", err)
+	}
+	if got := cfg.Apps[0].Rings["int"].HealthVersionField; got != "build.version" {
+		t.Fatalf("HealthVersionField = %q, want build.version", got)
+	}
+	if got := cfg.Apps[0].Rings["test"].HealthVersionHeader; got != "X-App-Version" {
+		t.Fatalf("HealthVersionHeader = %q, want X-App-Version", got)
+	}
+
+	both := `
+apps:
+  - name: web
+    rings:
+      int: { health_url: "http://x/healthz", health_version_field: "version", health_version_header: "X-App-Version" }
+`
+	if _, err := Load(writeConfig(t, both)); err == nil {
+		t.Fatal("expected error when both health_version_field and health_version_header are set")
+	}
+}
+
 // A valid per-app github deployer must load and resolve to DeployerGitHub.
 const githubApp = `
 apps:
