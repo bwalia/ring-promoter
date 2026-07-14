@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/example/ring-promoter/internal/health"
 	"github.com/example/ring-promoter/internal/store"
 )
 
@@ -297,7 +298,7 @@ func TestListJobs_SharedAcrossClients(t *testing.T) {
 // failures (with their step logs).
 type failingChecker struct{}
 
-func (failingChecker) Check(context.Context, string, int) error {
+func (failingChecker) Check(context.Context, health.Probe) error {
 	return errors.New("connection refused (port closed)")
 }
 

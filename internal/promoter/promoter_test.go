@@ -11,6 +11,7 @@ import (
 
 	"github.com/example/ring-promoter/internal/config"
 	"github.com/example/ring-promoter/internal/deployer"
+	"github.com/example/ring-promoter/internal/health"
 	"github.com/example/ring-promoter/internal/ring"
 	"github.com/example/ring-promoter/internal/store"
 )
@@ -69,35 +70,69 @@ func (f *fakeDeployer) failVersion(v string) {
 
 // scriptedChecker reports a (ring, version) combination unhealthy when marked.
 // Health URLs are of the form "health://<app>/<ring>"; the version consulted is
-// whatever the fakeDeployer currently has live in that ring.
+// whatever the fakeDeployer currently has live in that ring. When a probe
+// carries a version expectation, the endpoint "reports" the ring's live
+// version — unless reportVersion pinned a stale one (simulating an old build
+// still serving after a deploy).
 type scriptedChecker struct {
 	dep       *fakeDeployer
 	mu        sync.Mutex
-	unhealthy map[string]bool // "app/ring|version" -> unhealthy
-	checks    map[string]int  // "app/ring" -> number of checks
+	unhealthy map[string]bool   // "app/ring|version" -> unhealthy
+	checks    map[string]int    // "app/ring" -> number of checks
+	reports   map[string]string // "app/ring" -> version the endpoint claims
 }
 
 func newScriptedChecker(dep *fakeDeployer) *scriptedChecker {
-	return &scriptedChecker{dep: dep, unhealthy: map[string]bool{}, checks: map[string]int{}}
+	return &scriptedChecker{dep: dep, unhealthy: map[string]bool{}, checks: map[string]int{}, reports: map[string]string{}}
 }
 
-func (c *scriptedChecker) Check(_ context.Context, url string, _ int) error {
-	k := strings.TrimPrefix(url, "health://")
+func (c *scriptedChecker) Check(_ context.Context, pr health.Probe) error {
+	k := strings.TrimPrefix(pr.URL, "health://")
 	ver := c.dep.version(k)
 	c.mu.Lock()
 	c.checks[k]++
 	bad := c.unhealthy[k+"|"+ver]
+	reported, pinned := c.reports[k]
 	c.mu.Unlock()
 	if bad {
 		return fmt.Errorf("unhealthy: %s running %s", k, ver)
 	}
+	if pr.WantVersion != "" && (pr.VersionField != "" || pr.VersionHeader != "") {
+		if !pinned {
+			reported = ver
+		}
+		if reported != pr.WantVersion {
+			return fmt.Errorf("wrong version live: endpoint reports %q, want %q", reported, pr.WantVersion)
+		}
+	}
 	return nil
+}
+
+// ReportedVersion implements health.VersionReporter: the pinned report if set,
+// else whatever the fakeDeployer has live in the ring.
+func (c *scriptedChecker) ReportedVersion(_ context.Context, pr health.Probe) (string, error) {
+	k := strings.TrimPrefix(pr.URL, "health://")
+	c.mu.Lock()
+	reported, pinned := c.reports[k]
+	c.mu.Unlock()
+	if pinned {
+		return reported, nil
+	}
+	return c.dep.version(k), nil
 }
 
 func (c *scriptedChecker) markUnhealthy(app, r, version string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.unhealthy[key(app, r)+"|"+version] = true
+}
+
+// reportVersion pins the version the ring's health endpoint claims to run,
+// regardless of what was deployed.
+func (c *scriptedChecker) reportVersion(app, r, version string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reports[key(app, r)] = version
 }
 
 func (c *scriptedChecker) checkCount(app, r string) int {
@@ -558,6 +593,42 @@ func (v *validatingDeployer) ValidateVersion(_ context.Context, version string) 
 	return deployer.ErrVersionNotFound
 }
 
+// ---- pinned rings record the endpoint-reported version ----
+
+// TestPinnedRef_RecordsReportedVersion: a ref-pinned ring still deploys the
+// literal pin (its pipeline may require it — diytaxreturn's guard refuses acc
+// unless DEPLOY_BRANCH=release), but afterwards the ring records the version
+// the health endpoint says it is running, not the word "release".
+func TestPinnedRef_RecordsReportedVersion(t *testing.T) {
+	p, dep, chk, st := newHarnessWithRings(t, 0, func(r string, rc *config.RingConfig) {
+		if r == "acc" {
+			rc.Ref = "release"
+			rc.HealthVersionField = "version"
+		}
+	})
+	ctx := context.Background()
+	chk.reportVersion(testApp, "acc", "v1.0.36") // what /health answers after the deploy
+
+	mustSeed(t, p, "int", "main")
+	if _, err := p.Promote(ctx, testApp, "int"); err != nil {
+		t.Fatalf("promote int->test: %v", err)
+	}
+	res, err := p.Promote(ctx, testApp, "test") // test -> acc (pinned)
+	if err != nil {
+		t.Fatalf("promote test->acc: %v", err)
+	}
+	if !res.Success || res.Version != "v1.0.36" {
+		t.Fatalf("acc promote should record the reported version, got %+v", res)
+	}
+	// The pipeline was still dispatched with the pin, not the version.
+	if got := dep.version(key(testApp, "acc")); got != "release" {
+		t.Fatalf("acc deploy dispatched %q, want release", got)
+	}
+	if s := mustState(t, st, testApp, "acc"); s.CurrentVersion != "v1.0.36" || !s.Healthy {
+		t.Fatalf("acc state = %+v, want healthy v1.0.36", s)
+	}
+}
+
 func TestSeed_RejectsVersionMissingFromSource(t *testing.T) {
 	dep := &validatingDeployer{fakeDeployer: newFakeDeployer(), known: map[string]bool{"v1": true}}
 	st := store.NewMemory()
@@ -702,5 +773,121 @@ func TestSetAutoPromote_Validation(t *testing.T) {
 	}
 	if err := p.SetAutoPromote(ctx, testApp, "test", false); err != nil {
 		t.Fatalf("disable: %v", err)
+	}
+}
+
+// ---- version-verified health checks ----
+
+// versionHarness builds a harness where every ring verifies the reported
+// version (health_version_field is set), so a healthy status alone is not
+// enough after a deploy.
+func versionHarness(t *testing.T, retryCount int) (*Promoter, *fakeDeployer, *scriptedChecker, store.Store) {
+	t.Helper()
+	return newHarnessWithRings(t, retryCount, func(_ string, rc *config.RingConfig) {
+		rc.HealthVersionField = "version"
+	})
+}
+
+// TestPromote_StaleVersionServing_RollsBack is the scenario version checking
+// exists for: the deploy "succeeds" but the endpoint keeps reporting the OLD
+// version. A status-only check would pass; the version check must fail the
+// promotion and roll the ring back.
+func TestPromote_StaleVersionServing_RollsBack(t *testing.T) {
+	p, _, chk, st := versionHarness(t, 1)
+	ctx := context.Background()
+
+	mustSeed(t, p, "test", "v0") // baseline in the target ring
+	mustSeed(t, p, "int", "v1")
+
+	// After the promote deploys v1 to test, the endpoint still claims v0.
+	chk.reportVersion(testApp, "test", "v0")
+
+	res, err := p.Promote(ctx, testApp, "int")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("promotion must fail when the endpoint reports the old version, got %+v", res)
+	}
+	if !res.RolledBack {
+		t.Fatalf("expected auto-rollback, got %+v", res)
+	}
+	if !strings.Contains(res.Message, "wrong version") && !strings.Contains(res.Message, "health check") {
+		t.Fatalf("message should explain the failure, got %q", res.Message)
+	}
+	// The ring is back on v0, and the rollback health check passed because the
+	// endpoint (still reporting v0) now matches the rolled-back version.
+	if s := mustState(t, st, testApp, "test"); s.CurrentVersion != "v0" || !s.Healthy {
+		t.Fatalf("test ring should be back on healthy v0, got %+v", s)
+	}
+}
+
+// TestPromote_VersionVerified_Succeeds: with a version source configured and
+// the endpoint reporting what was deployed, promotion works end to end.
+func TestPromote_VersionVerified_Succeeds(t *testing.T) {
+	p, dep, _, st := versionHarness(t, 0)
+	ctx := context.Background()
+
+	mustSeed(t, p, "int", "v1")
+	res, err := p.Promote(ctx, testApp, "int")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("promote should succeed: %+v", res)
+	}
+	if got := dep.version(key(testApp, "test")); got != "v1" {
+		t.Fatalf("test live version = %q, want v1", got)
+	}
+	if s := mustState(t, st, testApp, "test"); s.CurrentVersion != "v1" || !s.Healthy {
+		t.Fatalf("test ring state = %+v, want healthy v1", s)
+	}
+}
+
+// TestSeed_StaleVersionServing_Fails: seeding also verifies the reported
+// version; a stale endpoint marks the ring unhealthy (no rollback on seed).
+func TestSeed_StaleVersionServing_Fails(t *testing.T) {
+	p, _, chk, st := versionHarness(t, 0)
+	ctx := context.Background()
+
+	chk.reportVersion(testApp, "int", "v0")
+	res, err := p.Seed(ctx, testApp, "int", "v1")
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("seed must fail when the endpoint reports a different version, got %+v", res)
+	}
+	if !strings.Contains(res.Message, "wrong version") {
+		t.Fatalf("message should mention the version mismatch, got %q", res.Message)
+	}
+	if s := mustState(t, st, testApp, "int"); s.Healthy {
+		t.Fatalf("int ring must be recorded unhealthy, got %+v", s)
+	}
+}
+
+// TestPromote_SourceWrongVersion_Aborts: the pre-promotion source check also
+// verifies the source actually runs the version about to be promoted, so a
+// drifted source aborts the promotion before anything deploys.
+func TestPromote_SourceWrongVersion_Aborts(t *testing.T) {
+	p, dep, chk, _ := versionHarness(t, 0)
+	ctx := context.Background()
+
+	mustSeed(t, p, "int", "v1")
+	deploysBefore := dep.deployCount()
+
+	chk.reportVersion(testApp, "int", "v9") // source drifted
+	res, err := p.Promote(ctx, testApp, "int")
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("promotion must abort on a drifted source, got %+v", res)
+	}
+	if !strings.Contains(res.Message, "source ring") {
+		t.Fatalf("message should blame the source ring, got %q", res.Message)
+	}
+	if dep.deployCount() != deploysBefore {
+		t.Fatalf("nothing must deploy when the source check fails")
 	}
 }

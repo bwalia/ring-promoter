@@ -198,6 +198,18 @@ type RingConfig struct {
 	// the signal deploy-spectoncr.yml itself asserts as healthy), so its rings
 	// set health_expect_status: 401.
 	HealthExpectStatus int `yaml:"health_expect_status"`
+	// HealthVersionField, when set, names the JSON field in the health response
+	// body that reports the RUNNING version (dotted path for nested fields,
+	// e.g. "version" or "build.version"). Post-deploy health checks then also
+	// require the reported version to equal the version just deployed — so an
+	// old version still answering "200 OK" no longer passes as a successful
+	// deployment. The app must report the exact version string being deployed
+	// (the image tag for kubectl apps, the branch/ref for CI-deployed apps).
+	// Mutually exclusive with HealthVersionHeader.
+	HealthVersionField string `yaml:"health_version_field"`
+	// HealthVersionHeader names a response header carrying the running version
+	// (e.g. "X-App-Version"), as an alternative to HealthVersionField.
+	HealthVersionHeader string `yaml:"health_version_header"`
 	// TargetEnv is the environment name a non-Kubernetes deployer ships this
 	// ring to (e.g. "int", "test", "prod"). Required for the "github" deployer;
 	// ignored by the kubectl deployer.
@@ -205,8 +217,12 @@ type RingConfig struct {
 	// Ref pins the version (git branch/tag/sha) this ring always deploys,
 	// overriding the seeded/promoted version. Use it when a ring is fixed to a
 	// source branch — e.g. acceptance may only ever run `release`: setting
-	// `ref: release` makes both seed and promote to that ring deploy (and record)
-	// `release`, so "promote to acc" ships release while int/test carry main.
+	// `ref: release` makes both seed and promote to that ring ship `release`,
+	// so "promote to acc" deploys release while int/test carry main.
+	// A pinned ring that also sets HealthVersionField/Header records, after a
+	// healthy deploy, the version its endpoint REPORTS running (e.g. v1.0.36)
+	// instead of the literal ref name — the pin controls what is dispatched,
+	// the endpoint tells us what actually shipped.
 	// Only meaningful for branch/CI-based deployers (github); leave empty
 	// otherwise (the kubectl deployer treats the version as an image tag).
 	Ref string `yaml:"ref"`
@@ -401,6 +417,9 @@ func (c *Config) Validate() error {
 			}
 			if s := rc.HealthExpectStatus; s != 0 && (s < 100 || s > 599) {
 				return fmt.Errorf("application %q ring %q has invalid health_expect_status %d (want an HTTP code 100-599, or 0 for any 2xx)", a.Name, rname, s)
+			}
+			if rc.HealthVersionField != "" && rc.HealthVersionHeader != "" {
+				return fmt.Errorf("application %q ring %q sets both health_version_field and health_version_header (choose one)", a.Name, rname)
 			}
 		}
 		if err := c.validateAppDeployer(a); err != nil {

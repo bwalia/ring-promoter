@@ -33,6 +33,17 @@ data:
       url: "https://ollama.workstation.co.uk"
       model: "qwen3-coder:30b"
     apps:
+      # Per-ring version verification (opt-in): when an app's health endpoint
+      # reports its running version, add `health_version_field: "version"`
+      # (JSON body field, dotted path ok) or `health_version_header:
+      # "X-App-Version"` to the ring — post-deploy checks then also require the
+      # endpoint to report the exact version just deployed, so an old build
+      # still answering 200 can no longer pass as a successful deployment.
+      # On a ref-pinned ring (diytaxreturn acc) the field instead RECORDS the
+      # reported version after a healthy deploy — the expected version isn't
+      # knowable up front there. wslproxy/spectoncr endpoints don't report a
+      # version yet, so they stay on plain status checks.
+      #
       # wslproxy — OpenResty/Lua app on VMs, deployed via its own GitHub Actions
       # per-environment workflow (deploy-single-environment.yml). Rings are the
       # real pipeline Integration -> Test -> Acceptance -> Production; target_env
@@ -61,9 +72,11 @@ data:
       # own GitHub Actions single-env workflow (deploy-single-environment.yml).
       # Three environments only: int -> test -> acc (no prod ring configured).
       # STRATEGY: acceptance is deployed ONLY from the `release` branch. The acc
-      # ring pins `ref: release`, so seed/promote to acc always deploys (and
-      # records) release — "Promote -> acc" ships release while int/test carry
-      # main. The workflow's guard job enforces the same rule as defence in depth.
+      # ring pins `ref: release`, so seed/promote to acc always dispatches
+      # DEPLOY_BRANCH=release — which the workflow's guard job requires. After
+      # a healthy deploy, acc's health_version_field makes Ring Promoter read
+      # the version the app REPORTS running (e.g. v1.0.36) and record that, so
+      # the UI shows a real version instead of the word "release".
       # Health = FastAPI /fastapi/health per env. Token from RP_GITHUB_TOKEN.
       - name: diytaxreturn
         deployer: github
@@ -79,7 +92,9 @@ data:
         rings:                 # target_env -> workflow ENV input
           int:  { target_env: int,  health_url: "https://int-api.diytaxreturn.co.uk/fastapi/health" }
           test: { target_env: test, health_url: "https://test-api.diytaxreturn.co.uk/fastapi/health" }
-          acc:  { target_env: acc,  ref: release, health_url: "https://acc-api.diytaxreturn.co.uk/fastapi/health" }
+          # health_version_field: after a healthy deploy, record the version the
+          # endpoint reports ({"version":"v1.0.36"}) instead of the pin "release".
+          acc:  { target_env: acc,  ref: release, health_url: "https://acc-api.diytaxreturn.co.uk/fastapi/health", health_version_field: "version" }
           # No prod ring: this app has three environments (int/test/acc) only.
 
       # spectoncr — in-cluster container registry. Its Helm chart lives in the

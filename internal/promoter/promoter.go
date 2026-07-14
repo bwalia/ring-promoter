@@ -6,6 +6,9 @@
 //   - Promote one ring at a time; never skip a ring (order comes from package ring).
 //   - The source ring must be healthy before promoting.
 //   - After deploying to the target ring, run a health check with configurable retries.
+//     Rings that configure a version source (health_version_field / _header) also
+//     require the endpoint to REPORT the deployed version — a stale old version
+//     answering "200 OK" fails the check.
 //   - If it still fails, automatically roll the target ring back to its previous version.
 //   - Record every seed / promote / rollback in history.
 package promoter
@@ -173,7 +176,10 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			defer wg.Done()
 			cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 			defer cancel()
-			if err := p.checker.Check(cctx, rc.HealthURL, rc.HealthExpectStatus); err != nil {
+			// Status-only probe: the dashboard shows live vs stored version
+			// side by side, so the read model does not fold a mismatch into
+			// "unhealthy".
+			if err := p.checker.Check(cctx, probe(rc, "")); err != nil {
 				views[idx].LiveHealthy = false
 				views[idx].LiveHealthError = err.Error()
 			} else {
@@ -248,8 +254,9 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	// A ring may pin a deploy ref (e.g. acc -> release); if so it deploys and
-	// records that ref regardless of the requested version.
+	// A ring may pin a deploy ref (e.g. acc -> release); if so it deploys that
+	// ref regardless of the requested version. After a healthy deploy the
+	// recorded version is upgraded to what the endpoint reports it is running.
 	version = deployVersion(rc, version)
 
 	// Checked on the effective (pinned) version, since that is what deploys.
@@ -279,13 +286,26 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 	}
 	rep.FinishStep(StepSuccess, "image set to "+version)
 
-	rep.StartStep("health", fmt.Sprintf("Health check %s", ringName))
-	healthErr := p.checkWithRetries(ctx, rc.HealthURL, rc.HealthExpectStatus)
+	// A pinned ring's concrete version is decided by its pipeline, so the
+	// health check cannot demand one up front (want="") — it is read back from
+	// the endpoint after the check passes.
+	want := version
+	if rc.Ref != "" {
+		want = ""
+	}
+	rep.StartStep("health", healthStepTitle(ringName, rc, want))
+	healthErr := p.checkWithRetries(ctx, probe(rc, want))
 	healthy := healthErr == nil
+	if healthy {
+		rep.FinishStep(StepSuccess, healthOKMsg(rc, want))
+		if rc.Ref != "" {
+			version = p.runningVersion(ctx, rc, version)
+			res.Version = version
+		}
+	}
 	res.State = p.saveState(ctx, app, ringName, prev, version, healthy)
 	res.Success = healthy
 	if healthy {
-		rep.FinishStep(StepSuccess, "healthy")
 		res.Message = fmt.Sprintf("seeded %s and healthy", version)
 		p.record(ctx, app, ringName, store.ActionSeed, prev, version, store.ResultSuccess, res.Message)
 		// The seeded ring may have auto-promote enabled: continue onward.
@@ -396,9 +416,11 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 	version := srcState.CurrentVersion
 	res.Version = version
 
-	// Rule: source ring must be healthy before promoting (live check).
+	// Rule: source ring must be healthy before promoting (live check). When the
+	// source ring configures a version source, this also verifies it actually
+	// RUNS the version about to be promoted, not just that something answers.
 	rep.StartStep("source-health", fmt.Sprintf("Verify %s (%s) is healthy", fromRing, version))
-	if err := p.checker.Check(ctx, srcRC.HealthURL, srcRC.HealthExpectStatus); err != nil {
+	if err := p.checker.Check(ctx, probe(srcRC, version)); err != nil {
 		rep.FinishStep(StepFailed, err.Error())
 		srcState.Healthy = false
 		_ = p.store.UpsertRingState(ctx, srcState)
@@ -408,10 +430,11 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 	}
 	rep.FinishStep(StepSuccess, "source healthy")
 
-	// The target ring may pin a deploy ref (e.g. acc -> release): deploy and
-	// record that ref instead of the promoted version. This lets "promote to
-	// acc" ship release while int/test carry main — and the source-health check
-	// above still used the source's real version.
+	// The target ring may pin a deploy ref (e.g. acc -> release): it ships that
+	// ref instead of the promoted version, letting "promote to acc" deploy
+	// release while int/test carry main (the source-health check above still
+	// used the source's real version). After a healthy deploy the recorded
+	// version is upgraded to what the endpoint reports it is running.
 	version = deployVersion(dstRC, version)
 	res.Version = version
 
@@ -434,10 +457,20 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 	// cluster — even if the health check AND the auto-rollback below both fail.
 	p.saveState(ctx, app, nextRing.Name, dstPrev, version, false)
 
-	// Health-check the target with retries.
-	rep.StartStep("health", fmt.Sprintf("Health check %s", nextRing.Name))
-	if healthErr := p.checkWithRetries(ctx, dstRC.HealthURL, dstRC.HealthExpectStatus); healthErr == nil {
-		rep.FinishStep(StepSuccess, "healthy")
+	// Health-check the target with retries. Pinned rings check status only
+	// (want=""): their concrete version is decided by the pipeline and is read
+	// back from the endpoint after the check passes.
+	want := version
+	if dstRC.Ref != "" {
+		want = ""
+	}
+	rep.StartStep("health", healthStepTitle(nextRing.Name, dstRC, want))
+	if healthErr := p.checkWithRetries(ctx, probe(dstRC, want)); healthErr == nil {
+		rep.FinishStep(StepSuccess, healthOKMsg(dstRC, want))
+		if dstRC.Ref != "" {
+			version = p.runningVersion(ctx, dstRC, version)
+			res.Version = version
+		}
 		res.State = p.saveState(ctx, app, nextRing.Name, dstPrev, version, true)
 		res.Success = true
 		res.Message = fmt.Sprintf("promoted %s from %s to %s and healthy", version, fromRing, nextRing.Name)
@@ -531,7 +564,7 @@ func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt dep
 		st, _ := p.store.GetRingState(ctx, app, ringName)
 		return st, false, errors.New(msg)
 	}
-	healthy := p.checkWithRetries(ctx, rc.HealthURL, rc.HealthExpectStatus) == nil
+	healthy := p.checkWithRetries(ctx, probe(rc, to)) == nil
 	st := p.saveState(ctx, app, ringName, from, to, healthy)
 	if healthy {
 		p.record(ctx, app, ringName, store.ActionRollback, from, to, store.ResultSuccess,
@@ -544,9 +577,8 @@ func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt dep
 }
 
 // checkWithRetries runs the health check up to retry.Count+1 times, waiting
-// retry.Delay between attempts. expectStatus is forwarded to the checker (0 =
-// any 2xx).
-func (p *Promoter) checkWithRetries(ctx context.Context, url string, expectStatus int) error {
+// retry.Delay between attempts.
+func (p *Promoter) checkWithRetries(ctx context.Context, pr health.Probe) error {
 	rep := reporterFrom(ctx)
 	attempts := p.retryCount + 1
 	if attempts < 1 {
@@ -562,14 +594,52 @@ func (p *Promoter) checkWithRetries(ctx context.Context, url string, expectStatu
 			case <-time.After(p.retryDelay):
 			}
 		}
-		if err = p.checker.Check(ctx, url, expectStatus); err == nil {
+		if err = p.checker.Check(ctx, pr); err == nil {
 			rep.Log(fmt.Sprintf("attempt %d/%d: healthy", i+1, attempts))
 			return nil
 		}
 		rep.Log(fmt.Sprintf("attempt %d/%d failed: %s", i+1, attempts, err))
-		p.log.Warn("health check attempt failed", "url", url, "attempt", i+1, "attempts", attempts, "err", err)
+		p.log.Warn("health check attempt failed", "url", pr.URL, "attempt", i+1, "attempts", attempts, "err", err)
 	}
 	return err
+}
+
+// probe builds the health probe for one ring. wantVersion, when non-empty and
+// the ring configures a version source, additionally requires the endpoint to
+// report exactly that version; rings without a version source keep the plain
+// status check.
+func probe(rc config.RingConfig, wantVersion string) health.Probe {
+	return health.Probe{
+		URL:           rc.HealthURL,
+		ExpectStatus:  rc.HealthExpectStatus,
+		WantVersion:   wantVersion,
+		VersionField:  rc.HealthVersionField,
+		VersionHeader: rc.HealthVersionHeader,
+	}
+}
+
+// verifiesVersion reports whether health checks for this ring compare the
+// endpoint's reported version against the deployed one.
+func verifiesVersion(rc config.RingConfig) bool {
+	return rc.HealthVersionField != "" || rc.HealthVersionHeader != ""
+}
+
+// healthStepTitle describes the post-deploy health step, making it visible in
+// the step log when the running version is verified rather than assumed. want
+// is empty when no version is enforced (e.g. ref-pinned rings).
+func healthStepTitle(ringName string, rc config.RingConfig, want string) string {
+	if want != "" && verifiesVersion(rc) {
+		return fmt.Sprintf("Health check %s (must report version %s)", ringName, want)
+	}
+	return fmt.Sprintf("Health check %s", ringName)
+}
+
+// healthOKMsg describes a passed post-deploy health check.
+func healthOKMsg(rc config.RingConfig, want string) string {
+	if want != "" && verifiesVersion(rc) {
+		return fmt.Sprintf("healthy and confirmed running %s", want)
+	}
+	return "healthy"
 }
 
 // saveState persists current=cur, previous=prev, healthy and returns the state.
@@ -644,13 +714,36 @@ func (p *Promoter) target(app, ringName string, rc config.RingConfig) deployer.T
 	}
 }
 
-// deployVersion returns the version to actually deploy to (and record for) a
-// ring. When a ring pins a `ref` (e.g. acc -> release), that ref overrides the
-// seeded/promoted version, so deploys to that ring always ship the pinned ref
-// and history reflects it. Rings without a ref use the given version unchanged.
+// deployVersion returns the version to actually deploy to a ring. When a ring
+// pins a `ref` (e.g. acc -> release), that ref overrides the seeded/promoted
+// version — the pipeline behind such a ring often requires the literal ref
+// (diytaxreturn's guard job refuses acc deploys unless DEPLOY_BRANCH=release).
+// Rings without a ref use the given version unchanged.
 func deployVersion(rc config.RingConfig, version string) string {
 	if rc.Ref != "" {
 		return rc.Ref
 	}
 	return version
+}
+
+// runningVersion asks a ring's health endpoint which version it is actually
+// running (per health_version_field / _header) and returns it, falling back to
+// `pin` when the endpoint cannot say. Used after deploying a ref-pinned ring:
+// the pipeline decides what the ref ships (it may even merge the ref forward
+// first), so the concrete version is only knowable afterwards — and recording
+// it means the UI shows "v1.0.36" instead of the word "release".
+func (p *Promoter) runningVersion(ctx context.Context, rc config.RingConfig, pin string) string {
+	vr, ok := p.checker.(health.VersionReporter)
+	if !ok || !verifiesVersion(rc) {
+		return pin
+	}
+	rep := reporterFrom(ctx)
+	rep.StartStep("record-version", fmt.Sprintf("Identify the build %s shipped", pin))
+	v, err := vr.ReportedVersion(ctx, probe(rc, ""))
+	if err != nil || v == "" {
+		rep.FinishStep(StepSkipped, fmt.Sprintf("endpoint did not report a version (%v); recording %q", err, pin))
+		return pin
+	}
+	rep.FinishStep(StepSuccess, fmt.Sprintf("%s is running %s", pin, v))
+	return v
 }
