@@ -3,84 +3,99 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Design system: "Promotion Control Plane" ───────────────────────────
+   Cool-graphite neutrals with a faint blue-violet undertone (hue ~275) so
+   the surface reads as an instrument panel, not stock zinc. A single IRIS
+   brand (hue ~285) owns the promotion path — logo, links, primary action,
+   focus. It is kept strictly separate from the fixed status LEDs
+   (good / warning / critical / info) so colour never means two things. */
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.986 0.002 275);
+  --foreground: oklch(0.2 0.02 275);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.2 0.02 275);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.2 0.02 275);
+  --primary: oklch(0.52 0.2 285);
+  --primary-foreground: oklch(0.99 0.005 285);
+  --secondary: oklch(0.966 0.004 275);
+  --secondary-foreground: oklch(0.25 0.02 285);
+  --muted: oklch(0.966 0.004 275);
+  --muted-foreground: oklch(0.505 0.02 275);
+  --accent: oklch(0.955 0.012 285);
+  --accent-foreground: oklch(0.3 0.06 285);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
+  --border: oklch(0.906 0.006 275);
+  --input: oklch(0.906 0.006 275);
+  --ring: oklch(0.52 0.2 285);
+  --chart-1: oklch(0.52 0.2 285);
   --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-3: oklch(0.646 0.222 41.116);
   --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  /* Status palette (dataviz reference) — fixed across themes; always paired
-     with an icon or label, never color alone. */
+  --chart-5: oklch(0.577 0.245 27.325);
+  --sidebar: oklch(0.982 0.003 275);
+  --sidebar-foreground: oklch(0.2 0.02 275);
+  --sidebar-primary: oklch(0.52 0.2 285);
+  --sidebar-primary-foreground: oklch(0.99 0.005 285);
+  --sidebar-accent: oklch(0.955 0.012 285);
+  --sidebar-accent-foreground: oklch(0.3 0.06 285);
+  --sidebar-border: oklch(0.906 0.006 275);
+  --sidebar-ring: oklch(0.52 0.2 285);
+  /* Iris brand — the promotion path. Never used to signal live status. */
+  --brand: oklch(0.52 0.2 285);
+  --brand-strong: oklch(0.46 0.21 285);
+  --brand-foreground: oklch(0.99 0.005 285);
+  /* Status LEDs (dataviz reference) — fixed across themes; always paired
+     with an icon or label, never colour alone. Each means exactly one thing. */
   --status-good: #0ca30c;
   --status-warning: #fab219;
   --status-serious: #ec835a;
   --status-critical: #d03b3b;
+  --status-info: #3b82f6;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: oklch(0.168 0.012 275);
+  --foreground: oklch(0.965 0.004 275);
+  --card: oklch(0.212 0.014 275);
+  --card-foreground: oklch(0.965 0.004 275);
+  --popover: oklch(0.212 0.014 275);
+  --popover-foreground: oklch(0.965 0.004 275);
+  --primary: oklch(0.72 0.15 285);
+  --primary-foreground: oklch(0.18 0.03 285);
+  --secondary: oklch(0.27 0.014 275);
+  --secondary-foreground: oklch(0.965 0.004 275);
+  --muted: oklch(0.27 0.014 275);
+  --muted-foreground: oklch(0.7 0.02 275);
+  --accent: oklch(0.3 0.03 285);
+  --accent-foreground: oklch(0.95 0.02 285);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.72 0.15 285);
+  --chart-1: oklch(0.72 0.15 285);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.19 0.013 275);
+  --sidebar-foreground: oklch(0.965 0.004 275);
+  --sidebar-primary: oklch(0.72 0.15 285);
+  --sidebar-primary-foreground: oklch(0.18 0.03 285);
+  --sidebar-accent: oklch(0.3 0.03 285);
+  --sidebar-accent-foreground: oklch(0.95 0.02 285);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.72 0.15 285);
+  --brand: oklch(0.72 0.15 285);
+  --brand-strong: oklch(0.78 0.14 285);
+  --brand-foreground: oklch(0.18 0.03 285);
 }
 
 @theme inline {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-display: var(--font-archivo);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -116,10 +131,14 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-foreground: var(--brand-foreground);
   --color-status-good: var(--status-good);
   --color-status-warning: var(--status-warning);
   --color-status-serious: var(--status-serious);
   --color-status-critical: var(--status-critical);
+  --color-status-info: var(--status-info);
 }
 
 @layer base {
@@ -128,7 +147,35 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv05", "ss01";
   }
+  /* Tabular figures for version strings, counts and timers so digits align. */
+  .tabular-nums,
+  [class~="font-mono"] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Display face — Archivo — for headings and instrument labels. */
+.font-display {
+  font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  letter-spacing: -0.011em;
+}
+
+/* ── Landing scope ──────────────────────────────────────────────────────
+   The landing page commits to the product's dark control-room look,
+   independent of the console theme toggle. These tokens are the fixed
+   dark palette the landing components resolve against. */
+.landing {
+  color-scheme: dark;
+  --ground: #0a0c14;
+  --panel: #0f131e;
+  --hairline: rgb(255 255 255 / 8%);
+  --ink: #e9eaf3;
+  --ink-2: #a7abc2;
+  --ink-3: #71768d;
+  --iris: #8b83ff;
+  --iris-bright: #a9a3ff;
 }
 
 /* Group-ring stage animations (see components/group-ring.tsx). */

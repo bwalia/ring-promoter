@@ -63,7 +63,7 @@ export function ProdGateCards() {
   return (
     <div ref={scope} className="mx-auto mt-12 grid max-w-4xl grid-cols-1 gap-5 sm:grid-cols-2">
       {/* entering prod */}
-      <div className="h-full rounded-xl border border-amber-500/20 bg-[#090909] p-6">
+      <div className="h-full rounded-xl border border-amber-500/20 bg-[#0a0c14] p-6">
         <svg viewBox="0 0 220 44" className="h-10 w-full" aria-hidden>
           <line x1="10" y1="26" x2="168" y2="26" stroke="#ffffff" strokeOpacity="0.12" strokeWidth="1.5" />
           <text x="10" y="12" fontSize="9" fill="#737373" fontFamily="var(--font-geist-mono), monospace">
@@ -86,10 +86,10 @@ export function ProdGateCards() {
           {/* the version, stopped at the gate */}
           <circle className="pg-chip-in" cx="172" cy="26" r="5" fill="#f5f5f5" />
         </svg>
-        <h3 className="mt-4 font-semibold text-neutral-100">Entering prod asks for the password</h3>
-        <p className="mt-2 text-sm leading-relaxed text-neutral-500">
+        <h3 className="mt-4 font-semibold text-slate-100">Entering prod asks for the password</h3>
+        <p className="mt-2 text-sm leading-relaxed text-slate-500">
           With{" "}
-          <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono text-xs text-neutral-300">
+          <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono text-xs text-slate-300">
             RP_PROD_PASSWORD
           </code>{" "}
           set, anything that lands in the last ring — a promotion, a direct seed,
@@ -98,7 +98,7 @@ export function ProdGateCards() {
       </div>
 
       {/* leaving prod */}
-      <div className="h-full rounded-xl border border-emerald-500/20 bg-[#090909] p-6">
+      <div className="h-full rounded-xl border border-[#8b83ff]/20 bg-[#0a0c14] p-6">
         <svg viewBox="0 0 220 44" className="h-10 w-full" aria-hidden>
           <line x1="30" y1="26" x2="210" y2="26" stroke="#ffffff" strokeOpacity="0.12" strokeWidth="1.5" />
           <text x="10" y="12" fontSize="9" fill="#737373" fontFamily="var(--font-geist-mono), monospace">
@@ -120,8 +120,8 @@ export function ProdGateCards() {
           {/* the rollback: already home */}
           <circle className="pg-chip-out" cx="30" cy="26" r="5" fill="#f5f5f5" />
         </svg>
-        <h3 className="mt-4 font-semibold text-neutral-100">Leaving prod never waits</h3>
-        <p className="mt-2 text-sm leading-relaxed text-neutral-500">
+        <h3 className="mt-4 font-semibold text-slate-100">Leaving prod never waits</h3>
+        <p className="mt-2 text-sm leading-relaxed text-slate-500">
           Rollbacks are deliberately exempt from the gate. When you are paged at
           3am, incident response is never blocked by a password prompt.
         </p>

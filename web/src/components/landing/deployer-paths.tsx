@@ -16,11 +16,11 @@ const CARDS = [
     body: (
       <>
         The kubectl deployer runs{" "}
-        <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono text-xs text-neutral-300">
+        <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono text-xs text-slate-300">
           set image
         </code>{" "}
         +{" "}
-        <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono text-xs text-neutral-300">
+        <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono text-xs text-slate-300">
           rollout status
         </code>
         , authenticated in-cluster via the pod&rsquo;s ServiceAccount.
@@ -88,7 +88,7 @@ export function DeployerPaths() {
 
   return (
     <div ref={scope} className="mt-12">
-      <div className="dp-node mx-auto flex w-fit items-center gap-2 rounded-full border border-white/15 bg-[#0b0b0c] px-3 py-1.5 font-mono text-xs text-neutral-300">
+      <div className="dp-node mx-auto flex w-fit items-center gap-2 rounded-full border border-white/15 bg-[#0f131e] px-3 py-1.5 font-mono text-xs text-slate-300">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden className="size-3.5">
           <circle cx="12" cy="12" r="10" stroke="#22c55e" strokeWidth="1.5" strokeDasharray="2 3.2" />
           <circle cx="12" cy="12" r="5.5" stroke="#e5e5e5" strokeWidth="1.5" />
@@ -134,17 +134,17 @@ export function DeployerPaths() {
         {CARDS.map(({ icon: Icon, title, body }, i) => (
           <div
             key={title}
-            className="dp-card h-full rounded-xl border border-white/[0.07] bg-[#0b0b0c] p-6 transition-colors hover:border-white/[0.14]"
+            className="dp-card h-full rounded-xl border border-white/[0.07] bg-[#0f131e] p-6 transition-colors hover:border-white/[0.14]"
             onMouseEnter={() => pulse(i)}
           >
             <div className="flex items-center gap-3">
               <span className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]">
-                <Icon aria-hidden className="size-4 text-neutral-300" />
+                <Icon aria-hidden className="size-4 text-slate-300" />
               </span>
-              <h3 className="font-semibold text-neutral-100">{title}</h3>
+              <h3 className="font-semibold text-slate-100">{title}</h3>
             </div>
-            <p className="mt-4 text-sm leading-relaxed text-neutral-500">{body}</p>
-            <p className="dp-row mt-4 border-t border-white/[0.07] pt-3 font-mono text-[11px] text-emerald-400">
+            <p className="mt-4 text-sm leading-relaxed text-slate-500">{body}</p>
+            <p className="dp-row mt-4 border-t border-white/[0.07] pt-3 font-mono text-[11px] text-[#a9a3ff]">
               ✓ deployed v2.14.0 · healthy — result recorded
             </p>
           </div>
