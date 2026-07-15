@@ -22,7 +22,7 @@ export function NoAppSelected() {
     <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
       <CircleDashed aria-hidden className="size-10 text-muted-foreground" />
       <div>
-        <h2 className="text-lg font-semibold">Select an application</h2>
+        <h2 className="font-display text-lg font-bold tracking-tight">Select an application</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Pick one from the sidebar, or press{" "}
           <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-xs">

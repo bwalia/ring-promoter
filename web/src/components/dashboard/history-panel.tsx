@@ -82,7 +82,7 @@ export function HistoryPanel({
       className={cn("rounded-xl border bg-card", className)}
     >
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
-        <h2 className="mr-auto text-sm font-semibold">History</h2>
+        <h2 className="mr-auto text-[11px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">History</h2>
         <div className="relative">
           <Search
             aria-hidden

@@ -47,7 +47,7 @@ export function Pipeline({
 
   return (
     <section className="space-y-3">
-      <h2 className="text-sm font-semibold">Promotion pipeline</h2>
+      <h2 className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">Promotion pipeline</h2>
 
       {isPending || !rings ? (
         <div className="flex flex-col gap-2 xl:flex-row">

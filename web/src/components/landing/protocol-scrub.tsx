@@ -22,10 +22,10 @@ const RULES = [
 ] as const;
 
 const LEDGER = [
-  ["14:02:11", "✓ promote int → test · healthy", "text-emerald-400"],
-  ["14:02:19", "✓ promote test → acc · checks 3/3", "text-emerald-400"],
+  ["14:02:11", "✓ promote int → test · healthy", "text-[#a9a3ff]"],
+  ["14:02:19", "✓ promote test → acc · checks 3/3", "text-[#a9a3ff]"],
   ["14:02:27", "✗ promote acc → prod · rolled back", "text-red-400"],
-  ["14:02:27", "history updated · rolled_back=true", "text-neutral-400"],
+  ["14:02:27", "history updated · rolled_back=true", "text-slate-400"],
 ] as const;
 
 const X = [20, 140, 260, 380]; // station x-positions in the 400-unit viewBox
@@ -161,10 +161,10 @@ export function ProtocolSection() {
         <ProtocolHead />
         <div className="mt-12 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.07] sm:grid-cols-2">
           {RULES.map(([title, body], i) => (
-            <Reveal key={title} delay={i * 0.05} className="bg-[#0b0b0c] p-5">
-              <p className="font-mono text-xs text-emerald-500/80">{String(i + 1).padStart(2, "0")}</p>
-              <h3 className="mt-3 text-sm font-semibold text-neutral-100">{title}</h3>
-              <p className="mt-2 text-[13px] leading-relaxed text-neutral-500">{body}</p>
+            <Reveal key={title} delay={i * 0.05} className="bg-[#0f131e] p-5">
+              <p className="font-mono text-xs text-[#8b83ff]/80">{String(i + 1).padStart(2, "0")}</p>
+              <h3 className="mt-3 text-sm font-semibold text-slate-100">{title}</h3>
+              <p className="mt-2 text-[13px] leading-relaxed text-slate-500">{body}</p>
             </Reveal>
           ))}
         </div>
@@ -182,25 +182,25 @@ export function ProtocolSection() {
               {RULES.map(([title, body], i) => (
                 <li key={title} className={`pr-rule pr-rule-${i} border-l border-white/[0.08] py-1 pl-5`}>
                   <div className="flex items-baseline gap-3">
-                    <span className="font-mono text-xs text-emerald-500/80">
+                    <span className="font-mono text-xs text-[#8b83ff]/80">
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    <h3 className="text-[15px] font-semibold text-neutral-100">{title}</h3>
+                    <h3 className="text-[15px] font-semibold text-slate-100">{title}</h3>
                   </div>
-                  <p className="mt-1 pl-8 text-[13px] leading-relaxed text-neutral-500">{body}</p>
+                  <p className="mt-1 pl-8 text-[13px] leading-relaxed text-slate-500">{body}</p>
                 </li>
               ))}
             </ol>
 
-            <div className="rounded-2xl border border-white/[0.07] bg-[#0b0b0c] p-6">
-              <p className="font-mono text-[10px] uppercase tracking-widest text-neutral-600">
+            <div className="rounded-2xl border border-white/[0.07] bg-[#0f131e] p-6">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-slate-600">
                 protocol demo · payments-api
               </p>
               <StageSvg />
               <div className="mt-2 space-y-1.5 border-t border-white/[0.07] pt-3 font-mono text-[11px]">
                 {LEDGER.map(([time, text, tone]) => (
                   <p key={text} className="pr-led flex gap-3 whitespace-nowrap">
-                    <span className="text-neutral-600">{time}</span>
+                    <span className="text-slate-600">{time}</span>
                     <span className={cn("truncate", tone)}>{text}</span>
                   </p>
                 ))}
@@ -216,13 +216,13 @@ export function ProtocolSection() {
 function ProtocolHead() {
   return (
     <div className="max-w-2xl">
-      <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-emerald-500/90">
+      <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#8b83ff]/90">
         The protocol
       </p>
-      <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
+      <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight text-slate-50 sm:text-4xl">
         Promotion is a protocol, not a script.
       </h2>
-      <p className="mt-4 text-pretty leading-relaxed text-neutral-400">
+      <p className="mt-4 text-pretty leading-relaxed text-slate-400">
         Five rules, enforced by the control plane on every operation. They are
         what make a promotion safe to run at 5pm on a Friday.
       </p>
@@ -347,7 +347,7 @@ function StageSvg() {
           v2.14.0
         </text>
         <circle cx="20" cy="70" r="6.5" fill="#f5f5f5" />
-        <circle cx="20" cy="70" r="2.2" fill="#0b0b0c" />
+        <circle cx="20" cy="70" r="2.2" fill="#0f131e" />
       </g>
     </svg>
   );

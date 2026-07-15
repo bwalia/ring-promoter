@@ -63,7 +63,7 @@ export function Topbar() {
       </Button>
 
       <div className="flex min-w-0 items-center gap-1.5">
-        <h1 className="truncate text-sm font-semibold md:text-base">
+        <h1 className="font-display truncate text-sm font-bold tracking-tight md:text-base">
           {activeGroup?.name ?? (selectedApp ? title(selectedApp) : "Dashboard")}
         </h1>
         {!activeGroup && selectedApp && (
