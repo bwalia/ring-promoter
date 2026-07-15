@@ -35,16 +35,16 @@ export function CtaTerminal({ github }: { github: string }) {
 
   return (
     <div ref={scope}>
-      <div className="mx-auto mt-8 max-w-xl overflow-hidden rounded-xl border border-white/10 bg-[#0f131e] text-left">
+      <div className="mx-auto mt-8 max-w-xl overflow-hidden rounded-xl border border-white/10 bg-[#0b0b0c] text-left">
         <pre className="overflow-x-auto px-4 py-3.5 font-mono text-xs leading-relaxed">
           <code>
-            <span className="text-slate-600">$ </span>
-            <span className="ct-cmd inline-block text-slate-100">
+            <span className="text-neutral-600">$ </span>
+            <span className="ct-cmd inline-block text-neutral-100">
               go run ./cmd/ringpromoter --config config.yaml
             </span>
-            <span className="ct-caret text-[#a9a3ff]"> ▊</span>
+            <span className="ct-caret text-emerald-400"> ▊</span>
             {"\n"}
-            <span className="ct-out text-slate-600">
+            <span className="ct-out text-neutral-600">
               # → http://localhost:8080 · token: local-dev-token
             </span>
           </code>
@@ -53,7 +53,7 @@ export function CtaTerminal({ github }: { github: string }) {
       <div className="ct-btns mt-8 flex flex-wrap items-center justify-center gap-3">
         <Link
           href="/"
-          className="rounded-md bg-slate-100 px-5 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-white"
+          className="rounded-md bg-neutral-100 px-5 py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-white"
         >
           Open the console
         </Link>
@@ -61,7 +61,7 @@ export function CtaTerminal({ github }: { github: string }) {
           href={github}
           target="_blank"
           rel="noreferrer"
-          className="rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:bg-white/[0.06]"
+          className="rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/[0.06]"
         >
           View on GitHub
         </a>

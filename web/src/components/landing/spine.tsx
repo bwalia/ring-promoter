@@ -106,7 +106,7 @@ export function Spine() {
           />
           <div
             ref={lineRef}
-            className="absolute w-px origin-top bg-[#8b83ff]/60"
+            className="absolute w-px origin-top bg-emerald-500/60"
             style={{ left: 3, top: ys[0], height: ys[ys.length - 1] - ys[0] }}
           />
           {STOPS.map((s, i) => {
@@ -122,14 +122,14 @@ export function Spine() {
                   className={cn(
                     "size-[7px] rounded-full border transition-all duration-300",
                     lit
-                      ? "border-[#a9a3ff] bg-[#8b83ff] shadow-[0_0_6px_rgba(34,197,94,0.6)]"
-                      : "border-slate-700 bg-[#0a0c14]",
+                      ? "border-emerald-400 bg-emerald-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]"
+                      : "border-neutral-700 bg-[#090909]",
                   )}
                 />
                 <span
                   className={cn(
                     "font-mono text-[10px] tracking-widest transition-colors duration-300",
-                    lit ? (isProd ? "text-[#a9a3ff]" : "text-slate-300") : "text-slate-600",
+                    lit ? (isProd ? "text-emerald-400" : "text-neutral-300") : "text-neutral-600",
                   )}
                 >
                   {s.label}

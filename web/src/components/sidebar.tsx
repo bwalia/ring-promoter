@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   ChevronRight,
+  CircleDot,
   FolderPlus,
   Layers,
   MoreHorizontal,
@@ -12,7 +13,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { GroupDialog } from "@/components/group-dialog";
-import { RingMark } from "@/components/ring-mark";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -77,9 +77,9 @@ export function Sidebar({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 px-4 pb-2 pt-4">
         <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <RingMark className="size-[1.15rem]" />
+          <CircleDot aria-hidden className="size-4" />
         </div>
-        <span className="font-display text-sm font-bold tracking-tight">Ring Promoter</span>
+        <span className="text-sm font-semibold">Ring Promoter</span>
       </div>
 
       <div className="px-3 pb-2">

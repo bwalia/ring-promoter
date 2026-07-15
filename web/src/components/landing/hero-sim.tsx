@@ -81,8 +81,8 @@ const FAIL: Step[] = [
 type Line = { id: number; time: string; text: string; tone: Tone };
 
 const TONE_TEXT: Record<Tone, string> = {
-  ok: "text-[#a9a3ff]",
-  info: "text-slate-400",
+  ok: "text-emerald-400",
+  info: "text-neutral-400",
   warn: "text-amber-400",
   err: "text-red-400",
 };
@@ -179,17 +179,17 @@ export function HeroSim() {
   return (
     <div
       ref={rootRef}
-      className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f131e] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]"
+      className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0c] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]"
     >
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-2.5 sm:px-5">
-        <div className="flex min-w-0 items-center gap-2.5 font-mono text-xs text-slate-500">
+        <div className="flex min-w-0 items-center gap-2.5 font-mono text-xs text-neutral-500">
           <span className="relative flex size-2">
-            <span className="absolute inset-0 animate-ping rounded-full bg-[#8b83ff]/60" />
-            <span className="relative size-2 rounded-full bg-[#8b83ff]" />
+            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-500/60" />
+            <span className="relative size-2 rounded-full bg-emerald-500" />
           </span>
           <span className="truncate">release-control · payments-api</span>
-          <span className="hidden rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-slate-500 sm:inline">
+          <span className="hidden rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-neutral-500 sm:inline">
             simulated
           </span>
         </div>
@@ -225,7 +225,7 @@ export function HeroSim() {
           {/* the line + progress — the rail draws itself on first paint */}
           <div className="ls-rail-draw absolute left-0 right-0 top-[28px] h-px bg-white/10" />
           <motion.div
-            className="absolute left-0 top-[28px] h-px bg-[#8b83ff]/50"
+            className="absolute left-0 top-[28px] h-px bg-emerald-500/50"
             animate={{ width: `${chipPct}%` }}
             transition={spring}
           />
@@ -258,7 +258,7 @@ export function HeroSim() {
                       cx="28"
                       cy="28"
                       r="19"
-                      fill="#0f131e"
+                      fill="#0b0b0c"
                       stroke={hex}
                       strokeWidth="1.5"
                       strokeDasharray={state === "locked" ? "3 4" : undefined}
@@ -273,17 +273,17 @@ export function HeroSim() {
                     </svg>
                   )}
                   {state === "locked" && (
-                    <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full border border-amber-500/40 bg-[#0f131e]">
+                    <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full border border-amber-500/40 bg-[#0b0b0c]">
                       <Lock aria-hidden className="size-2.5 text-amber-400" />
                     </span>
                   )}
                 </div>
-                <p className="mt-2 font-mono text-xs font-medium text-slate-200">{r.key}</p>
-                <p className="text-[10px] text-slate-600">{r.name}</p>
+                <p className="mt-2 font-mono text-xs font-medium text-neutral-200">{r.key}</p>
+                <p className="text-[10px] text-neutral-600">{r.name}</p>
                 <p
                   className={cn(
                     "mt-1 font-mono text-[10px]",
-                    state === "deploy" ? "text-sky-400" : state === "fail" ? "text-red-400" : "text-slate-500",
+                    state === "deploy" ? "text-sky-400" : state === "fail" ? "text-red-400" : "text-neutral-500",
                   )}
                 >
                   {version}
@@ -305,11 +305,11 @@ export function HeroSim() {
               opacity: { duration: reduce ? 0 : 0.45, delay: reduce ? 0 : chipDelay },
             }}
           >
-            <span className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md border border-white/15 bg-white/[0.07] px-1.5 py-0.5 font-mono text-[10px] text-slate-100 shadow-lg backdrop-blur-sm">
+            <span className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md border border-white/15 bg-white/[0.07] px-1.5 py-0.5 font-mono text-[10px] text-neutral-100 shadow-lg backdrop-blur-sm">
               {N}
             </span>
             <span className="absolute -top-[13px] left-1/2 h-[7px] w-px -translate-x-1/2 bg-white/25" />
-            <span className="block size-2.5 rounded-full bg-slate-100 shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
+            <span className="block size-2.5 rounded-full bg-neutral-100 shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
           </motion.div>
         </div>
 
@@ -321,14 +321,14 @@ export function HeroSim() {
             TONE_TEXT[step.capTone ?? "info"],
           )}
         >
-          <span className="text-slate-600">▸ </span>
+          <span className="text-neutral-600">▸ </span>
           {step.caption}
         </p>
       </div>
 
       {/* Ledger */}
       <div className="border-t border-white/[0.07] bg-black/40 px-4 py-3 sm:px-5">
-        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-widest text-slate-600">
+        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-widest text-neutral-600">
           audit history
         </p>
         <ul className="h-[95px] space-y-[3px] overflow-hidden font-mono text-[11px] leading-[19px]">
@@ -341,7 +341,7 @@ export function HeroSim() {
                 transition={{ duration: 0.3 }}
                 className="flex gap-3 whitespace-nowrap"
               >
-                <span className="text-slate-600">{l.time}</span>
+                <span className="text-neutral-600">{l.time}</span>
                 <span className={cn("truncate", TONE_TEXT[l.tone])}>{l.text}</span>
               </motion.li>
             ))}
