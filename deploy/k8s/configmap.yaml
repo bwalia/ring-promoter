@@ -80,6 +80,7 @@ data:
       # the UI shows a real version instead of the word "release".
       # Health = FastAPI /fastapi/health per env. Token from RP_GITHUB_TOKEN.
       - name: diytaxreturn
+        display_name: "diytaxreturn web"
         deployer: github
         github:
           owner: bwalia
