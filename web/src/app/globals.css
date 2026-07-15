@@ -5,9 +5,10 @@
  * deliberate choice by the repo owner. A blue-violet redesign was
  * explicitly reverted (see ring-promoter PR #31).
  *
- * UI improvements are welcome: layout, spacing, components, UX. But the
- * THEME — color tokens, fonts, brand marks — stays exactly as-is unless
- * the repo owner explicitly asks for a theme change.
+ * UI improvements are welcome: layout, spacing, components, UX — even
+ * fonts may change. But the THEME — the color tokens below and the
+ * overall dark/emerald look — stays exactly as-is unless the repo owner
+ * explicitly asks for a theme change.
  * ====================================================================
  */
 @import "tailwindcss";

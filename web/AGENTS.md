@@ -5,5 +5,5 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # THE THEME IS LOCKED — do not change it
 
-When improving the UI, do NOT change the theme. The current look — neutral near-black console tokens (`src/app/globals.css`) and the dark/emerald landing page — is the repo owner's deliberate choice; a blue-violet redesign was explicitly reverted in ring-promoter PR #31. Layout, components and UX may be improved freely, but color tokens, fonts and brand marks stay exactly as they are unless the repo owner explicitly asks for a theme change.
+When improving the UI, do NOT change the theme. The current look — neutral near-black console tokens (`src/app/globals.css`) and the dark/emerald landing page — is the repo owner's deliberate choice; a blue-violet redesign was explicitly reverted in ring-promoter PR #31. Layout, components, UX and even fonts may be improved freely, but the color theme stays exactly as it is unless the repo owner explicitly asks for a theme change.
 <!-- END:nextjs-agent-rules -->
