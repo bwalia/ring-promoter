@@ -156,6 +156,12 @@ type GitHubDeployConfig struct {
 	Workflow string `yaml:"workflow"`
 	// Ref is the git ref the workflow runs FROM (branch/tag). Default "build".
 	Ref string `yaml:"ref"`
+	// VersionAsRef dispatches the workflow ON the deployed version's git ref
+	// instead of Ref. For workflows with no version input that build whatever
+	// ref they run from (e.g. ios_release.yml: dispatch on a v* tag releases
+	// that tag, on main releases main). The workflow file must exist on every
+	// deployable ref.
+	VersionAsRef bool `yaml:"version_as_ref"`
 	// DeployMode is the value sent as the mode input. Default "full".
 	DeployMode string `yaml:"deploy_mode"`
 	// Input-name overrides for the dispatch payload. They default to the

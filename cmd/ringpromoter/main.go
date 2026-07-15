@@ -178,6 +178,7 @@ func buildGitHubDeployer(app config.AppConfig, logger *slog.Logger) (deployer.De
 		Repo:         g.Repo,
 		Workflow:     g.Workflow,
 		Ref:          g.Ref,
+		VersionAsRef: g.VersionAsRef,
 		DeployMode:   g.DeployMode,
 		EnvInput:     g.EnvInput,
 		VersionInput: g.VersionInput,

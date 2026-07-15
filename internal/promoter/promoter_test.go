@@ -925,3 +925,105 @@ func TestPromote_SourceWrongVersion_Aborts(t *testing.T) {
 		t.Fatalf("nothing must deploy when the source check fails")
 	}
 }
+
+// ---- rings without a health URL (e.g. TestFlight releases) ----
+
+// countingFailChecker fails every probe and counts calls — proving that
+// URL-less rings never consult the checker at all.
+type countingFailChecker struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *countingFailChecker) Check(context.Context, health.Probe) error {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	return errors.New("checker must not be consulted")
+}
+
+func noURLConfig(retryCount int, ringNames ...string) *config.Config {
+	rings := map[string]config.RingConfig{}
+	for _, r := range ringNames {
+		rings[r] = config.RingConfig{TargetEnv: r} // no HealthURL
+	}
+	delay := config.Duration(time.Millisecond)
+	return &config.Config{
+		APIToken: "test-token",
+		Deployer: config.DeployerLog,
+		Health:   config.HealthHTTP,
+		Retry:    config.RetryConfig{Count: &retryCount, Delay: &delay},
+		Database: config.DatabaseConfig{Driver: config.StoreMemory},
+		Apps:     []config.AppConfig{{Name: testApp, Rings: rings}},
+	}
+}
+
+// TestNoHealthURL_DeployOutcomeIsTheSignal: rings without a health_url skip
+// health checks entirely — seed and promote are healthy on deploy success
+// alone, and the dashboard's live view reports healthy too.
+func TestNoHealthURL_DeployOutcomeIsTheSignal(t *testing.T) {
+	dep := newFakeDeployer()
+	chk := &countingFailChecker{}
+	st := store.NewMemory()
+	p := New(noURLConfig(0, "int", "test"), st, nil, dep, chk, nil)
+	ctx := context.Background()
+
+	res, err := p.Seed(ctx, testApp, "int", "v1")
+	if err != nil || !res.Success {
+		t.Fatalf("seed should succeed without a health url: err=%v res=%+v", err, res)
+	}
+	if s := mustState(t, st, testApp, "int"); !s.Healthy {
+		t.Fatalf("int must be recorded healthy, got %+v", s)
+	}
+
+	res, err = p.Promote(ctx, testApp, "int")
+	if err != nil || !res.Success {
+		t.Fatalf("promote should succeed without health urls: err=%v res=%+v", err, res)
+	}
+
+	views, err := p.Rings(ctx, testApp)
+	if err != nil {
+		t.Fatalf("rings: %v", err)
+	}
+	for _, v := range views {
+		if v.Configured && !v.LiveHealthy {
+			t.Fatalf("URL-less configured ring %s should report live-healthy, got %+v", v.Ring.Name, v)
+		}
+	}
+
+	chk.mu.Lock()
+	defer chk.mu.Unlock()
+	if chk.calls != 0 {
+		t.Fatalf("checker consulted %d times for URL-less rings, want 0", chk.calls)
+	}
+}
+
+// TestRings_SingleRingApp_NotPromotable: an app with only one configured ring
+// (a TestFlight-only iOS app) must not offer a promote from it — the next
+// ring exists globally but is not configured for the app.
+func TestRings_SingleRingApp_NotPromotable(t *testing.T) {
+	dep := newFakeDeployer()
+	st := store.NewMemory()
+	p := New(noURLConfig(0, "int"), st, nil, dep, &countingFailChecker{}, nil)
+	ctx := context.Background()
+
+	if res, err := p.Seed(ctx, testApp, "int", "v1"); err != nil || !res.Success {
+		t.Fatalf("seed: err=%v res=%+v", err, res)
+	}
+	views, err := p.Rings(ctx, testApp)
+	if err != nil {
+		t.Fatalf("rings: %v", err)
+	}
+	for _, v := range views {
+		if v.Ring.Name == "int" {
+			if !v.Configured || v.CurrentVersion != "v1" {
+				t.Fatalf("int view = %+v, want configured with v1", v)
+			}
+			if v.CanPromoteFrom {
+				t.Fatal("int must not be promotable: no next ring is configured for this app")
+			}
+		} else if v.Configured {
+			t.Fatalf("only int should be configured, got %+v", v)
+		}
+	}
+}

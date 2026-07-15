@@ -179,7 +179,12 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			v.AutoPromote = st.AutoPromote
 			v.UpdatedAt = st.UpdatedAt
 		}
-		_, hasNext := ring.Next(r.Name)
+		// Promotable only when the NEXT ring is configured for THIS app — a
+		// single-ring app (e.g. a TestFlight-only iOS app) has nowhere to go.
+		next, hasNext := ring.Next(r.Name)
+		if hasNext {
+			_, hasNext = ac.Rings[next.Name]
+		}
 		v.CanPromoteFrom = configured && hasNext && v.CurrentVersion != ""
 		views[i] = v
 
@@ -193,8 +198,11 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			defer cancel()
 			// Status-only probe: the dashboard shows live vs stored version
 			// side by side, so the read model does not fold a mismatch into
-			// "unhealthy".
-			if err := p.checker.Check(cctx, probe(rc, "")); err != nil {
+			// "unhealthy". No URL = nothing to probe; report healthy and let
+			// the stored deploy outcome speak.
+			if rc.HealthURL == "" {
+				views[idx].LiveHealthy = true
+			} else if err := p.checker.Check(cctx, probe(rc, "")); err != nil {
 				views[idx].LiveHealthy = false
 				views[idx].LiveHealthError = err.Error()
 			} else {
@@ -434,16 +442,22 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 	// Rule: source ring must be healthy before promoting (live check). When the
 	// source ring configures a version source, this also verifies it actually
 	// RUNS the version about to be promoted, not just that something answers.
+	// A source ring without a health URL has nothing to probe — its recorded
+	// deploy outcome already gates it, so the check is skipped.
 	rep.StartStep("source-health", fmt.Sprintf("Verify %s (%s) is healthy", fromRing, version))
-	if err := p.checker.Check(ctx, probe(srcRC, version)); err != nil {
-		rep.FinishStep(StepFailed, err.Error())
-		srcState.Healthy = false
-		_ = p.store.UpsertRingState(ctx, srcState)
-		res.Message = fmt.Sprintf("source ring %s is unhealthy, promotion aborted: %s", fromRing, err.Error())
-		p.record(ctx, app, nextRing.Name, store.ActionPromote, "", version, store.ResultFailure, res.Message)
-		return res, nil
+	if srcRC.HealthURL == "" {
+		rep.FinishStep(StepSkipped, "no health url configured for "+fromRing)
+	} else {
+		if err := p.checker.Check(ctx, probe(srcRC, version)); err != nil {
+			rep.FinishStep(StepFailed, err.Error())
+			srcState.Healthy = false
+			_ = p.store.UpsertRingState(ctx, srcState)
+			res.Message = fmt.Sprintf("source ring %s is unhealthy, promotion aborted: %s", fromRing, err.Error())
+			p.record(ctx, app, nextRing.Name, store.ActionPromote, "", version, store.ResultFailure, res.Message)
+			return res, nil
+		}
+		rep.FinishStep(StepSuccess, "source healthy")
 	}
-	rep.FinishStep(StepSuccess, "source healthy")
 
 	// The target ring may pin a deploy ref (e.g. acc -> release): it ships that
 	// ref instead of the promoted version, letting "promote to acc" deploy
@@ -611,6 +625,13 @@ func (p *Promoter) rollbackTo(ctx context.Context, app, ringName string, tgt dep
 // retry.Delay between attempts.
 func (p *Promoter) checkWithRetries(ctx context.Context, pr health.Probe) error {
 	rep := reporterFrom(ctx)
+	// A ring without a health URL has nothing to probe (e.g. a TestFlight
+	// release): the deploy outcome — for github apps, the workflow's own
+	// success — is the health signal.
+	if pr.URL == "" {
+		rep.Log("no health_url configured for this ring — the deploy outcome is the health signal")
+		return nil
+	}
 	attempts := p.retryCount + 1
 	if attempts < 1 {
 		attempts = 1
@@ -667,6 +688,9 @@ func healthStepTitle(ringName string, rc config.RingConfig, want string) string 
 
 // healthOKMsg describes a passed post-deploy health check.
 func healthOKMsg(rc config.RingConfig, want string) string {
+	if rc.HealthURL == "" {
+		return "no health url configured — deploy succeeded, which is the signal"
+	}
 	if want != "" && verifiesVersion(rc) {
 		return fmt.Sprintf("healthy and confirmed running %s", want)
 	}

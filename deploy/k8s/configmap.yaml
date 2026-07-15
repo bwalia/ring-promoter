@@ -98,6 +98,36 @@ data:
           acc:  { target_env: acc,  ref: release, health_url: "https://acc-api.diytaxreturn.co.uk/fastapi/health", health_version_field: "version" }
           # No prod ring: this app has three environments (int/test/acc) only.
 
+      # diytaxreturn-ios — the Flutter iOS app, released to TestFlight INTERNAL
+      # testers by ios_release.yml (self-hosted Mac Studio runner; signing
+      # secrets come from Vault at build time). ONE ring only: int = internal
+      # testers; there is no next ring to promote into and no health URL — an
+      # app on TestFlight has nothing to probe, so health checks are skipped
+      # and the workflow's success IS the release signal.
+      # version_as_ref: the workflow declares no version/env inputs — it builds
+      # whatever git ref it is dispatched on. Seeding a v* tag releases that
+      # tag (version name from the tag); seeding main releases main (version
+      # name from pubspec.yaml). All three input names are "-" (omitted):
+      # GitHub 422s on inputs the workflow does not declare.
+      - name: diytaxreturn-ios
+        display_name: "diytaxreturn iOS"
+        deployer: github
+        github:
+          owner: bwalia
+          repo: diy-tax-return-uk
+          workflow: ios_release.yml
+          version_as_ref: true
+          env_input: "-"        # no ENV input on this workflow
+          version_input: "-"    # no version input — the dispatch ref carries it
+          mode_input: "-"       # no DEPLOY_MODE input
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 30s
+          run_lookup_timeout: 120s
+        rings:
+          # TestFlight internal testers. target_env is required by config
+          # validation for github apps but never sent (env_input is "-").
+          int: { target_env: internal }
+
       # spectoncr — in-cluster container registry. Its Helm chart lives in the
       # diy-tax-return-uk repo and is deployed by THAT repo's own GitHub Actions
       # workflow deploy-spectoncr.yml (a helm upgrade --install per environment).

@@ -367,6 +367,30 @@ func TestGitHub_ListVersions_BranchesThenTags(t *testing.T) {
 	}
 }
 
+// TestGitHub_Deploy_VersionAsRef: workflows with no version input build the
+// ref they run from (e.g. ios_release.yml), so the dispatch ref must be the
+// deployed version itself, not the static config ref.
+func TestGitHub_Deploy_VersionAsRef(t *testing.T) {
+	f := &ghFake{conclusion: "success"}
+	srv := newGHServer(t, f)
+	d := NewGitHubActionsDeployer(nil, GitHubActionsConfig{
+		Owner: "o", Repo: "r", Workflow: "wf.yml",
+		Ref: "main", VersionAsRef: true,
+		Token: "secret-token", APIBaseURL: srv.URL,
+		PollInterval: time.Millisecond, RunLookupTimeout: 2 * time.Second,
+		ClockSkew: time.Minute,
+	}, nil)
+
+	if err := d.Deploy(context.Background(), Target{App: "ios", Ring: "int", TargetEnv: "internal"}, "v1.2.3"); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.dispatchRef != "v1.2.3" {
+		t.Fatalf("dispatch ref = %q, want the version v1.2.3", f.dispatchRef)
+	}
+}
+
 func TestGitHub_ValidateVersion(t *testing.T) {
 	srv := versionsGHServer(t)
 	d := testGHDeployer(t, srv.URL)
