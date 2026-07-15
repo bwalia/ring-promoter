@@ -24,7 +24,10 @@ data:
     # Bounds ONE seed/promote/rollback end-to-end — and an auto-promote chain
     # runs as a single operation, so a multi-hop chain of GitHub-workflow
     # deploys (each taking minutes) shares this budget.
-    operation_timeout: 60m
+    # 90m: the iOS TestFlight workflow alone may take up to 60m of build time
+    # plus queueing on the shared Mac Studio runner — a tighter budget would
+    # make Ring Promoter record a failure while the release still ships.
+    operation_timeout: 90m
     # AI failure diagnosis: "Diagnose with AI" on failed jobs sends the failure
     # logs to this Ollama server, which explains the cause and suggests fixes.
     # Active only when RP_OLLAMA_JWT_SECRET is also provided (Secret) — it signs
@@ -116,6 +119,7 @@ data:
           owner: bwalia
           repo: diy-tax-return-uk
           workflow: ios_release.yml
+          ref: main            # fallback only — version_as_ref carries the real ref
           version_as_ref: true
           env_input: "-"        # no ENV input on this workflow
           version_input: "-"    # no version input — the dispatch ref carries it
