@@ -1,3 +1,15 @@
+/*
+ * ============================ THEME LOCK ============================
+ * DO NOT CHANGE THE THEME. The look of this product — neutral near-black
+ * console tokens below and the dark/emerald landing page — is a
+ * deliberate choice by the repo owner. A blue-violet redesign was
+ * explicitly reverted (see ring-promoter PR #31).
+ *
+ * UI improvements are welcome: layout, spacing, components, UX. But the
+ * THEME — color tokens, fonts, brand marks — stays exactly as-is unless
+ * the repo owner explicitly asks for a theme change.
+ * ====================================================================
+ */
 @import "tailwindcss";
 @import "tw-animate-css";
 
