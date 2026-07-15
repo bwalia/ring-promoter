@@ -162,7 +162,9 @@ export function AppShell() {
 
   return (
     <div className="flex h-dvh overflow-hidden">
-      <aside className="hidden w-72 shrink-0 border-r bg-sidebar lg:flex lg:flex-col">
+      {/* Fluid width: 288px on laptops, growing with the viewport up to
+          352px on large monitors. */}
+      <aside className="hidden shrink-0 border-r bg-sidebar lg:flex lg:w-[clamp(18rem,17vw,22rem)] lg:flex-col">
         <Sidebar searchInputId="app-search" />
       </aside>
 

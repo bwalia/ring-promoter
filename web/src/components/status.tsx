@@ -30,27 +30,31 @@ export function ringHealth(view: RingView): RingHealth {
 
 const HEALTH: Record<
   RingHealth,
-  { label: string; dot: string; text: string }
+  { label: string; dot: string; text: string; bg: string }
 > = {
   healthy: {
     label: "Healthy",
     dot: "bg-status-good",
     text: "text-status-good",
+    bg: "bg-status-good/10",
   },
   unhealthy: {
     label: "Unhealthy",
     dot: "bg-status-critical",
     text: "text-status-critical",
+    bg: "bg-status-critical/10",
   },
   empty: {
     label: "No version",
     dot: "bg-muted-foreground/40",
     text: "text-muted-foreground",
+    bg: "bg-muted",
   },
   unconfigured: {
     label: "Not configured",
     dot: "bg-muted-foreground/40",
     text: "text-muted-foreground",
+    bg: "bg-muted",
   },
 };
 
@@ -69,8 +73,9 @@ export function HealthBadge({
   const badge = (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 text-xs font-medium",
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
         spec.text,
+        spec.bg,
         className,
       )}
     >

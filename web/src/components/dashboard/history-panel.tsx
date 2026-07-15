@@ -81,9 +81,15 @@ export function HistoryPanel({
     <section
       className={cn("rounded-xl border bg-card", className)}
     >
-      <div className="flex flex-wrap items-center gap-2 border-b p-3">
-        <h2 className="mr-auto text-sm font-semibold">History</h2>
-        <div className="relative">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
+        <h2 className="text-sm font-semibold">History</h2>
+        {history && history.length > 0 && (
+          <p className="mr-auto text-xs text-muted-foreground">
+            {hasFilters ? `${filtered.length} of ${history.length}` : history.length}{" "}
+            deployment{history.length === 1 ? "" : "s"}
+          </p>
+        )}
+        <div className="relative ml-auto">
           <Search
             aria-hidden
             className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -92,7 +98,7 @@ export function HistoryPanel({
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Search…"
-            className="h-8 w-36 pl-7 text-sm"
+            className="h-8 w-40 pl-7 text-sm md:w-56"
             aria-label="Search history"
           />
         </div>
@@ -111,7 +117,7 @@ export function HistoryPanel({
       </div>
 
       {showFilters && (
-        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 p-3">
+        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-3">
           <Select value={action} onValueChange={setAction}>
             <SelectTrigger size="sm" className="w-28" aria-label="Filter by action">
               <SelectValue />
@@ -150,13 +156,13 @@ export function HistoryPanel({
       )}
 
       {isPending ? (
-        <div className="space-y-2 p-3">
+        <div className="space-y-2 p-4">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
+            <Skeleton key={i} className="h-11 w-full" />
           ))}
         </div>
       ) : error && !history ? (
-        <div className="p-3">
+        <div className="p-4">
           <ErrorState
             title="Failed to load history"
             message={error.message}
@@ -164,7 +170,7 @@ export function HistoryPanel({
           />
         </div>
       ) : shown.length === 0 ? (
-        <p className="p-6 text-center text-sm text-muted-foreground">
+        <p className="p-8 text-center text-sm text-muted-foreground">
           {hasFilters
             ? "Nothing matches these filters."
             : "No deployments recorded yet."}
@@ -175,14 +181,18 @@ export function HistoryPanel({
             {shown.map((h) => (
               <li
                 key={h.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm"
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 text-sm"
               >
                 <ResultIcon result={h.result} message={h.message} />
-                <ActionBadge action={h.action} />
-                <Badge variant="outline" className="font-mono text-[10px]">
-                  {h.ring}
-                </Badge>
-                <span className="flex min-w-0 items-center gap-1 font-mono text-xs">
+                <span className="w-24 shrink-0">
+                  <ActionBadge action={h.action} />
+                </span>
+                <span className="w-14 shrink-0">
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {h.ring}
+                  </Badge>
+                </span>
+                <span className="flex min-w-0 basis-60 items-center gap-1 font-mono text-xs">
                   {h.from_version ? (
                     <>
                       <span className="max-w-28 truncate text-muted-foreground">
@@ -198,21 +208,22 @@ export function HistoryPanel({
                     {h.to_version || "—"}
                   </span>
                 </span>
-                <span className="ml-auto flex items-center gap-3">
-                  <span className="hidden max-w-64 truncate text-xs text-muted-foreground md:inline">
-                    {h.message}
-                  </span>
-                  <RelativeTime
-                    iso={h.created_at}
-                    className="text-xs text-muted-foreground"
-                  />
+                <span
+                  className={cn(
+                    "hidden min-w-0 flex-1 truncate text-xs md:inline",
+                    h.result === "failure"
+                      ? "text-status-critical"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {h.message}
+                </span>
+                <span className="ml-auto flex shrink-0 items-center gap-3">
                   {h.result === "failure" && apps?.ai_enabled && (
                     <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 shrink-0"
-                      aria-label="Diagnose with AI"
-                      title="Diagnose with AI"
+                      variant="outline"
+                      size="xs"
+                      aria-expanded={diagnosing === h.id}
                       onClick={() =>
                         setDiagnosing(diagnosing === h.id ? null : h.id)
                       }
@@ -220,12 +231,17 @@ export function HistoryPanel({
                       <Sparkles
                         aria-hidden
                         className={cn(
-                          "size-3.5",
+                          "size-3",
                           diagnosing === h.id && "text-primary",
                         )}
                       />
+                      AI Diagnose
                     </Button>
                   )}
+                  <RelativeTime
+                    iso={h.created_at}
+                    className="inline-block min-w-16 text-right text-xs tabular-nums text-muted-foreground"
+                  />
                 </span>
                 {diagnosing === h.id && (
                   <HistoryDiagnosis
@@ -238,7 +254,7 @@ export function HistoryPanel({
             ))}
           </ol>
           {filtered.length > limit && (
-            <div className="border-t p-2 text-center">
+            <div className="border-t p-2.5 text-center">
               <Button
                 variant="ghost"
                 size="sm"
