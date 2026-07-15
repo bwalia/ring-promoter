@@ -65,7 +65,7 @@ export function AutoPromoteDiagram() {
   return (
     <div
       ref={scope}
-      className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#0a0c14] px-4 py-6 font-mono text-xs sm:px-5"
+      className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#090909] px-4 py-6 font-mono text-xs sm:px-5"
     >
       <div className="flex min-w-[360px] items-center justify-between gap-1">
         {NODES.map((ring, i) => (
@@ -77,20 +77,20 @@ export function AutoPromoteDiagram() {
             )}
           >
             <span
-              className={`ap-box ap-box-${i} rounded-md border border-white/15 bg-white/[0.05] px-1.5 py-1.5 text-slate-200 sm:px-2.5`}
+              className={`ap-box ap-box-${i} rounded-md border border-white/15 bg-white/[0.05] px-1.5 py-1.5 text-neutral-200 sm:px-2.5`}
             >
               {ring}
             </span>
             {i < 3 && (
               <span className="flex flex-1 items-center gap-1.5 px-1">
                 <span className="relative h-px flex-1 bg-white/15">
-                  <span className={`ap-flow ap-flow-${i}a absolute inset-0 bg-[#8b83ff]/60`} />
+                  <span className={`ap-flow ap-flow-${i}a absolute inset-0 bg-emerald-500/60`} />
                 </span>
                 <span
                   className={cn(
                     `ap-gate ap-gate-${i} flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]`,
                     HOPS[i].on
-                      ? "border-[#8b83ff]/30 text-[#a9a3ff]"
+                      ? "border-emerald-500/30 text-emerald-400"
                       : "cursor-help border-amber-500/30 text-amber-400",
                   )}
                   title={
@@ -102,20 +102,20 @@ export function AutoPromoteDiagram() {
                   <span
                     className={cn(
                       "size-1 rounded-full",
-                      HOPS[i].on ? "bg-[#a9a3ff]" : "bg-amber-400",
+                      HOPS[i].on ? "bg-emerald-400" : "bg-amber-400",
                     )}
                   />
                   {HOPS[i].gate}
                 </span>
                 {i < 2 ? (
                   <span className="relative h-px flex-1 bg-white/15">
-                    <span className={`ap-flow ap-flow-${i}b absolute inset-0 bg-[#8b83ff]/60`} />
+                    <span className={`ap-flow ap-flow-${i}b absolute inset-0 bg-emerald-500/60`} />
                   </span>
                 ) : (
                   // the un-energized route to prod: dashed, and only previewed
                   // (never lit) while hovering the hold gate
                   <span className="relative flex-1 border-t border-dashed border-white/15">
-                    <span className="absolute -top-px left-0 w-full border-t border-dashed border-[#8b83ff]/50 opacity-0 transition-opacity duration-300 group-hover/hold:opacity-100" />
+                    <span className="absolute -top-px left-0 w-full border-t border-dashed border-emerald-500/50 opacity-0 transition-opacity duration-300 group-hover/hold:opacity-100" />
                   </span>
                 )}
               </span>
@@ -123,7 +123,7 @@ export function AutoPromoteDiagram() {
           </div>
         ))}
       </div>
-      <p className="mt-4 text-[11px] leading-relaxed text-slate-600">
+      <p className="mt-4 text-[11px] leading-relaxed text-neutral-600">
         # a healthy int → test carries on to acc automatically;{" "}
         <span className="text-amber-500/80">acc holds for a human</span> before prod
       </p>

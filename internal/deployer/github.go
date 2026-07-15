@@ -52,6 +52,13 @@ type GitHubActionsConfig struct {
 	// Ref is the git ref the workflow itself runs FROM (must be a branch or
 	// tag, e.g. "build"). The version being deployed is a separate input.
 	Ref string
+	// VersionAsRef makes Deploy dispatch the workflow ON the deployed
+	// version's git ref (branch or tag) instead of the static Ref. For
+	// workflows that declare no version input and simply build whatever ref
+	// they run from — e.g. ios_release.yml, where dispatching on a v* tag
+	// releases that tag and dispatching on main releases main. The workflow
+	// file must exist on every ref that can be deployed.
+	VersionAsRef bool
 	// Input names carried on the dispatch. They default to the wslproxy
 	// deploy-single-environment.yml schema but are configurable so this
 	// deployer can drive any workflow-dispatch pipeline.
@@ -206,8 +213,14 @@ func (d *GitHubActionsDeployer) dispatch(ctx context.Context, env, version strin
 		inputs[k] = v
 	}
 
+	// The ref the workflow runs from: static by default; the version itself
+	// for VersionAsRef workflows (they build whatever ref they run on).
+	ref := d.cfg.Ref
+	if d.cfg.VersionAsRef && version != "" {
+		ref = version
+	}
 	body, err := json.Marshal(map[string]any{
-		"ref":    d.cfg.Ref,
+		"ref":    ref,
 		"inputs": inputs,
 	})
 	if err != nil {

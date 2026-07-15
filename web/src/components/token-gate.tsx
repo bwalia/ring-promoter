@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
-import { RingMark } from "@/components/ring-mark";
+import { CircleDot, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
@@ -46,10 +45,10 @@ export function TokenGate() {
         className="w-full max-w-sm space-y-4 rounded-xl border bg-card p-8 shadow-sm"
       >
         <div className="flex flex-col items-center gap-2 text-center">
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            <RingMark className="size-7" />
+          <div className="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <CircleDot aria-hidden className="size-6" />
           </div>
-          <h1 className="font-display text-xl font-bold tracking-tight">Ring Promoter</h1>
+          <h1 className="text-xl font-semibold">Ring Promoter</h1>
           <p className="text-sm text-muted-foreground">
             Enter your API token to connect.
           </p>

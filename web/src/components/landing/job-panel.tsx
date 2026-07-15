@@ -105,11 +105,11 @@ export function JobPanel() {
   return (
     <div
       ref={rootRef}
-      className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f131e] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]"
+      className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0c] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]"
     >
-      <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2.5 font-mono text-xs text-slate-500">
+      <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2.5 font-mono text-xs text-neutral-500">
         <span>
-          <span className="text-slate-300">PROMOTE</span> payments-api · int → test
+          <span className="text-neutral-300">PROMOTE</span> payments-api · int → test
         </span>
         <span>job 8f3a…c2</span>
       </div>
@@ -119,7 +119,7 @@ export function JobPanel() {
           return (
             <li key={s.label} className="flex h-7 items-center gap-3">
               {state === "done" ? (
-                <span className="flex size-4 items-center justify-center rounded-full bg-[#8b83ff]/15 text-[10px] text-[#a9a3ff]">
+                <span className="flex size-4 items-center justify-center rounded-full bg-emerald-500/15 text-[10px] text-emerald-400">
                   ✓
                 </span>
               ) : state === "run" ? (
@@ -129,22 +129,22 @@ export function JobPanel() {
                 </span>
               ) : (
                 <span className="flex size-4 items-center justify-center">
-                  <span className="size-2 rounded-full border border-slate-700" />
+                  <span className="size-2 rounded-full border border-neutral-700" />
                 </span>
               )}
               <span
                 className={cn(
                   "flex-1 transition-colors duration-300",
                   state === "todo"
-                    ? "text-slate-600"
+                    ? "text-neutral-600"
                     : state === "run"
                       ? "text-sky-300"
-                      : "text-slate-300",
+                      : "text-neutral-300",
                 )}
               >
                 {s.label}
               </span>
-              <span className="text-slate-600 tabular-nums">
+              <span className="text-neutral-600 tabular-nums">
                 {state === "done" ? s.final : state === "run" ? runningDur(i) : "—"}
               </span>
             </li>
@@ -158,9 +158,9 @@ export function JobPanel() {
             className={cn(
               l.bright
                 ? l.text.startsWith("✓")
-                  ? "text-[#a9a3ff]"
-                  : "text-slate-400"
-                : "text-slate-500",
+                  ? "text-emerald-400"
+                  : "text-neutral-400"
+                : "text-neutral-500",
             )}
           >
             {l.text}

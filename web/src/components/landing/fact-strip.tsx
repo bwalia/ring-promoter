@@ -50,16 +50,16 @@ export function FactStrip() {
           <div key={title} className="relative overflow-hidden px-4 py-6 sm:px-6">
             <div
               aria-hidden
-              className={`fs-sweep fs-sweep-${i} pointer-events-none absolute inset-y-0 left-0 w-full bg-gradient-to-r from-transparent via-[#8b83ff]/[0.08] to-transparent`}
+              className={`fs-sweep fs-sweep-${i} pointer-events-none absolute inset-y-0 left-0 w-full bg-gradient-to-r from-transparent via-emerald-500/[0.08] to-transparent`}
             />
             <div className={`fs-body fs-body-${i}`}>
-              <p className="flex items-center justify-between gap-2 font-mono text-[11px] uppercase tracking-widest text-slate-500">
+              <p className="flex items-center justify-between gap-2 font-mono text-[11px] uppercase tracking-widest text-neutral-500">
                 {title}
-                <span className={`fs-tick fs-tick-${i} text-[#8b83ff]`} aria-hidden>
+                <span className={`fs-tick fs-tick-${i} text-emerald-500`} aria-hidden>
                   ✓
                 </span>
               </p>
-              <p className="mt-1.5 text-sm text-slate-300">{sub}</p>
+              <p className="mt-1.5 text-sm text-neutral-300">{sub}</p>
             </div>
           </div>
         ))}

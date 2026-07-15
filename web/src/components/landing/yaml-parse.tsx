@@ -11,14 +11,14 @@ import { gsap, useGSAP, MOTION_OK } from "./gsap/setup";
 function Y({ k, v }: { k: string; v?: string }) {
   return (
     <>
-      <span className="text-slate-400">{k}:</span>
-      {v && <span className="text-slate-100"> {v}</span>}
+      <span className="text-neutral-400">{k}:</span>
+      {v && <span className="text-neutral-100"> {v}</span>}
     </>
   );
 }
 
 function C({ t }: { t: string }) {
-  return <span className="text-slate-600">{t}</span>;
+  return <span className="text-neutral-600">{t}</span>;
 }
 
 export function YamlPanel() {
@@ -53,10 +53,10 @@ export function YamlPanel() {
   );
 
   return (
-    <div ref={scope} className="overflow-hidden rounded-xl border border-white/10 bg-[#0a0c14]">
-      <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2 font-mono text-[11px] text-slate-500">
+    <div ref={scope} className="overflow-hidden rounded-xl border border-white/10 bg-[#090909]">
+      <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2 font-mono text-[11px] text-neutral-500">
         config.yaml
-        <span className="yp-applied rounded-full border border-[#8b83ff]/30 px-2 py-0.5 text-[10px] text-[#a9a3ff]">
+        <span className="yp-applied rounded-full border border-emerald-500/30 px-2 py-0.5 text-[10px] text-emerald-400">
           applied ✓
         </span>
       </div>
