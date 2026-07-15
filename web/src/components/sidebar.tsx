@@ -75,14 +75,16 @@ export function Sidebar({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 px-4 pb-2 pt-4">
+      <div className="flex items-center gap-2.5 px-4 pb-3 pt-5">
         <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <CircleDot aria-hidden className="size-4" />
         </div>
-        <span className="text-sm font-semibold">Ring Promoter</span>
+        <span className="text-sm font-semibold tracking-tight">
+          Ring Promoter
+        </span>
       </div>
 
-      <div className="px-3 pb-2">
+      <div className="px-3 pb-3">
         <div className="relative">
           <Search
             aria-hidden
@@ -91,7 +93,7 @@ export function Sidebar({
           <Input
             id={searchInputId}
             placeholder="Filter applications…"
-            className="h-8 pl-8 text-sm"
+            className="h-9 pl-8 text-sm"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             aria-label="Filter applications"
@@ -103,7 +105,7 @@ export function Sidebar({
       </div>
 
       <ScrollArea className="min-h-0 flex-1 px-3">
-        <div className="space-y-4 pb-6 pt-1">
+        <div className="space-y-6 pb-6 pt-1">
           {isPending && (
             <div className="space-y-2 px-1 pt-2">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -231,7 +233,7 @@ function Section({
   return (
     <Collapsible open={!collapsed} onOpenChange={() => toggleCollapsed(id)}>
       <div className="flex items-center justify-between">
-        <CollapsibleTrigger className="group flex flex-1 items-center gap-1 rounded-md px-1 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+        <CollapsibleTrigger className="group flex flex-1 items-center gap-1 rounded-md px-1 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground">
           <ChevronRight
             aria-hidden
             className={cn(
@@ -243,7 +245,7 @@ function Section({
         </CollapsibleTrigger>
         {action}
       </div>
-      <CollapsibleContent className="mt-1 space-y-0.5">
+      <CollapsibleContent className="mt-1.5 space-y-0.5">
         {children}
       </CollapsibleContent>
     </Collapsible>
@@ -284,7 +286,7 @@ function GroupSection({
         )}
       >
         <CollapsibleTrigger
-          className="py-1.5 pl-2 pr-0.5"
+          className="py-2 pl-2 pr-0.5"
           aria-label={`${collapsed ? "Expand" : "Collapse"} ${group.name}`}
         >
           <ChevronRight
@@ -298,14 +300,17 @@ function GroupSection({
         {/* The group name opens the group page (the chevron collapses). */}
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 text-left text-sm"
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-1.5 py-2 pr-1 text-left text-sm 2xl:text-[15px]",
+            active && "font-medium",
+          )}
           onClick={() => {
             selectGroup(group.id);
             onNavigate?.();
           }}
         >
           <span className="truncate">{group.name}</span>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs tabular-nums text-muted-foreground">
             {group.apps.length}
           </span>
         </button>
@@ -333,7 +338,7 @@ function GroupSection({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <CollapsibleContent className="ml-3 space-y-0.5 border-l pl-1">
+      <CollapsibleContent className="ml-4 space-y-0.5 border-l pl-2">
         {members.length === 0 ? (
           <p className="px-2 py-1 text-xs text-muted-foreground">Empty</p>
         ) : (
@@ -370,8 +375,8 @@ function AppRow({ app, onNavigate }: { app: string; onNavigate?: () => void }) {
       <button
         type="button"
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm",
-          !active && "text-muted-foreground hover:text-foreground",
+          "flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left text-sm font-semibold 2xl:text-[15px]",
+          !active && "text-foreground/80 hover:text-foreground",
         )}
         onClick={() => {
           selectApp(app);

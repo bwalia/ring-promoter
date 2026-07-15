@@ -1,7 +1,6 @@
 "use client";
 
 import { ActionDialogs } from "@/components/dashboard/action-dialogs";
-import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { HistoryPanel } from "@/components/dashboard/history-panel";
 import { JobProgress } from "@/components/dashboard/job-progress";
 import { OverviewCards } from "@/components/dashboard/overview-cards";
@@ -33,7 +32,7 @@ export function Dashboard({ app }: { app: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
+    <div className="mx-auto max-w-7xl space-y-8 p-4 md:p-6 xl:p-8">
       <OverviewCards
         app={app}
         rings={rings.data}
@@ -45,17 +44,13 @@ export function Dashboard({ app }: { app: string }) {
 
       <Pipeline app={app} rings={rings.data} isPending={rings.isPending} />
 
-      <div className="grid items-start gap-6 xl:grid-cols-3">
-        <HistoryPanel
-          app={app}
-          history={history.data}
-          isPending={history.isPending}
-          error={history.error}
-          onRetry={() => history.refetch()}
-          className="xl:col-span-2"
-        />
-        <ActivityFeed />
-      </div>
+      <HistoryPanel
+        app={app}
+        history={history.data}
+        isPending={history.isPending}
+        error={history.error}
+        onRetry={() => history.refetch()}
+      />
 
       <ActionDialogs app={app} rings={rings.data ?? []} />
     </div>
