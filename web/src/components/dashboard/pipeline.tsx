@@ -194,7 +194,12 @@ function RingCard({
       aria-label={`${ring.label} details`}
       onClick={onOpenDetails}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        // Only when the card itself is focused — Enter/Space on the inner
+        // buttons bubbles up here and must keep its normal meaning.
+        if (
+          (e.key === "Enter" || e.key === " ") &&
+          e.target === e.currentTarget
+        ) {
           e.preventDefault();
           onOpenDetails();
         }
