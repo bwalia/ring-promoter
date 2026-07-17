@@ -19,6 +19,8 @@ import (
 	"github.com/example/ring-promoter/internal/config"
 	"github.com/example/ring-promoter/internal/deployer"
 	"github.com/example/ring-promoter/internal/diagnose"
+	"github.com/example/ring-promoter/internal/executor"
+	"github.com/example/ring-promoter/internal/executor/k8sjob"
 	"github.com/example/ring-promoter/internal/health"
 	"github.com/example/ring-promoter/internal/promoter"
 	"github.com/example/ring-promoter/internal/ring"
@@ -125,8 +127,9 @@ func buildStore(ctx context.Context, cfg *config.Config) (store.Store, error) {
 
 // buildDeployers constructs one deployer per application (honoring an app's
 // `deployer` override) plus a default deployer for anything unlisted. Shared
-// mechanisms (kubectl, log) are instantiated once; the github deployer is
-// per-app because each app dispatches its own workflow.
+// mechanisms (kubectl, log, the k8sjob executor) are instantiated once; the
+// github and k8sjob deployers are per-app because each app carries its own
+// workflow/Job configuration.
 func buildDeployers(cfg *config.Config, logger *slog.Logger) (map[string]deployer.Deployer, deployer.Deployer, error) {
 	var kubectlDep, logDep deployer.Deployer
 	shared := func(kind string) deployer.Deployer {
@@ -144,6 +147,16 @@ func buildDeployers(cfg *config.Config, logger *slog.Logger) (map[string]deploye
 		}
 	}
 
+	// The Kubernetes Job executor is stateless and shared by every k8sjob app;
+	// each app maps its own config onto the Spec.
+	var k8sExec *k8sjob.Executor
+	sharedK8sExec := func() *k8sjob.Executor {
+		if k8sExec == nil {
+			k8sExec = k8sjob.New(logger, k8sjob.Options{})
+		}
+		return k8sExec
+	}
+
 	perApp := make(map[string]deployer.Deployer, len(cfg.Apps))
 	for _, app := range cfg.Apps {
 		switch cfg.DeployerFor(app) {
@@ -153,6 +166,8 @@ func buildDeployers(cfg *config.Config, logger *slog.Logger) (map[string]deploye
 				return nil, nil, err
 			}
 			perApp[app.Name] = d
+		case config.DeployerK8sJob:
+			perApp[app.Name] = buildK8sJobDeployer(app, logger, sharedK8sExec())
 		case config.DeployerKubectl:
 			perApp[app.Name] = shared(config.DeployerKubectl)
 		default:
@@ -161,10 +176,65 @@ func buildDeployers(cfg *config.Config, logger *slog.Logger) (map[string]deploye
 	}
 
 	// Default for any app not explicitly mapped (defensive; every app is mapped
-	// above). A global "github" default has no per-app config, so fall back to
-	// the log deployer for the default slot.
+	// above). A global "github"/"k8sjob" default has no per-app config, so fall
+	// back to the log deployer for the default slot.
 	def := shared(cfg.Deployer)
 	return perApp, def, nil
+}
+
+// buildK8sJobDeployer maps one app's k8sjob config onto the execution
+// abstraction: the spec function translates each Deploy(target, version) into
+// the Job to run, and the ExecDeployer adapter drives it (status polling, log
+// streaming, cancellation) behind the ordinary Deployer contract.
+func buildK8sJobDeployer(app config.AppConfig, logger *slog.Logger, ex *k8sjob.Executor) deployer.Deployer {
+	j := app.K8sJob // guaranteed non-nil by config validation
+
+	specFor := func(t deployer.Target, version string) (executor.Spec, error) {
+		env := make(map[string]string, len(j.Env)+5)
+		for k, v := range j.Env {
+			env[k] = v
+		}
+		// The runner contract. TargetEnv falls back to the ring name so
+		// scripts always receive a concrete environment.
+		env[executor.EnvApp] = t.App
+		env[executor.EnvRing] = t.Ring
+		env[executor.EnvVersion] = version
+		targetEnv := t.TargetEnv
+		if targetEnv == "" {
+			targetEnv = t.Ring
+		}
+		env[executor.EnvTargetEnv] = targetEnv
+
+		tolerations := make([]executor.Toleration, 0, len(j.Tolerations))
+		for _, tol := range j.Tolerations {
+			tolerations = append(tolerations, executor.Toleration(tol))
+		}
+
+		return executor.Spec{
+			App:               t.App,
+			Ring:              t.Ring,
+			Image:             j.Image,
+			Command:           j.Command,
+			Args:              j.Args,
+			Env:               env,
+			EnvFromSecrets:    j.EnvFromSecrets,
+			EnvFromConfigMaps: j.EnvFromConfigMaps,
+			ImagePullSecrets:  j.ImagePullSecrets,
+			Namespace:         j.ResolvedNamespace(),
+			ServiceAccount:    j.ServiceAccount,
+			Resources:         executor.Resources(j.Resources),
+			NodeSelector:      j.NodeSelector,
+			Tolerations:       tolerations,
+			Affinity:          j.Affinity,
+			Timeout:           j.ResolvedTimeout(),
+			Retries:           j.ResolvedRetries(),
+			TTLAfterFinish:    j.ResolvedTTL(),
+			Labels:            j.Labels,
+			Annotations:       j.Annotations,
+		}, nil
+	}
+
+	return deployer.FromExecutor(logger, ex, specFor, j.ResolvedPollInterval())
 }
 
 func buildGitHubDeployer(app config.AppConfig, logger *slog.Logger) (deployer.Deployer, error) {

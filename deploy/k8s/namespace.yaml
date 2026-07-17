@@ -28,3 +28,13 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: prod
+---
+# Namespace where the k8sjob deployer runs its execution Jobs (one Job per
+# seed/promote/rollback). Kept separate from the ring namespaces so deploy
+# scripts and application workloads never share a blast radius.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ring-exec
+  labels:
+    app.kubernetes.io/name: ring-promoter

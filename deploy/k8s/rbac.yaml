@@ -81,3 +81,109 @@ roleRef:
   kind: ClusterRole
   name: ring-promoter-deployer
   apiGroup: rbac.authorization.k8s.io
+---
+# ---- k8sjob executor ----
+# Permissions the control plane needs to run deployments as Kubernetes Jobs:
+#   - create/watch/delete Jobs   (start, monitor, cancel an execution)
+#   - read Pods and their logs   (status mapping, live log streaming)
+# Granted ONLY in the ring-exec namespace via the RoleBinding below — the
+# control plane cannot manage Jobs anywhere else, and nothing here grants
+# exec/attach or write access to Secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ring-promoter-executor
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-promoter-executor
+  namespace: ring-exec
+subjects:
+  - kind: ServiceAccount
+    name: ring-promoter
+    namespace: ring-system
+roleRef:
+  kind: ClusterRole
+  name: ring-promoter-executor
+  apiGroup: rbac.authorization.k8s.io
+---
+# Identity for the Job pods themselves (set `service_account: ring-deploy-job`
+# in an app's k8sjob block). Separate from the control plane's ServiceAccount
+# so a compromised deploy script holds only this identity's permissions.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ring-deploy-job
+  namespace: ring-exec
+---
+# Deploy scripts that update Deployments in the ring namespaces reuse the
+# existing ring-promoter-deployer ClusterRole, bound to ring-deploy-job per
+# ring namespace. Scripts that only call external APIs need no bindings at
+# all — leave their k8sjob block's service_account empty.
+# ADDING A RING: copy a block below and change the namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-deploy-job
+  namespace: int
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef:
+  kind: ClusterRole
+  name: ring-promoter-deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-deploy-job
+  namespace: test
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef:
+  kind: ClusterRole
+  name: ring-promoter-deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-deploy-job
+  namespace: acc
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef:
+  kind: ClusterRole
+  name: ring-promoter-deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-deploy-job
+  namespace: prod
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef:
+  kind: ClusterRole
+  name: ring-promoter-deployer
+  apiGroup: rbac.authorization.k8s.io
