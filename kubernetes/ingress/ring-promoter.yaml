@@ -1,25 +1,37 @@
-# Public, always-on Ingress for the Ring Promoter web UI + API.
+# Public, always-on Ingress for the WORKSTATION Ring Promoter web UI + API.
 #
-# Targets the k3s1 (diytax) cluster, which ships the k3s built-in Traefik
-# ingress controller. Plain HTTP — no TLS. Exposes:
+# Targets the k3s1 cluster, which ships the k3s built-in Traefik ingress
+# controller. Plain HTTP — no TLS at this layer. Exposes:
 #
-#     http://ring-promoter.diytaxreturn.co.uk
+#     http://rp.workstation.co.uk
 #
-# DNS: point ring-promoter.diytaxreturn.co.uk at the Traefik LoadBalancer IP.
+# ROUTING — this Ingress alone does NOT make the URL work from the internet.
+# Traefik's LoadBalancer addresses are private (10.8.0.0/24 + 10.0.0.51), so
+# there is no public IP to point DNS at. Public traffic reaches this cluster
+# only through a wslproxy edge, which terminates the request and proxies it to
+# those private Traefik addresses. Two things are therefore needed outside this
+# repo:
+#
+#   1. DNS — already satisfied: a wildcard *.workstation.co.uk CNAMEs to
+#      pop0.wslproxy.com, so rp.workstation.co.uk already resolves.
+#   2. A wslproxy tenant (vhost) for rp.workstation.co.uk on the pop0 edge,
+#      backing onto the k3s1 Traefik addresses. Until that exists the edge
+#      answers every request with its "Host not configured" page — and it does
+#      so with HTTP 200, which is why the deploy workflow's health gate asserts
+#      the response BODY and not just the status code.
 #
 # NOTE: the API is protected by the bearer token (RP_API_TOKEN), but the UI
 # itself has no auth of its own. If you want to gate the UI, put a basic-auth
-# (or SSO) layer in front — the way longhorn-ui-ingress.yaml does in the infra
-# repo.
+# (or SSO) layer in front.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ring-promoter
-  namespace: ring-system
+  namespace: workstation-ring-promoter
 spec:
   ingressClassName: traefik
   rules:
-    - host: ring-promoter.diytaxreturn.co.uk
+    - host: rp.workstation.co.uk
       http:
         paths:
           - path: /

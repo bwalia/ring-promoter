@@ -9,7 +9,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ring-promoter
-  namespace: ring-system
+  namespace: workstation-ring-promoter
   labels:
     app: ring-promoter
 spec:
@@ -28,7 +28,15 @@ spec:
         # `kubectl rollout restart`.
         ring-promoter/config-revision: "1"
     spec:
-      serviceAccountName: ring-promoter
+      # No serviceAccountName: this instance runs with `deployer: log`, so it
+      # never calls the Kubernetes API and needs no RBAC. The ring-promoter
+      # ServiceAccount + ClusterRole live in the diy-tax-return-uk repo (they
+      # are cluster-shared); naming one here that does not exist in this
+      # namespace would stop the ReplicaSet creating pods at all. When real
+      # workstation apps arrive and need the kubectl deployer, add an rbac.yaml
+      # with its own ServiceAccount and RoleBindings, name it here, and drop the
+      # automount override below.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         # The distroless :nonroot image's user is the NAME "nonroot"; Kubernetes
