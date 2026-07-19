@@ -1,8 +1,19 @@
 name: Deploy to k3s1
 
-# Builds, pushes and deploys Ring Promoter to the k3s1 cluster whenever a PR is
-# merged to main (a push to main). GitOps: main is the source of truth — the
-# manifests in deploy/k8s/ (except the placeholder Secret) are applied every run.
+# Builds, pushes and deploys the WORKSTATION Ring Promoter instance to the k3s1
+# cluster whenever a PR is merged to main (a push to main). GitOps: main is the
+# source of truth — the manifests in deploy/k8s/ (except the placeholder Secret)
+# are applied every run.
+#
+# This workflow owns the workstation instance ONLY:
+#   namespace workstation-ring-promoter, http://rp.workstation.co.uk
+# The diytaxreturn instance (namespace ring-system,
+# ring-promoter.diytaxreturn.co.uk) is deployed from the diy-tax-return-uk repo
+# (devops/ring-promoter/). This workflow must never touch ring-system.
+#
+# It still builds and pushes docker.io/bwalia/ring-promoter to Docker Hub — that
+# image is what BOTH instances run, so the diy-tax-return-uk deploy pulls the
+# tags produced here.
 #
 # Runs on the self-hosted Mac Studio runner. See docs/deploy-k3s1.md for the
 # one-time bootstrap (Secret, Postgres, repo secrets, runner registration).
@@ -23,7 +34,8 @@ concurrency:
 
 env:
   IMAGE: docker.io/bwalia/ring-promoter
-  NAMESPACE: ring-system
+  NAMESPACE: workstation-ring-promoter
+  HEALTH_URL: http://rp.workstation.co.uk/healthz
 
 jobs:
   test:
@@ -98,7 +110,7 @@ jobs:
           kubectl get nodes -o wide
           if ! kubectl -n "${NAMESPACE}" get secret ring-promoter >/dev/null 2>&1; then
             echo "::error::secret/ring-promoter is missing in namespace ${NAMESPACE} on k3s1."
-            echo "::error::Run the one-time bootstrap (see docs/deploy-k3s1.md): create it with RP_API_TOKEN, RP_DB_DSN and RP_GITHUB_TOKEN. CI never creates secrets."
+            echo "::error::Run the one-time bootstrap (see docs/deploy-k3s1.md): create it with RP_API_TOKEN and RP_DB_DSN. CI never creates secrets."
             exit 1
           fi
           echo "secret/ring-promoter present — proceeding."
@@ -106,9 +118,14 @@ jobs:
       - name: Apply manifests (GitOps; never secret.yaml)
         run: |
           set -euo pipefail
+          # No rbac.yaml: the ServiceAccount and the cluster-scoped ClusterRole
+          # ring-promoter-deployer are shared cluster-wide and are owned by the
+          # diy-tax-return-uk repo. Applying a copy from here would let the two
+          # repos overwrite each other. This instance runs `deployer: log` and
+          # needs no Kubernetes API access; workstation gets its own RBAC when
+          # it has real applications to deploy.
           kubectl apply \
             -f deploy/k8s/namespace.yaml \
-            -f deploy/k8s/rbac.yaml \
             -f deploy/k8s/configmap.yaml \
             -f deploy/k8s/service.yaml \
             -f kubernetes/ingress/ring-promoter.yaml
@@ -121,16 +138,63 @@ jobs:
           echo "Deploying ${IMAGE}:${TAG}"
           sed "s#image: docker.io/bwalia/ring-promoter:.*#image: ${IMAGE}:${TAG}#" \
             deploy/k8s/deployment.yaml | kubectl apply -f -
-          kubectl -n "${NAMESPACE}" rollout status deploy/ring-promoter --timeout=180s
 
-      - name: Post-deploy health check
+      - name: Restart to pick up config, and wait
         run: |
           set -euo pipefail
-          # -L follows the edge's http->https 301 so we read the final 200.
+          # A ConfigMap change does NOT restart the pod on its own: the file is
+          # remounted but the process only reads it at boot. Without this, an
+          # app-registry edit would apply cleanly and never take effect.
+          kubectl -n "${NAMESPACE}" rollout restart deploy/ring-promoter
+          kubectl -n "${NAMESPACE}" rollout status deploy/ring-promoter --timeout=180s
+
+      - name: Verify the app in-cluster
+        run: |
+          set -euo pipefail
+          # Authoritative check on what THIS repo controls: talk to the Service
+          # directly, bypassing the public edge. If this passes but the public
+          # check below fails, the deployment is fine and the wslproxy edge is
+          # the problem.
+          kubectl -n "${NAMESPACE}" port-forward svc/ring-promoter 18080:80 >/dev/null 2>&1 &
+          PF_PID=$!
+          trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
+          sleep 3
+          for i in $(seq 1 10); do
+            code=$(curl -s -o "$RUNNER_TEMP/in.out" -w '%{http_code}' --max-time 5 http://127.0.0.1:18080/healthz || echo 000)
+            body=$(cat "$RUNNER_TEMP/in.out" 2>/dev/null || true)
+            echo "in-cluster healthz attempt $i -> code=$code body=$body"
+            if [ "$code" = "200" ] && printf '%s' "$body" | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"'; then
+              echo "workstation Ring Promoter is serving in-cluster."
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::the pod did not serve {\"status\":\"ok\"} on the Service after the rollout"
+          exit 1
+
+      - name: Post-deploy health check (public URL)
+        run: |
+          set -euo pipefail
+          # Assert the BODY, not just the status code. rp.workstation.co.uk
+          # resolves via a *.workstation.co.uk wildcard to the pop0 wslproxy
+          # edge, which answers 200 with a "Host not configured" page for any
+          # host it does not know — so a code-only check would pass even with
+          # nothing deployed at all.
           for i in $(seq 1 12); do
-            code=$(curl -sL -o /dev/null -w '%{http_code}' --max-time 15 http://ring-promoter.diytaxreturn.co.uk/healthz || echo 000)
-            echo "healthz attempt $i -> $code"
-            if [ "$code" = "200" ]; then echo "k3s1 deploy healthy."; exit 0; fi
+            # -L follows any http->https redirect so we read the final response.
+            code=$(curl -sL -o "$RUNNER_TEMP/healthz.out" -w '%{http_code}' --max-time 15 "${HEALTH_URL}" || echo 000)
+            body=$(cat "$RUNNER_TEMP/healthz.out" 2>/dev/null || true)
+            echo "healthz attempt $i -> code=$code"
+            if [ "$code" = "200" ] && printf '%s' "$body" | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"'; then
+              echo "workstation Ring Promoter healthy on ${IMAGE}:${TAG}."
+              exit 0
+            fi
             sleep 5
           done
-          echo "::error::/healthz did not return 200 after the rollout"; exit 1
+          if printf '%s' "$body" | grep -q "Host not configured"; then
+            echo "::error::${HEALTH_URL} is answered by the wslproxy edge's \"Host not configured\" page."
+            echo "::error::The deployment itself is fine (the in-cluster check above passed). rp.workstation.co.uk still needs a wslproxy tenant on the pop0 edge, backing onto the k3s1 Traefik addresses. See kubernetes/ingress/ring-promoter.yaml."
+            exit 1
+          fi
+          echo "::error::${HEALTH_URL} did not report {\"status\":\"ok\"} after the rollout (last code=$code)"
+          exit 1

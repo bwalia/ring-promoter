@@ -49,3 +49,33 @@ ALTER TABLE history ADD COLUMN IF NOT EXISTS diagnosis TEXT NOT NULL DEFAULT '';
 ALTER TABLE history ADD COLUMN IF NOT EXISTS logs TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_history_app_created ON history (app, created_at DESC, id DESC);
+
+-- Operator-created ad-hoc maintenance windows. A promotion into a guarded ring
+-- is allowed when now() falls inside one of these OR a config-defined recurring
+-- window. An empty ring applies to every ring the app's gate guards.
+CREATE TABLE IF NOT EXISTS maintenance_window (
+    id         TEXT        PRIMARY KEY,
+    app        TEXT        NOT NULL,
+    ring       TEXT        NOT NULL DEFAULT '',
+    starts_at  TIMESTAMPTZ NOT NULL,
+    ends_at    TIMESTAMPTZ NOT NULL,
+    reason     TEXT        NOT NULL DEFAULT '',
+    created_by TEXT        NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_maint_app ON maintenance_window (app, ends_at DESC);
+
+-- QA / release-engineer Go-No-Go sign-offs, one per exact (app, ring, version).
+-- A promotion into a gated ring requires a stored 'go' for the version.
+CREATE TABLE IF NOT EXISTS signoff (
+    app        TEXT        NOT NULL,
+    ring       TEXT        NOT NULL,
+    version    TEXT        NOT NULL,
+    decision   TEXT        NOT NULL,
+    engineer   TEXT        NOT NULL DEFAULT '',
+    qa_status  TEXT        NOT NULL DEFAULT '',
+    note       TEXT        NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (app, ring, version)
+);

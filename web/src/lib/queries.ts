@@ -396,13 +396,15 @@ export function useSeedMutation(app: string | null) {
       ring,
       version,
       password,
+      crCode,
     }: {
       ring: string;
       version: string;
       password?: string;
+      crCode?: string;
     }) => {
       if (!app) throw new Error("no application selected");
-      return api.seed(app, ring, version, password);
+      return api.seed(app, ring, version, password, crCode);
     },
     onSuccess: (_res, { ring, version }) => {
       // The shared jobs poll picks the new job up; refetch now for snappiness.
@@ -422,12 +424,14 @@ export function usePromoteMutation(app: string | null) {
     mutationFn: ({
       fromRing,
       password,
+      crCode,
     }: {
       fromRing: string;
       password?: string;
+      crCode?: string;
     }) => {
       if (!app) throw new Error("no application selected");
-      return api.promote(app, fromRing, password);
+      return api.promote(app, fromRing, password, crCode);
     },
     onSuccess: (_res, { fromRing }) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
@@ -482,6 +486,100 @@ export function useAutoPromoteMutation(app: string | null) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["rings", app] });
     },
+  });
+}
+
+// ---- promotion-policy gates: maintenance windows & sign-offs ----
+
+const GATES_INTERVAL = 15_000;
+
+/** Maintenance view for an app (config-recurring + ad-hoc windows + status). */
+export function useMaintenanceWindows(app: string | null) {
+  const token = useAuthStore((s) => s.token);
+  const autoRefresh = usePrefsStore((s) => s.autoRefresh);
+  return useQuery({
+    queryKey: ["maintenance", app],
+    queryFn: () => api.maintenanceWindows(app!),
+    enabled: !!token && !!app,
+    refetchInterval: autoRefresh ? GATES_INTERVAL : false,
+  });
+}
+
+export function useCreateMaintenanceWindow(app: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (win: {
+      ring: string;
+      starts_at: string;
+      ends_at: string;
+      reason: string;
+      created_by: string;
+    }) => {
+      if (!app) throw new Error("no application selected");
+      return api.createMaintenanceWindow(app, win);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["maintenance", app] });
+      queryClient.invalidateQueries({ queryKey: ["rings", app] });
+      toast.success("Maintenance window opened");
+    },
+    onError: (err: Error) =>
+      toast.error("Could not open window", { description: err.message }),
+  });
+}
+
+export function useDeleteMaintenanceWindow(app: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => {
+      if (!app) throw new Error("no application selected");
+      return api.deleteMaintenanceWindow(app, id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["maintenance", app] });
+      queryClient.invalidateQueries({ queryKey: ["rings", app] });
+    },
+    onError: (err: Error) =>
+      toast.error("Could not close window", { description: err.message }),
+  });
+}
+
+/** All recorded sign-offs for an app (newest first). */
+export function useSignoffs(app: string | null) {
+  const token = useAuthStore((s) => s.token);
+  const autoRefresh = usePrefsStore((s) => s.autoRefresh);
+  return useQuery({
+    queryKey: ["signoffs", app],
+    queryFn: () => api.signoffs(app!),
+    enabled: !!token && !!app,
+    refetchInterval: autoRefresh ? GATES_INTERVAL : false,
+    select: (data) => data.signoffs ?? [],
+  });
+}
+
+export function useRecordSignoff(app: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (so: {
+      ring: string;
+      version: string;
+      decision: "go" | "no_go";
+      engineer: string;
+      qa_status: string;
+      note?: string;
+    }) => {
+      if (!app) throw new Error("no application selected");
+      return api.createSignoff(app, so);
+    },
+    onSuccess: (_res, { decision, version, ring }) => {
+      queryClient.invalidateQueries({ queryKey: ["signoffs", app] });
+      toast.success(
+        decision === "go" ? "Signed off (GO)" : "Recorded (NO-GO)",
+        { description: `${version} → ${ring}` },
+      );
+    },
+    onError: (err: Error) =>
+      toast.error("Could not record sign-off", { description: err.message }),
   });
 }
 

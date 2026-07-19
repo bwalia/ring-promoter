@@ -6,7 +6,10 @@ import type {
   HistoryDiagnosis,
   HistoryEntry,
   Job,
+  MaintenanceView,
+  MaintenanceWindow,
   RingView,
+  Signoff,
   VersionsResponse,
 } from "@/lib/types";
 
@@ -129,20 +132,83 @@ export const api = {
 
   // Mutations always use the async job flow so the UI can render live
   // step-by-step progress; each returns the job id to poll. `password` is the
-  // production password, required by the server for prod-bound operations.
-  seed: (name: string, ring: string, version: string, password?: string) =>
+  // production password; `crCode` is the change-request code required by an
+  // app's promotion policy for a change-request-gated ring.
+  seed: (
+    name: string,
+    ring: string,
+    version: string,
+    password?: string,
+    crCode?: string,
+  ) =>
     request<{ job_id: string }>(`${app(name)}/seed?async=1`, {
       method: "POST",
-      body: JSON.stringify({ ring, version, ...(password ? { password } : {}) }),
+      body: JSON.stringify({
+        ring,
+        version,
+        ...(password ? { password } : {}),
+        ...(crCode ? { cr_code: crCode } : {}),
+      }),
     }),
 
-  promote: (name: string, fromRing: string, password?: string) =>
+  promote: (
+    name: string,
+    fromRing: string,
+    password?: string,
+    crCode?: string,
+  ) =>
     request<{ job_id: string }>(`${app(name)}/promote?async=1`, {
       method: "POST",
       body: JSON.stringify({
         from_ring: fromRing,
         ...(password ? { password } : {}),
+        ...(crCode ? { cr_code: crCode } : {}),
       }),
+    }),
+
+  // ---- promotion-policy gates ----
+
+  maintenanceWindows: (name: string) =>
+    request<MaintenanceView>(`${app(name)}/maintenance-windows`),
+
+  createMaintenanceWindow: (
+    name: string,
+    win: {
+      ring: string;
+      starts_at: string;
+      ends_at: string;
+      reason: string;
+      created_by: string;
+    },
+  ) =>
+    request<MaintenanceWindow>(`${app(name)}/maintenance-windows`, {
+      method: "POST",
+      body: JSON.stringify(win),
+    }),
+
+  deleteMaintenanceWindow: (name: string, id: string) =>
+    request<{ status: string }>(
+      `${app(name)}/maintenance-windows/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+
+  signoffs: (name: string) =>
+    request<{ signoffs: Signoff[] }>(`${app(name)}/signoffs`),
+
+  createSignoff: (
+    name: string,
+    so: {
+      ring: string;
+      version: string;
+      decision: "go" | "no_go";
+      engineer: string;
+      qa_status: string;
+      note?: string;
+    },
+  ) =>
+    request<Signoff>(`${app(name)}/signoffs`, {
+      method: "POST",
+      body: JSON.stringify(so),
     }),
 
   rollback: (name: string, ring: string) =>

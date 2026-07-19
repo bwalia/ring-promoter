@@ -147,6 +147,10 @@ type AppConfig struct {
 	// K8sJob configures the Kubernetes Job deployer; required when Deployer is
 	// "k8sjob", ignored otherwise.
 	K8sJob *K8sJobConfig `yaml:"k8sjob"`
+	// PromotionPolicy adds gates (maintenance windows, QA/release sign-off, a
+	// valid change-request code) that must be satisfied before a version may be
+	// deployed into a sensitive ring. Optional; nil means no extra gating.
+	PromotionPolicy *PromotionPolicy `yaml:"promotion_policy"`
 	// Rings maps a ring name (see package ring) to its deploy target.
 	Rings map[string]RingConfig `yaml:"rings"`
 }
@@ -556,6 +560,9 @@ func (c *Config) Validate() error {
 			}
 		}
 		if err := c.validateAppDeployer(a); err != nil {
+			return err
+		}
+		if err := validatePromotionPolicy(a); err != nil {
 			return err
 		}
 	}

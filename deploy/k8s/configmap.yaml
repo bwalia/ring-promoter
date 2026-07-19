@@ -1,172 +1,37 @@
-# Application registry + runtime settings, mounted at
-# /etc/ringpromoter/config.yaml. Secrets (api_token, database.dsn, github token)
+# Application registry + runtime settings for the WORKSTATION instance,
+# mounted at /etc/ringpromoter/config.yaml. Secrets (api_token, database.dsn)
 # are injected via environment variables from the Secret and omitted here.
 #
 # Rings are the shared pipeline int -> test -> acc -> prod (defined in
 # internal/ring/ring.go). ADD AN APPLICATION: append to `apps` and re-apply this
-# ConfigMap, then restart the deployment
-# (kubectl rollout restart deploy/ring-promoter -n ring-system).
+# ConfigMap. A ConfigMap change does not restart the pod on its own, so the
+# deploy workflow issues a rollout restart after applying it; by hand it is
+# `kubectl rollout restart deploy/ring-promoter -n workstation-ring-promoter`.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ring-promoter-config
-  namespace: ring-system
+  namespace: workstation-ring-promoter
 data:
   config.yaml: |
     listen_addr: ":8080"
-    deployer: log         # global default: sample k8s apps stay inert (no-op)
-    health: http          # real HTTP health checks (needed for wslproxy gating)
+    deployer: log         # nothing is deployed for real yet — every app is inert
+    health: always        # no real health endpoints to probe yet
     database:
       driver: postgres    # DSN comes from RP_DB_DSN (Secret)
     retry:
       count: 3
       delay: 5s
-    # Bounds ONE seed/promote/rollback end-to-end — and an auto-promote chain
-    # runs as a single operation, so a multi-hop chain of GitHub-workflow
-    # deploys (each taking minutes) shares this budget.
-    # 90m: the iOS TestFlight workflow alone may take up to 60m of build time
-    # plus queueing on the shared Mac Studio runner — a tighter budget would
-    # make Ring Promoter record a failure while the release still ships.
-    operation_timeout: 90m
-    # AI failure diagnosis: "Diagnose with AI" on failed jobs sends the failure
-    # logs to this Ollama server, which explains the cause and suggests fixes.
-    # Active only when RP_OLLAMA_JWT_SECRET is also provided (Secret) — it signs
-    # the HS256 JWT sent in the x-api-key header to the auth gateway.
-    ollama:
-      url: "https://ollama.workstation.co.uk"
-      model: "qwen3-coder:30b"
+    operation_timeout: 60m
     apps:
-      # Per-ring version verification (opt-in): when an app's health endpoint
-      # reports its running version, add `health_version_field: "version"`
-      # (JSON body field, dotted path ok) or `health_version_header:
-      # "X-App-Version"` to the ring — post-deploy checks then also require the
-      # endpoint to report the exact version just deployed, so an old build
-      # still answering 200 can no longer pass as a successful deployment.
-      # On a ref-pinned ring (diytaxreturn acc) the field instead RECORDS the
-      # reported version after a healthy deploy — the expected version isn't
-      # knowable up front there. wslproxy/spectoncr endpoints don't report a
-      # version yet, so they stay on plain status checks.
+      # PLACEHOLDER — replace this with the real workstation applications.
       #
-      # wslproxy — OpenResty/Lua app on VMs, deployed via its own GitHub Actions
-      # per-environment workflow (deploy-single-environment.yml). Rings are the
-      # real pipeline Integration -> Test -> Acceptance -> Production; target_env
-      # is sent as the workflow ENV input (acc=pop0, prod=pop1). Do NOT point this
-      # at deploy-wslproxy-delivery-pipeline.yml (cumulative cascade to prod).
-      # Token from RP_GITHUB_TOKEN (Secret).
-      - name: wslproxy
-        display_name: "diytaxreturn proxy"
-        deployer: github
-        github:
-          owner: bwalia
-          repo: wslproxy
-          workflow: deploy-single-environment.yml
-          ref: main
-          deploy_mode: full
-          token_env: RP_GITHUB_TOKEN
-          poll_interval: 20s
-          run_lookup_timeout: 90s
+      # It exists only so the pod can boot: config validation rejects an empty
+      # apps list ("no applications configured" in internal/config/config.go)
+      # and every app must have at least one ring, so an instance with no apps
+      # would crash-loop. With `deployer: log` and `health: always` this app is
+      # completely inert — seeding or promoting it only writes a log line.
+      - name: sample
+        display_name: "Sample (placeholder)"
         rings:
-          int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
-          test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }
-          acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }   # pop0
-          # production = pop1. Public health endpoint on the wslproxy edge.
-          prod: { target_env: prod, health_url: "https://pop1.diytaxreturn.co.uk/healthz" }     # pop1
-
-      # diytaxreturn — Next.js + FastAPI/Lapis app on k3s (k3s0), deployed via its
-      # own GitHub Actions single-env workflow (deploy-single-environment.yml).
-      # Three environments only: int -> test -> acc (no prod ring configured).
-      # STRATEGY: acceptance is deployed ONLY from the `release` branch. The acc
-      # ring pins `ref: release`, so seed/promote to acc always dispatches
-      # DEPLOY_BRANCH=release — which the workflow's guard job requires. After
-      # a healthy deploy, acc's health_version_field makes Ring Promoter read
-      # the version the app REPORTS running (e.g. v1.0.36) and record that, so
-      # the UI shows a real version instead of the word "release".
-      # Health = FastAPI /fastapi/health per env. Token from RP_GITHUB_TOKEN.
-      - name: diytaxreturn
-        display_name: "diytaxreturn web"
-        deployer: github
-        github:
-          owner: bwalia
-          repo: diy-tax-return-uk
-          workflow: deploy-single-environment.yml
-          ref: main            # branch hosting the workflow file (DEPLOY_BRANCH carries the version)
-          deploy_mode: full
-          token_env: RP_GITHUB_TOKEN
-          poll_interval: 20s
-          run_lookup_timeout: 120s
-        rings:                 # target_env -> workflow ENV input
-          int:  { target_env: int,  health_url: "https://int-api.diytaxreturn.co.uk/fastapi/health" }
-          test: { target_env: test, health_url: "https://test-api.diytaxreturn.co.uk/fastapi/health" }
-          # health_version_field: after a healthy deploy, record the version the
-          # endpoint reports ({"version":"v1.0.36"}) instead of the pin "release".
-          acc:  { target_env: acc,  ref: release, health_url: "https://acc-api.diytaxreturn.co.uk/fastapi/health", health_version_field: "version" }
-          # No prod ring: this app has three environments (int/test/acc) only.
-
-      # diytaxreturn-ios — the Flutter iOS app, released to TestFlight INTERNAL
-      # testers by ios_release.yml (self-hosted Mac Studio runner; signing
-      # secrets come from Vault at build time). ONE ring only: int = internal
-      # testers; there is no next ring to promote into and no health URL — an
-      # app on TestFlight has nothing to probe, so health checks are skipped
-      # and the workflow's success IS the release signal.
-      # version_as_ref: the workflow declares no version/env inputs — it builds
-      # whatever git ref it is dispatched on. Seeding a v* tag releases that
-      # tag (version name from the tag); seeding main releases main (version
-      # name from pubspec.yaml). All three input names are "-" (omitted):
-      # GitHub 422s on inputs the workflow does not declare.
-      - name: diytaxreturn-ios
-        display_name: "diytaxreturn iOS"
-        deployer: github
-        github:
-          owner: bwalia
-          repo: diy-tax-return-uk
-          workflow: ios_release.yml
-          ref: main            # fallback only — version_as_ref carries the real ref
-          version_as_ref: true
-          env_input: "-"        # no ENV input on this workflow
-          version_input: "-"    # no version input — the dispatch ref carries it
-          mode_input: "-"       # no DEPLOY_MODE input
-          token_env: RP_GITHUB_TOKEN
-          poll_interval: 30s
-          run_lookup_timeout: 120s
-        rings:
-          # TestFlight internal testers. target_env is required by config
-          # validation for github apps but never sent (env_input is "-").
-          int: { target_env: internal }
-
-      # spectoncr — in-cluster container registry. Its Helm chart lives in the
-      # diy-tax-return-uk repo and is deployed by THAT repo's own GitHub Actions
-      # workflow deploy-spectoncr.yml (a helm upgrade --install per environment).
-      # Unlike wslproxy/diytaxreturn, that workflow has NO version/branch input:
-      # it always deploys the chart at its own ref (main) to TARGET_ENV. So we
-      # OMIT the version and mode inputs (the "-" sentinel — GitHub 422s on any
-      # undeclared input) and send only TARGET_ENV plus FORCE=true. FORCE bypasses
-      # the workflow's "already healthy → skip" preflight so every seed/promote
-      # actually re-applies the chart (spectoncr has no version to promote; a
-      # promote here means "(re)deploy the current chart to the next env").
-      # Token from RP_GITHUB_TOKEN (same repo/token as diytaxreturn).
-      - name: spectoncr
-        display_name: "diytaxreturn registry"
-        deployer: github
-        github:
-          owner: bwalia
-          repo: diy-tax-return-uk
-          workflow: deploy-spectoncr.yml
-          ref: main
-          token_env: RP_GITHUB_TOKEN
-          env_input: TARGET_ENV     # ring target_env -> workflow TARGET_ENV input
-          version_input: "-"        # workflow declares no version input — omit
-          mode_input: "-"           # workflow declares no DEPLOY_MODE input — omit
-          extra_inputs:
-            FORCE: "true"           # force the helm upgrade past the healthy-skip preflight
-          poll_interval: 20s
-          run_lookup_timeout: 120s
-        # Health: the registry edge enforces basic-auth, so a healthy spectoncr
-        # answers GET /v2/ with 401 (auth required) — the exact signal
-        # deploy-spectoncr.yml asserts post-deploy. health_expect_status: 401
-        # makes the checker treat that 401 (not 2xx) as healthy; anything else
-        # (000/404/502) is unhealthy. /v2/ is exposed on every env.
-        rings:                      # target_env -> workflow TARGET_ENV input
-          int:  { target_env: int,  health_url: "https://int-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
-          test: { target_env: test, health_url: "https://test-spectoncr.diytaxreturn.co.uk/v2/", health_expect_status: 401 }
-          acc:  { target_env: acc,  health_url: "https://acc-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
-          prod: { target_env: prod, health_url: "https://spectoncr.diytaxreturn.co.uk/v2/",      health_expect_status: 401 }
+          int: {}

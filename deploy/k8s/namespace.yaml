@@ -1,40 +1,17 @@
-# The control-plane namespace for the Ring Promoter service itself.
+# The control-plane namespace for the workstation Ring Promoter instance.
+#
+# This repo deploys the WORKSTATION instance only. The diytaxreturn instance
+# (namespace ring-system, ring-promoter.diytaxreturn.co.uk) is deployed from
+# the diy-tax-return-uk repo — see devops/ring-promoter/ there.
+#
+# The shared ring namespaces (int/test/acc/prod) and the cluster-scoped
+# ClusterRole ring-promoter-deployer are deliberately NOT defined here: they
+# are cluster-wide and owned by the diy-tax-return-uk copy alone, so the two
+# repos cannot overwrite each other. Workstation gets its own ring namespaces
+# and RBAC when it has real applications to deploy.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ring-system
-  labels:
-    app.kubernetes.io/name: ring-promoter
----
-# Ring namespaces that host the managed applications. Create them here if they
-# do not already exist. ADDING A RING: add its namespace here and a matching
-# RoleBinding in rbac.yaml.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: int
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: acc
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: prod
----
-# Namespace where the k8sjob deployer runs its execution Jobs (one Job per
-# seed/promote/rollback). Kept separate from the ring namespaces so deploy
-# scripts and application workloads never share a blast radius.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ring-exec
+  name: workstation-ring-promoter
   labels:
     app.kubernetes.io/name: ring-promoter
