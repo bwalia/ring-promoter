@@ -237,6 +237,110 @@ func (p *Postgres) DeleteGroup(ctx context.Context, id string) error {
 	return nil
 }
 
+// CreateMaintenanceWindow implements Store. It prunes windows that ended more
+// than pruneWindowAfter ago in the same statement batch.
+func (p *Postgres) CreateMaintenanceWindow(ctx context.Context, w MaintenanceWindow) error {
+	const q = `
+		INSERT INTO maintenance_window (id, app, ring, starts_at, ends_at, reason, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	if _, err := p.db.ExecContext(ctx, q, w.ID, w.App, w.Ring, w.StartsAt, w.EndsAt, w.Reason, w.CreatedBy); err != nil {
+		return fmt.Errorf("create maintenance window: %w", err)
+	}
+	const prune = `DELETE FROM maintenance_window WHERE ends_at < now() - ($1::bigint * interval '1 second')`
+	if _, err := p.db.ExecContext(ctx, prune, int64(pruneWindowAfter.Seconds())); err != nil {
+		return fmt.Errorf("prune maintenance windows: %w", err)
+	}
+	return nil
+}
+
+// ListMaintenanceWindows implements Store, newest first.
+func (p *Postgres) ListMaintenanceWindows(ctx context.Context, app string) ([]MaintenanceWindow, error) {
+	const q = `
+		SELECT id, app, ring, starts_at, ends_at, reason, created_by, created_at
+		FROM maintenance_window WHERE app = $1 ORDER BY starts_at DESC, id DESC`
+	rows, err := p.db.QueryContext(ctx, q, app)
+	if err != nil {
+		return nil, fmt.Errorf("list maintenance windows: %w", err)
+	}
+	defer rows.Close()
+	var out []MaintenanceWindow
+	for rows.Next() {
+		var w MaintenanceWindow
+		if err := rows.Scan(&w.ID, &w.App, &w.Ring, &w.StartsAt, &w.EndsAt, &w.Reason, &w.CreatedBy, &w.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan maintenance window: %w", err)
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// DeleteMaintenanceWindow implements Store (scoped to the owning app).
+func (p *Postgres) DeleteMaintenanceWindow(ctx context.Context, app, id string) error {
+	res, err := p.db.ExecContext(ctx, `DELETE FROM maintenance_window WHERE id = $1 AND app = $2`, id, app)
+	if err != nil {
+		return fmt.Errorf("delete maintenance window: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpsertSignoff implements Store.
+func (p *Postgres) UpsertSignoff(ctx context.Context, s Signoff) error {
+	const q = `
+		INSERT INTO signoff (app, ring, version, decision, engineer, qa_status, note, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+		ON CONFLICT (app, ring, version) DO UPDATE SET
+			decision   = EXCLUDED.decision,
+			engineer   = EXCLUDED.engineer,
+			qa_status  = EXCLUDED.qa_status,
+			note       = EXCLUDED.note,
+			updated_at = now()`
+	if _, err := p.db.ExecContext(ctx, q, s.App, s.Ring, s.Version, s.Decision, s.Engineer, s.QAStatus, s.Note); err != nil {
+		return fmt.Errorf("upsert signoff: %w", err)
+	}
+	return nil
+}
+
+// GetSignoff implements Store.
+func (p *Postgres) GetSignoff(ctx context.Context, app, ring, version string) (Signoff, error) {
+	const q = `
+		SELECT app, ring, version, decision, engineer, qa_status, note, updated_at
+		FROM signoff WHERE app = $1 AND ring = $2 AND version = $3`
+	var s Signoff
+	err := p.db.QueryRowContext(ctx, q, app, ring, version).Scan(
+		&s.App, &s.Ring, &s.Version, &s.Decision, &s.Engineer, &s.QAStatus, &s.Note, &s.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Signoff{}, ErrNotFound
+	}
+	if err != nil {
+		return Signoff{}, fmt.Errorf("get signoff: %w", err)
+	}
+	return s, nil
+}
+
+// ListSignoffs implements Store, newest first.
+func (p *Postgres) ListSignoffs(ctx context.Context, app string) ([]Signoff, error) {
+	const q = `
+		SELECT app, ring, version, decision, engineer, qa_status, note, updated_at
+		FROM signoff WHERE app = $1 ORDER BY updated_at DESC`
+	rows, err := p.db.QueryContext(ctx, q, app)
+	if err != nil {
+		return nil, fmt.Errorf("list signoffs: %w", err)
+	}
+	defer rows.Close()
+	var out []Signoff
+	for rows.Next() {
+		var s Signoff
+		if err := rows.Scan(&s.App, &s.Ring, &s.Version, &s.Decision, &s.Engineer, &s.QAStatus, &s.Note, &s.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan signoff: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // Lock implements Store using a PostgreSQL session-level advisory lock, held on
 // a dedicated connection. This serializes operations for a key across ALL
 // service replicas — not just within one process — so an accidental scale-up

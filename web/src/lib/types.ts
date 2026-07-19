@@ -17,6 +17,20 @@ export interface AppsResponse {
   ai_enabled?: boolean;
 }
 
+/** Which promotion-policy gates guard entering a ring, plus live window state. */
+export interface RingGates {
+  /** A maintenance window is required to promote/seed into this ring. */
+  maintenance_window: boolean;
+  /** A QA/release Go-No-Go sign-off is required for the exact version. */
+  qa_signoff: boolean;
+  /** A valid change-request code is required. */
+  change_request: boolean;
+  /** CR validation backend (e.g. "jira"), set when change_request is true. */
+  change_request_provider?: string;
+  /** Whether a maintenance window is open right now for this ring. */
+  maintenance_window_open: boolean;
+}
+
 export interface RingView {
   ring: Ring;
   configured: boolean;
@@ -29,6 +43,49 @@ export interface RingView {
   auto_promote: boolean;
   updated_at: string;
   can_promote_from: boolean;
+  gates: RingGates;
+}
+
+/** A QA/release Go-No-Go sign-off for one exact (ring, version). */
+export interface Signoff {
+  app: string;
+  ring: string;
+  version: string;
+  decision: "go" | "no_go";
+  engineer: string;
+  qa_status: string;
+  note?: string;
+  updated_at: string;
+}
+
+/** An operator-created ad-hoc maintenance window. */
+export interface MaintenanceWindow {
+  id: string;
+  app: string;
+  /** Target ring, or "" for all guarded rings. */
+  ring: string;
+  starts_at: string;
+  ends_at: string;
+  reason: string;
+  created_by: string;
+  created_at: string;
+}
+
+/** A config-defined permanent recurring maintenance window. */
+export interface RecurringWindow {
+  days?: string[];
+  start: string;
+  end: string;
+  timezone?: string;
+}
+
+/** Aggregate maintenance view for an app (GET .../maintenance-windows). */
+export interface MaintenanceView {
+  gated: boolean;
+  gated_rings: string[] | null;
+  recurring: RecurringWindow[] | null;
+  windows: MaintenanceWindow[] | null;
+  open_rings: Record<string, boolean>;
 }
 
 export interface RingState {

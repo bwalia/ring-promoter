@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/example/ring-promoter/internal/changerequest"
 	"github.com/example/ring-promoter/internal/config"
 	"github.com/example/ring-promoter/internal/deployer"
 	"github.com/example/ring-promoter/internal/health"
@@ -69,6 +70,48 @@ type RingView struct {
 	AutoPromote     bool      `json:"auto_promote"` // continue onward automatically
 	UpdatedAt       time.Time `json:"updated_at"`
 	CanPromoteFrom  bool      `json:"can_promote_from"`
+	// Gates describes the promotion-policy gates that guard entering THIS ring,
+	// so the UI can prompt for a change-request code / show window & sign-off
+	// status before a promotion. Empty when the app has no policy.
+	Gates RingGates `json:"gates"`
+}
+
+// RingGates reports which promotion-policy gates guard deploying into a ring,
+// plus the live status of the version-independent maintenance-window gate.
+type RingGates struct {
+	// MaintenanceWindow, QASignoff, ChangeRequest report whether each gate
+	// guards promotions/seeds INTO this ring.
+	MaintenanceWindow bool `json:"maintenance_window"`
+	QASignoff         bool `json:"qa_signoff"`
+	ChangeRequest     bool `json:"change_request"`
+	// ChangeRequestProvider is the CR validation backend (e.g. "jira"), set when
+	// ChangeRequest is true — purely informational for the UI.
+	ChangeRequestProvider string `json:"change_request_provider,omitempty"`
+	// MaintenanceWindowOpen is whether a window is currently open for this ring
+	// (only meaningful when MaintenanceWindow is true).
+	MaintenanceWindowOpen bool `json:"maintenance_window_open"`
+}
+
+// ringGates computes the gate requirements/status for one ring of an app.
+func (p *Promoter) ringGates(ctx context.Context, app, ringName string) RingGates {
+	pol := p.policy(app)
+	if pol == nil {
+		return RingGates{}
+	}
+	g := RingGates{
+		MaintenanceWindow: pol.MaintenanceWindow.Guards(ringName),
+		QASignoff:         pol.QASignoff.Guards(ringName),
+		ChangeRequest:     pol.ChangeRequest.Guards(ringName),
+	}
+	if g.ChangeRequest {
+		g.ChangeRequestProvider = pol.ChangeRequest.ProviderKind()
+	}
+	if g.MaintenanceWindow {
+		if open, err := p.maintenanceOpenAt(ctx, app, ringName, p.now()); err == nil {
+			g.MaintenanceWindowOpen = open
+		}
+	}
+	return g
 }
 
 // Promoter orchestrates deployments across rings for all configured apps.
@@ -84,6 +127,13 @@ type Promoter struct {
 	log             *slog.Logger
 	retryCount      int
 	retryDelay      time.Duration
+	// crValidators holds a per-application change-request validator, installed
+	// via SetChangeRequestValidators. Apps absent from the map fall back to a
+	// demo-only validator (see validateChangeRequest).
+	crValidators map[string]changerequest.Validator
+	// now returns the current time; overridable in tests so maintenance-window
+	// gates are deterministic.
+	now func() time.Time
 }
 
 // New constructs a Promoter. deployers maps an application name to its deployer;
@@ -101,6 +151,7 @@ func New(cfg *config.Config, st store.Store, deployers map[string]deployer.Deplo
 		log:             log,
 		retryCount:      cfg.Retry.RetryCount(),
 		retryDelay:      cfg.Retry.RetryDelay(),
+		now:             time.Now,
 	}
 }
 
@@ -186,6 +237,7 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			_, hasNext = ac.Rings[next.Name]
 		}
 		v.CanPromoteFrom = configured && hasNext && v.CurrentVersion != ""
+		v.Gates = p.ringGates(ctx, app, r.Name)
 		views[i] = v
 
 		if !configured {
@@ -247,7 +299,14 @@ func (p *Promoter) ValidateSeed(ctx context.Context, app, ringName, version stri
 	if err != nil {
 		return err
 	}
-	return p.validateVersion(ctx, app, deployVersion(rc, version))
+	effective := deployVersion(rc, version)
+	if err := p.validateVersion(ctx, app, effective); err != nil {
+		return err
+	}
+	// Reject a gated seed (closed window / missing sign-off / bad CR code) here
+	// too, so the async path fails on the request instead of spawning a doomed
+	// job. Gate inputs ride the context (see WithGateInputs).
+	return p.evaluateGates(ctx, app, ringName, effective, gateInputsFrom(ctx))
 }
 
 // validateVersion rejects a version that does not exist in the app's source
@@ -284,6 +343,15 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Res
 
 	// Checked on the effective (pinned) version, since that is what deploys.
 	if err := p.validateVersion(ctx, app, version); err != nil {
+		return Result{}, err
+	}
+
+	// Promotion-policy gates (maintenance window / sign-off / change request)
+	// for seeding directly into a gated ring — before any deploy, so a closed
+	// gate leaves state untouched. The version gated on is the effective
+	// (deployed) one. Gate inputs (e.g. the change-request code) ride the
+	// operation context.
+	if err := p.evaluateGates(ctx, app, ringName, version, gateInputsFrom(ctx)); err != nil {
 		return Result{}, err
 	}
 
@@ -438,6 +506,16 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 	}
 	version := srcState.CurrentVersion
 	res.Version = version
+
+	// Promotion-policy gates for entering the target ring: an active
+	// maintenance window, a GO sign-off for this version, and a valid change-
+	// request code. Evaluated on the build being promoted (the source's current
+	// version), before any deploy, so a closed gate aborts cleanly — including
+	// an auto-promote hop, which carries no change-request code and so fails
+	// closed at a change-request-gated ring.
+	if err := p.evaluateGates(ctx, app, nextRing.Name, version, gateInputsFrom(ctx)); err != nil {
+		return Result{}, err
+	}
 
 	// Rule: source ring must be healthy before promoting (live check). When the
 	// source ring configures a version source, this also verifies it actually

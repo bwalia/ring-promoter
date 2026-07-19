@@ -56,6 +56,42 @@ ollama:
 # The endpoint must report the exact deployed version string (image tag /
 # branch). Leave both unset to keep the plain status-only check.
 #
+# Optional promotion gates (per app, via `promotion_policy`). Each gate is
+# independent and guards a set of target rings (default: acc + prod). A version
+# may only enter a guarded ring once the gate is satisfied — before any deploy.
+# Omit the block entirely to keep an app ungated (the default).
+#
+#   promotion_policy:
+#     # 1) Maintenance windows: a promotion into a guarded ring is allowed only
+#     #    when a window is open. Windows come from BOTH sources (union): the
+#     #    permanent recurring windows below AND ad-hoc windows an operator opens
+#     #    at runtime from the UI / API (POST .../maintenance-windows).
+#     maintenance_window:
+#       rings: [prod]
+#       recurring:
+#         - days: [Sat, Sun]      # empty = every day
+#           start: "02:00"        # HH:MM, in `timezone`
+#           end:   "04:00"        # end < start crosses midnight
+#           timezone: Europe/London   # empty = UTC
+#     # 2) QA / release Go-No-Go: a release engineer must record a GO sign-off for
+#     #    the EXACT version (POST .../signoffs) before it can enter the ring.
+#     qa_signoff:
+#       rings: [acc, prod]
+#     # 3) Change-request code: a valid CR code must accompany the promotion.
+#     #    provider "test" accepts only the demo code "test"; provider "jira"
+#     #    validates the code against a JIRA issue (token from RP_JIRA_TOKEN).
+#     #    The demo code "test" is ALWAYS accepted, for demos, whatever the
+#     #    provider.
+#     change_request:
+#       rings: [acc, prod]
+#       provider: jira            # test | jira
+#       jira:
+#         base_url: https://your-org.atlassian.net
+#         email: releases@your-org.com
+#         token_env: RP_JIRA_TOKEN        # default
+#         allowed_statuses: [Approved, "Ready for Release"]   # empty = any issue
+#         project_keys: [CR, OPS]         # optional prefix guard
+#
 # The only app is wslproxy. In PRODUCTION it deploys via its own GitHub Actions
 # per-environment workflow using the per-app "github" deployer — see the copy in
 # deploy/k8s/configmap.yaml. Here (local dev) it deliberately has NO per-app

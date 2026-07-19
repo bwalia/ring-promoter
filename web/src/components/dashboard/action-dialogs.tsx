@@ -64,6 +64,7 @@ import {
 import { useUiStore } from "@/lib/ui-store";
 import type { AppVersion, RingView } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { GateChecklist, gatesActive } from "@/components/dashboard/gate-controls";
 
 /**
  * The seed / promote / rollback dialogs for the selected app. All are driven
@@ -138,6 +139,7 @@ function SeedDialog({
   );
   const [version, setVersion] = useState("");
   const [password, setPassword] = useState("");
+  const [crCode, setCrCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const seed = useSeedMutation(app);
   const versionsQuery = useVersions(app);
@@ -146,6 +148,7 @@ function SeedDialog({
   const target = configured.find((r) => r.ring.name === ring);
   const replaces = target?.current_version;
   const needsPassword = prodProtected && ring === prodRing;
+  const needsCrCode = !!target?.gates?.change_request;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -156,6 +159,7 @@ function SeedDialog({
         ring,
         version: version.trim(),
         password: needsPassword ? password : undefined,
+        crCode: needsCrCode ? crCode.trim() : undefined,
       },
       {
         onSuccess: onClose,
@@ -234,6 +238,16 @@ function SeedDialog({
             </p>
           )}
 
+          {target && gatesActive(target) && (
+            <GateChecklist
+              app={app}
+              target={target}
+              version={version.trim()}
+              crCode={crCode}
+              setCrCode={setCrCode}
+            />
+          )}
+
           {needsPassword && (
             <ProdPasswordField
               id="seed-prod-password"
@@ -254,6 +268,7 @@ function SeedDialog({
                 !ring ||
                 !version.trim() ||
                 (needsPassword && !password) ||
+                (needsCrCode && !crCode.trim()) ||
                 seed.isPending
               }
             >
@@ -389,20 +404,29 @@ function PromoteDialog({
   const promote = usePromoteMutation(app);
   const { prodProtected, prodRing } = useProdProtection();
   const [password, setPassword] = useState("");
+  const [crCode, setCrCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const i = rings.findIndex((r) => r.ring.name === fromRing);
   const source = i >= 0 ? rings[i] : undefined;
   const target = i >= 0 ? rings[i + 1] : undefined;
   const toProd = target?.ring.name === prodRing;
   const needsPassword = toProd && prodProtected;
+  const version = source?.current_version ?? "";
+  // A change-request-gated target needs a code before we even try — every other
+  // gate (window / sign-off) is enforced server-side and surfaced as an error.
+  const needsCrCode = !!target?.gates?.change_request;
 
   const confirm = (e: React.MouseEvent) => {
     if (!fromRing) return;
-    // Keep the dialog open so a wrong password can be corrected in place.
+    // Keep the dialog open so a wrong password / closed gate can be corrected.
     e.preventDefault();
     setError(null);
     promote.mutate(
-      { fromRing, password: needsPassword ? password : undefined },
+      {
+        fromRing,
+        password: needsPassword ? password : undefined,
+        crCode: needsCrCode ? crCode.trim() : undefined,
+      },
       {
         onSuccess: onClose,
         onError: (err) => setError(err.message),
@@ -445,6 +469,16 @@ function PromoteDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
+        {target && gatesActive(target) && (
+          <GateChecklist
+            app={app}
+            target={target}
+            version={version}
+            crCode={crCode}
+            setCrCode={setCrCode}
+          />
+        )}
+
         {needsPassword && (
           <ProdPasswordField
             id="promote-prod-password"
@@ -461,7 +495,11 @@ function PromoteDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            disabled={(needsPassword && !password) || promote.isPending}
+            disabled={
+              (needsPassword && !password) ||
+              (needsCrCode && !crCode.trim()) ||
+              promote.isPending
+            }
             onClick={confirm}
           >
             {promote.isPending && (
