@@ -22,6 +22,12 @@ const (
 	ResultFailure = "failure"
 )
 
+// Sign-off decision values for the QA / release Go-No-Go gate.
+const (
+	DecisionGo   = "go"
+	DecisionNoGo = "no_go"
+)
+
 // ErrNotFound is returned when a ring state does not yet exist.
 var ErrNotFound = errors.New("ring state not found")
 
@@ -75,6 +81,54 @@ type HistoryEntry struct {
 // detailed step logs (older ones keep only the summary fields).
 const KeepFailureLogs = 3
 
+// MaintenanceWindow is an operator-created ad-hoc window during which
+// deploys/promotions into a ring (or all guarded rings) are permitted. It
+// complements the recurring windows an app defines in config: a promotion is
+// allowed when "now" falls inside EITHER source. A window with an empty Ring
+// applies to every ring the app's maintenance-window gate guards.
+type MaintenanceWindow struct {
+	ID        string    `json:"id"`
+	App       string    `json:"app"`
+	Ring      string    `json:"ring"` // "" = all guarded rings
+	StartsAt  time.Time `json:"starts_at"`
+	EndsAt    time.Time `json:"ends_at"`
+	Reason    string    `json:"reason"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Active reports whether the window covers instant t.
+func (w MaintenanceWindow) Active(t time.Time) bool {
+	return !t.Before(w.StartsAt) && t.Before(w.EndsAt)
+}
+
+// Covers reports whether the window applies to the given target ring (an empty
+// window Ring matches every ring).
+func (w MaintenanceWindow) Covers(ring string) bool {
+	return w.Ring == "" || w.Ring == ring
+}
+
+// Signoff is the QA / release-engineer Go-No-Go decision for one exact
+// (app, ring, version). A promotion into a gated ring requires a stored GO for
+// the version being promoted. There is at most one sign-off per key (the latest
+// decision replaces any earlier one).
+type Signoff struct {
+	App      string `json:"app"`
+	Ring     string `json:"ring"`
+	Version  string `json:"version"`
+	Decision string `json:"decision"` // DecisionGo | DecisionNoGo
+	// Engineer is the release engineer who recorded the decision.
+	Engineer string `json:"engineer"`
+	// QAStatus captures the QA outcome the sign-off attests to (free text, e.g.
+	// "passed", "passed-with-waivers").
+	QAStatus  string    `json:"qa_status"`
+	Note      string    `json:"note,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// IsGo reports whether the decision authorizes promotion.
+func (s Signoff) IsGo() bool { return s.Decision == DecisionGo }
+
 // Store is the persistence interface. Implementations must be safe for
 // concurrent use.
 type Store interface {
@@ -110,6 +164,24 @@ type Store interface {
 	UpdateGroup(ctx context.Context, g Group) error
 	// DeleteGroup removes a group. It returns ErrNotFound when absent.
 	DeleteGroup(ctx context.Context, id string) error
+	// CreateMaintenanceWindow stores an operator-created ad-hoc window (the
+	// caller assigns a unique ID). Implementations may prune windows that ended
+	// well in the past.
+	CreateMaintenanceWindow(ctx context.Context, w MaintenanceWindow) error
+	// ListMaintenanceWindows returns an app's ad-hoc windows, newest first
+	// (including any still-listed expired ones).
+	ListMaintenanceWindows(ctx context.Context, app string) ([]MaintenanceWindow, error)
+	// DeleteMaintenanceWindow removes one of an app's windows. It returns
+	// ErrNotFound when no such window exists for that app.
+	DeleteMaintenanceWindow(ctx context.Context, app, id string) error
+	// UpsertSignoff stores (or replaces) the Go-No-Go sign-off for the exact
+	// (App, Ring, Version) key.
+	UpsertSignoff(ctx context.Context, s Signoff) error
+	// GetSignoff returns the sign-off for one (app, ring, version). It returns
+	// ErrNotFound when none has been recorded.
+	GetSignoff(ctx context.Context, app, ring, version string) (Signoff, error)
+	// ListSignoffs returns an app's sign-offs, newest first.
+	ListSignoffs(ctx context.Context, app string) ([]Signoff, error)
 	// Lock acquires an exclusive lock for key, blocking until it is held or ctx
 	// is done. The returned function releases it. This serializes mutating
 	// operations for one application. The Postgres implementation uses a session

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/example/ring-promoter/internal/api"
+	"github.com/example/ring-promoter/internal/changerequest"
 	"github.com/example/ring-promoter/internal/config"
 	"github.com/example/ring-promoter/internal/deployer"
 	"github.com/example/ring-promoter/internal/diagnose"
@@ -72,6 +73,15 @@ func run(configPath string, logger *slog.Logger) error {
 		return err
 	}
 	prom := promoter.New(cfg, st, deployers, defaultDeployer, buildChecker(cfg), logger)
+
+	// Change-request validators for apps whose promotion policy gates rings
+	// behind a valid CR code (validated against JIRA or another business
+	// system). Built up-front so a missing token fails fast at start-up.
+	crValidators, err := buildChangeRequestValidators(cfg, logger)
+	if err != nil {
+		return err
+	}
+	prom.SetChangeRequestValidators(crValidators)
 
 	// AI failure diagnosis (optional): enabled only when both the Ollama URL
 	// and the JWT secret are configured.
@@ -194,6 +204,41 @@ func buildGitHubDeployer(app config.AppConfig, logger *slog.Logger) (deployer.De
 		cfg.RunLookupTimeout = g.RunLookupTimeout.Std()
 	}
 	return deployer.NewGitHubActionsDeployer(logger, cfg, nil), nil
+}
+
+// buildChangeRequestValidators constructs one change-request validator per app
+// whose promotion policy enables the change-request gate. The "test" provider
+// (or an app with no CR system) uses the demo-only validator; the "jira"
+// provider reads its API token from the env var named by the config.
+func buildChangeRequestValidators(cfg *config.Config, logger *slog.Logger) (map[string]changerequest.Validator, error) {
+	out := make(map[string]changerequest.Validator)
+	for _, app := range cfg.Apps {
+		pol := app.PromotionPolicy
+		if pol == nil || pol.ChangeRequest == nil {
+			continue
+		}
+		switch pol.ChangeRequest.ProviderKind() {
+		case config.CRProviderJIRA:
+			j := pol.ChangeRequest.JIRA // guaranteed non-nil by config validation
+			token := os.Getenv(j.TokenEnvName())
+			if token == "" {
+				return nil, fmt.Errorf("app %q change_request uses the jira provider but env %s is empty", app.Name, j.TokenEnvName())
+			}
+			out[app.Name] = changerequest.NewJIRA(changerequest.JIRAParams{
+				BaseURL:         j.BaseURL,
+				Email:           j.Email,
+				Token:           token,
+				AllowedStatuses: j.AllowedStatuses,
+				ProjectKeys:     j.ProjectKeys,
+				Log:             logger,
+			})
+			logger.Info("change-request gate enabled", "app", app.Name, "provider", "jira", "base_url", j.BaseURL)
+		default:
+			out[app.Name] = changerequest.Test{}
+			logger.Info("change-request gate enabled", "app", app.Name, "provider", "test (demo code only)")
+		}
+	}
+	return out, nil
 }
 
 func buildChecker(cfg *config.Config) health.Checker {

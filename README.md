@@ -206,10 +206,15 @@ are unauthenticated.
 | `GET  /api/apps/{app}/history`   | –                     | History, newest first.                    |
 | `GET  /api/apps/{app}/versions`  | –                     | Versions in the app's source repo (github deployer: branches + tags; `supported:false` otherwise). |
 | `GET  /api/apps/{app}/jobs/{id}` | –                     | Live job status (steps, logs, result).    |
-| `POST /api/apps/{app}/seed`      | `{"ring","version"}`  | Set an initial version for a ring.        |
-| `POST /api/apps/{app}/promote`   | `{"from_ring"}`       | Promote to the next ring.                 |
+| `POST /api/apps/{app}/seed`      | `{"ring","version","cr_code?"}`  | Set an initial version for a ring.        |
+| `POST /api/apps/{app}/promote`   | `{"from_ring","cr_code?"}`       | Promote to the next ring.                 |
 | `POST /api/apps/{app}/rollback`  | `{"ring"}`            | Roll a ring back to its previous version. |
 | `PUT  /api/apps/{app}/rings/{ring}/auto-promote` | `{"enabled"}` | Toggle auto-promote for a ring (see below). |
+| `GET  /api/apps/{app}/maintenance-windows` | –           | Maintenance view: recurring + ad-hoc windows, guarded rings, open status. |
+| `POST /api/apps/{app}/maintenance-windows` | `{"ring?","starts_at","ends_at","reason?","created_by?"}` | Open an ad-hoc maintenance window (RFC3339 times; empty ring = all guarded rings). |
+| `DELETE /api/apps/{app}/maintenance-windows/{id}` | –    | Close (delete) an ad-hoc window. |
+| `GET  /api/apps/{app}/signoffs`  | –                     | List QA/release Go-No-Go sign-offs. |
+| `POST /api/apps/{app}/signoffs`  | `{"ring","version","decision","engineer","qa_status?","note?"}` | Record a Go-No-Go sign-off for an exact version. |
 | `GET  /api/groups`               | –                     | List application groups (server-side, shared by all users). |
 | `POST /api/groups`               | `{"name","apps"}`     | Create a group (members must be configured apps). |
 | `PUT  /api/groups/{id}`          | `{"name","apps"}`     | Rename a group / replace its members.     |
@@ -241,6 +246,35 @@ in the matching dialogs.
 > on `RP_PROD_PASSWORD` on a system where auto-promote into production was
 > already enabled, review those switches — they remain in effect until turned
 > off.
+
+**Promotion gates (`promotion_policy`).** An app can require extra checks before
+a version enters a sensitive ring (default target rings: `acc` + `prod`). Each
+gate is independent, opt-in per app, and enforced **before any deploy**, so a
+failed gate leaves all state untouched. Configure them under an app's
+`promotion_policy` (see [Configuration reference](#configuration-reference) and
+the commented example in `config.yaml`):
+
+- **Maintenance windows** — a promotion into a guarded ring is allowed only while
+  a window is open. Windows are a **union** of two sources: permanent recurring
+  windows defined in config (`maintenance_window.recurring`, e.g. *Sat 02:00–04:00
+  Europe/London*) **and** ad-hoc windows an operator opens at runtime
+  (`POST .../maintenance-windows`). Closed → `409`.
+- **QA / release Go-No-Go** — a release engineer records a GO sign-off for the
+  **exact version** (`POST .../signoffs`, alongside the QA result). A missing or
+  NO-GO sign-off blocks the promotion (`409`). Sign-offs are version-specific: a
+  GO for `v1` does not authorize `v2`.
+- **Change-request code** — the promotion must carry a valid CR `cr_code`
+  (`400` if missing/invalid). Provider `test` accepts only the demo code; provider
+  `jira` validates the code against a JIRA issue (and optional approved statuses /
+  project keys), with the token from `RP_JIRA_TOKEN`. **The demo code `test` is
+  always accepted** — for demos — whatever the provider.
+
+The `GET .../rings` response carries a per-ring `gates` object (which gates guard
+the ring, the CR provider, and whether a window is open now) so the UI prompts
+appropriately; the Seed/Promote dialogs let a release engineer open a window,
+record a sign-off, and enter a CR code inline. Auto-promote into a
+change-request-gated ring fails closed (there is no interactive CR code), so such
+rings are always promoted into explicitly.
 
 **Version validation.** For apps using the `github` deployer, `seed` verifies
 the requested version (branch, tag or commit SHA) actually resolves in the
@@ -554,6 +588,30 @@ CREATE TABLE IF NOT EXISTS history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_history_app_created ON history (app, created_at DESC, id DESC);
+
+-- Promotion-policy gates (see promotion_policy).
+CREATE TABLE IF NOT EXISTS maintenance_window (
+    id         TEXT        PRIMARY KEY,
+    app        TEXT        NOT NULL,
+    ring       TEXT        NOT NULL DEFAULT '',   -- '' = all guarded rings
+    starts_at  TIMESTAMPTZ NOT NULL,
+    ends_at    TIMESTAMPTZ NOT NULL,
+    reason     TEXT        NOT NULL DEFAULT '',
+    created_by TEXT        NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS signoff (
+    app        TEXT        NOT NULL,
+    ring       TEXT        NOT NULL,
+    version    TEXT        NOT NULL,
+    decision   TEXT        NOT NULL,             -- go | no_go
+    engineer   TEXT        NOT NULL DEFAULT '',
+    qa_status  TEXT        NOT NULL DEFAULT '',
+    note       TEXT        NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (app, ring, version)
+);
 ```
 
 ---
@@ -570,6 +628,7 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 | `RP_PROD_PASSWORD`| `production_password`| – (optional)  | Extra password required to deploy to the last ring (promote into prod, seed prod, enable auto-promote into prod). Rollbacks are exempt. Empty = disabled. |
 | `RP_DEPLOYER`     | `deployer`          | `log`          | Global default: `kubectl`, `log` or `github`. Overridable per app via `deployer:`. |
 | `RP_GITHUB_TOKEN` | – (per-app `token_env`) | –          | API token for apps using the `github` deployer (needs `actions:write` + `contents:read`). From a Secret. |
+| `RP_JIRA_TOKEN`   | – (per-app `change_request.jira.token_env`) | – | API token for the `jira` change-request provider (JIRA Cloud email + token basic auth). From a Secret. |
 | `RP_HEALTH`       | `health`            | `always`       | `http` or `always`.                    |
 | `RP_DB_DRIVER`    | `database.driver`   | `memory`       | `postgres` or `memory`.                |
 | `RP_DB_DSN`       | `database.dsn`      | –              | Required for `postgres`.               |

@@ -27,6 +27,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { VersionLabel } from "@/components/version-label";
+import { gatesActive } from "@/components/dashboard/gate-controls";
+import { Lock } from "lucide-react";
 import {
   useActiveJob,
   useAppTitle,
@@ -213,6 +215,19 @@ function RingCard({
       <div className="flex items-center justify-between gap-2">
         <p className="min-w-0 truncate text-sm font-semibold">{ring.label}</p>
         <span className="flex shrink-0 items-center gap-1">
+          {gatesActive(view) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Lock
+                  aria-label="Promotion gated"
+                  className="size-3.5 text-muted-foreground"
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                Promotion into {ring.label} is gated
+              </TooltipContent>
+            </Tooltip>
+          )}
           <HealthBadge health={health} pulse />
           <ChevronRight
             aria-hidden
@@ -424,6 +439,48 @@ function RingDetailsSheet({
               )}
             </DetailRow>
           </section>
+
+          {gatesActive(view) && (
+            <section className="rounded-lg border p-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Promotion gates
+              </p>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Entering {ring.label} requires:
+              </p>
+              <ul className="mt-2 space-y-1 text-sm">
+                {view.gates.maintenance_window && (
+                  <li className="flex items-center justify-between gap-2">
+                    <span>Maintenance window</span>
+                    <span
+                      className={cn(
+                        "text-xs font-medium",
+                        view.gates.maintenance_window_open
+                          ? "text-status-good"
+                          : "text-status-warning",
+                      )}
+                    >
+                      {view.gates.maintenance_window_open ? "open now" : "closed"}
+                    </span>
+                  </li>
+                )}
+                {view.gates.qa_signoff && (
+                  <li>QA / release Go-No-Go sign-off</li>
+                )}
+                {view.gates.change_request && (
+                  <li>
+                    Change-request code
+                    {view.gates.change_request_provider
+                      ? ` (${view.gates.change_request_provider})`
+                      : ""}
+                  </li>
+                )}
+              </ul>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Satisfy these in the Promote dialog.
+              </p>
+            </section>
+          )}
 
           {showAutoPromote && (
             <section className="rounded-lg border p-3">

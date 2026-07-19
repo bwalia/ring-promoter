@@ -9,12 +9,14 @@ import (
 
 // Memory is an in-memory Store for local development and tests.
 type Memory struct {
-	mu      sync.RWMutex
-	states  map[string]RingState // key: app + "\x00" + ring
-	history []HistoryEntry
-	groups  map[string]Group
-	nextID  int64
-	now     func() time.Time
+	mu       sync.RWMutex
+	states   map[string]RingState // key: app + "\x00" + ring
+	history  []HistoryEntry
+	groups   map[string]Group
+	windows  map[string]MaintenanceWindow // key: id
+	signoffs map[string]Signoff           // key: app + "\x00" + ring + "\x00" + version
+	nextID   int64
+	now      func() time.Time
 
 	lockMu sync.Mutex
 	locks  map[string]*sync.Mutex
@@ -23,11 +25,13 @@ type Memory struct {
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
 	return &Memory{
-		states: make(map[string]RingState),
-		groups: make(map[string]Group),
-		nextID: 1,
-		now:    time.Now,
-		locks:  make(map[string]*sync.Mutex),
+		states:   make(map[string]RingState),
+		groups:   make(map[string]Group),
+		windows:  make(map[string]MaintenanceWindow),
+		signoffs: make(map[string]Signoff),
+		nextID:   1,
+		now:      time.Now,
+		locks:    make(map[string]*sync.Mutex),
 	}
 }
 
@@ -208,6 +212,97 @@ func (m *Memory) DeleteGroup(_ context.Context, id string) error {
 	}
 	delete(m.groups, id)
 	return nil
+}
+
+// pruneWindow is how long an ended maintenance window is retained before a
+// later create prunes it.
+const pruneWindowAfter = 7 * 24 * time.Hour
+
+// CreateMaintenanceWindow implements Store. It also prunes windows that ended
+// more than pruneWindowAfter ago so the map does not grow without bound.
+func (m *Memory) CreateMaintenanceWindow(_ context.Context, w MaintenanceWindow) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if w.CreatedAt.IsZero() {
+		w.CreatedAt = m.now().UTC()
+	}
+	m.windows[w.ID] = w
+	cutoff := m.now().Add(-pruneWindowAfter)
+	for id, existing := range m.windows {
+		if existing.EndsAt.Before(cutoff) {
+			delete(m.windows, id)
+		}
+	}
+	return nil
+}
+
+// ListMaintenanceWindows implements Store, newest first (by StartsAt then ID).
+func (m *Memory) ListMaintenanceWindows(_ context.Context, app string) ([]MaintenanceWindow, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []MaintenanceWindow
+	for _, w := range m.windows {
+		if w.App == app {
+			out = append(out, w)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].StartsAt.Equal(out[j].StartsAt) {
+			return out[i].StartsAt.After(out[j].StartsAt)
+		}
+		return out[i].ID > out[j].ID
+	})
+	return out, nil
+}
+
+// DeleteMaintenanceWindow implements Store (scoped to the owning app).
+func (m *Memory) DeleteMaintenanceWindow(_ context.Context, app, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, ok := m.windows[id]
+	if !ok || w.App != app {
+		return ErrNotFound
+	}
+	delete(m.windows, id)
+	return nil
+}
+
+func signoffKey(app, ring, version string) string {
+	return app + "\x00" + ring + "\x00" + version
+}
+
+// UpsertSignoff implements Store.
+func (m *Memory) UpsertSignoff(_ context.Context, s Signoff) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s.UpdatedAt = m.now().UTC()
+	m.signoffs[signoffKey(s.App, s.Ring, s.Version)] = s
+	return nil
+}
+
+// GetSignoff implements Store.
+func (m *Memory) GetSignoff(_ context.Context, app, ring, version string) (Signoff, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	s, ok := m.signoffs[signoffKey(app, ring, version)]
+	if !ok {
+		return Signoff{}, ErrNotFound
+	}
+	return s, nil
+}
+
+// ListSignoffs implements Store, newest first.
+func (m *Memory) ListSignoffs(_ context.Context, app string) ([]Signoff, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []Signoff
+	for _, s := range m.signoffs {
+		if s.App == app {
+			out = append(out, s)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, nil
 }
 
 // Close implements Store.
