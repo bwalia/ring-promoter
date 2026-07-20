@@ -1,0 +1,12 @@
+%% Ring Promoter training — overall architecture.
+%% Render: https://mermaid.live or any Mermaid-aware Markdown viewer.
+flowchart LR
+  DEV["Developer push / tag"] --> CI["App CI (GitHub Actions)"]
+  CI -->|build image| REG["Registry (ghcr.io)"]
+  CI -->|seed version| RP["Ring Promoter\nring-promoter.fictionally.org"]
+  RP -->|kubectl / github / k8sjob| K["k3s1 (Traefik)"]
+  RP -->|GET health_url| K
+  K --> POP["wslproxy edge (pop0)"]
+  POP --> CF["Cloudflare DNS\nCNAME → pop0.wslproxy.com"]
+  CF --> USER["Users"]
+  RP -.->|int→test→acc→prod| RINGS["Rings, one hop at a time\nauto-rollback on failure"]

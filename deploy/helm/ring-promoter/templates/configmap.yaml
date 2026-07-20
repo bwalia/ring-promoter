@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ring-promoter-config
+  labels:
+    {{- include "rp.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- include "rp.config" . | nindent 4 }}

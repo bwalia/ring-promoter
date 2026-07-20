@@ -1,0 +1,47 @@
+# CustomResourceDefinition for the Greeting kind the operator reconciles.
+#
+# Apply this BEFORE the operator (the chart can install it for you — see
+# values.yaml crd.install — or apply it once by hand:
+#   kubectl apply -f api/crd.yaml
+#
+# Each Greeting causes the operator to ensure a ConfigMap of the same name (in
+# the same namespace) whose data.message mirrors spec.message.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: greetings.training.ringpromoter.io
+spec:
+  group: training.ringpromoter.io
+  names:
+    kind: Greeting
+    listKind: GreetingList
+    plural: greetings
+    singular: greeting
+    shortNames:
+      - greet
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  description: The text the operator writes into the managed ConfigMap.
+                  minLength: 1
+                  maxLength: 1024
+      additionalPrinterColumns:
+        - name: Message
+          type: string
+          jsonPath: .spec.message
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

@@ -1,0 +1,50 @@
+{{- if .Values.crd.install -}}
+# The Greeting CRD, installed with the chart when crd.install is true (the
+# default). Set crd.install=false and apply api/crd.yaml separately if you
+# prefer to manage the CRD lifecycle out-of-band. The resource-policy keep
+# annotation stops `helm uninstall` from deleting the CRD (and thus every
+# Greeting) out from under other releases.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: greetings.training.ringpromoter.io
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  group: training.ringpromoter.io
+  names:
+    kind: Greeting
+    listKind: GreetingList
+    plural: greetings
+    singular: greeting
+    shortNames:
+      - greet
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  description: The text the operator writes into the managed ConfigMap.
+                  minLength: 1
+                  maxLength: 1024
+      additionalPrinterColumns:
+        - name: Message
+          type: string
+          jsonPath: .spec.message
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+{{- end -}}

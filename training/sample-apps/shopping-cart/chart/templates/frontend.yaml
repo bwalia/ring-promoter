@@ -1,0 +1,77 @@
+{{- $c := "frontend" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+spec:
+  {{- if not .Values.frontend.autoscaling.enabled }}
+  replicas: {{ .Values.frontend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" (dict "ctx" . "component" $c) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 8 }}
+      {{- if .Values.metrics.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: {{ .Values.metrics.path | quote }}
+        prometheus.io/port: {{ .Values.metrics.port | quote }}
+      {{- end }}
+    spec:
+      containers:
+        - name: {{ $c }}
+          image: "{{ .Values.frontend.image.repository }}:{{ include "app.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.service.targetPort }}
+          env:
+            - name: RP_VERSION
+              value: {{ include "app.version" . | quote }}
+            - name: PORT
+              value: {{ .Values.frontend.service.targetPort | quote }}
+            # Browser-facing backend URL injected into the page. Defaults to the
+            # backend's public host so the SPA (on shop.<domain>) calls the API
+            # (on <name>-api.<domain>).
+            - name: API_BASE
+              value: {{ .Values.frontend.apiBase | default (printf "https://%s" (include "app.backendHost" .)) | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "app.selectorLabels" (dict "ctx" . "component" $c) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.frontend.service.port }}
+      targetPort: http

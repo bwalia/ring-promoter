@@ -1,0 +1,19 @@
+{{- if .Values.service.enabled -}}
+# Cluster-internal only. There is NO Ingress for the operator — a deliberate
+# contrast with the user-facing sample apps. This Service exists purely so
+# Prometheus (or a ServiceMonitor) can reach /metrics and /healthz.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "app.fullname" . }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "app.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+{{- end -}}

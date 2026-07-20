@@ -1,0 +1,12 @@
+apiVersion: v2
+name: operator
+description: |
+  Ring Promoter training academy — operator sample app. A minimal Kubernetes
+  operator that manages a Greeting CustomResource (training.ringpromoter.io/v1)
+  and reconciles a same-named ConfigMap for each. Released by git tag via the
+  Ring Promoter "github" deployer. NO user-facing Ingress by design.
+type: application
+version: 0.1.0
+# appVersion is the default image tag when values.image.tag is empty. Ring
+# Promoter overrides the tag per deploy with the version being promoted.
+appVersion: "v0.1.0"

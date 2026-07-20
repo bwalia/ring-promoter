@@ -1,0 +1,15 @@
+# A sample Greeting. Apply it after the CRD + operator are installed:
+#   kubectl apply -f examples/greeting.yaml
+#
+# The operator then ensures a ConfigMap named "hello" carrying the message.
+# Verify:
+#   kubectl get greeting hello
+#   kubectl get configmap hello -o jsonpath='{.data.message}'
+#
+# Edit spec.message and re-apply — the next reconcile updates the ConfigMap.
+apiVersion: training.ringpromoter.io/v1
+kind: Greeting
+metadata:
+  name: hello
+spec:
+  message: "Hello from the Ring Promoter training operator 👋"

@@ -1,0 +1,113 @@
+# Default values for the shopping-cart chart. One release deploys THREE
+# workloads — backend API, frontend, and Redis — and Ring Promoter promotes the
+# backend + frontend together as a group. Per-ring overrides (namespace, hosts,
+# replicas, image tag) come from Ring Promoter / a values-<ring>.yaml at deploy
+# time.
+
+# Shared image controls. Ring Promoter sets image.tag to the promoted version on
+# every deploy (Helm --set image.tag=...); backend and frontend use the SAME tag
+# so the group is atomic. Empty tag falls back to Chart.appVersion.
+image:
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# version is passed to the Go containers as RP_VERSION so /healthz echoes it.
+# Empty = fall back to the image tag. Ring Promoter's version-aware health check
+# (health_version_field: version) compares this against the deployed tag.
+version: ""
+
+# ---------------------------------------------------------------------------
+# Backend API (cmd/api) — talks to Redis, degrades gracefully when it is down.
+# ---------------------------------------------------------------------------
+backend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/bwalia/rp-training-shopping-cart-api
+  service:
+    port: 80
+    targetPort: 8080
+  ingress:
+    enabled: true
+    # Override to pin an exact host; empty = <chart name>-api.<domain>.
+    host: ""
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+# ---------------------------------------------------------------------------
+# Frontend (cmd/web) — serves the static UI, points the browser at the backend.
+# ---------------------------------------------------------------------------
+frontend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/bwalia/rp-training-shopping-cart-web
+  service:
+    port: 80
+    targetPort: 8080
+  # Browser-facing backend base URL injected into the page (API_BASE). Empty =
+  # derive https://<backend host> from the ingress config.
+  apiBase: ""
+  ingress:
+    enabled: true
+    # Override to pin an exact host; empty = shop.<domain>.
+    host: ""
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+# ---------------------------------------------------------------------------
+# Redis — ephemeral, no auth, no persistence. A stateful dependency to make the
+# backend's readiness check meaningful, not a production data store.
+# ---------------------------------------------------------------------------
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# Shared ingress settings. Both the frontend and backend Ingresses use
+# ingressClassName: traefik (k3s1's controller) and annotate their host so
+# external-dns publishes a Cloudflare CNAME → the wslproxy POP target.
+ingress:
+  className: traefik
+  # Public zone; frontend is shop.<domain>, backend is <name>-api.<domain>.
+  domain: fictionally.org
+  # external-dns creates a CNAME for each host pointing at this POP target
+  # (k3s1 sits behind the wslproxy edge; pop0 is the POP for these hosts).
+  externalDnsTarget: pop0.wslproxy.com
+  tls: false
+
+# Prometheus scrape annotations on the Go pods (a scrape config or ServiceMonitor
+# then collects /metrics).
+metrics:
+  enabled: true
+  path: /metrics
+  port: 8080

@@ -1,0 +1,51 @@
+{{- if .Values.migrations.enabled -}}
+# Database migration Job. Runs the app image with the "migrate" argument, which
+# applies the migrations embedded in the binary (//go:embed db/migrations) and
+# exits. Wired as a Helm hook so it runs BEFORE the app rolls out on every
+# install/upgrade — the new pods only start against an already-migrated schema.
+#
+# In production you would gate destructive migrations behind review; here the
+# single init migration is idempotent (IF NOT EXISTS / ON CONFLICT), so re-runs
+# are safe.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "app.fullname" . }}-migrate
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+  annotations:
+    # Run before the Deployment on install/upgrade; clean up superseded Jobs.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  # Reap finished migrate Jobs automatically (10 min) to keep the namespace tidy.
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "app.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ include "app.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "app.secretName" . }}
+                  key: DATABASE_URL
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+{{- end -}}

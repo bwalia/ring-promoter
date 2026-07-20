@@ -1,0 +1,23 @@
+# Training instance — ring-promoter.fictionally.org.
+# Deploy: helm upgrade --install ring-promoter deploy/helm/ring-promoter \
+#   -f deploy/helm/ring-promoter/values-fictionally.yaml \
+#   --set-file config=training/config/apps.training.yaml \
+#   --set image.tag=<tag> -n fictionally-ring-promoter --create-namespace
+
+host: ring-promoter.fictionally.org
+
+# This instance really deploys the 7 training apps (kubectl + k8sjob) and
+# dispatches the operator's github workflow, so it needs RBAC + the executor.
+rbac:
+  enabled: true
+  executor: true
+  execNamespace: ring-exec
+
+serviceAccount:
+  name: ring-promoter-training
+
+ingress:
+  enabled: true
+  className: traefik
+  externalDnsTarget: pop0.wslproxy.com
+  tls: false

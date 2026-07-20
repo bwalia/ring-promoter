@@ -1,0 +1,17 @@
+# Frontend (cmd/web) image. index.html is embedded into the binary with
+# //go:embed, so the distroless image ships a single self-contained static
+# server. Version handling matches the backend: baked via ldflags, overridable at
+# runtime with RP_VERSION.
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+RUN go mod download
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/web ./cmd/web
+
+FROM gcr.io/distroless/static:nonroot
+COPY --from=build /out/web /web
+EXPOSE 8080
+USER nonroot:nonroot
+ENTRYPOINT ["/web"]

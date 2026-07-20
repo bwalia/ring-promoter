@@ -1,0 +1,12 @@
+apiVersion: v2
+name: ai-chat
+description: |
+  Ring Promoter training academy — ai-chat app. A Go service that proxies chat
+  prompts to a local Ollama server. Its ecosystem is where Ring Promoter's
+  Ollama-based AI failure diagnosis shines, and it demonstrates a ref-pinned
+  ring (acc -> release) plus optional GPU scheduling.
+type: application
+version: 0.1.0
+# appVersion is the default image tag when values.image.tag is empty. Ring
+# Promoter overrides the tag per deploy with the version being promoted.
+appVersion: "v0.1.0"

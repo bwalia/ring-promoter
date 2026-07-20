@@ -1,0 +1,297 @@
+name: Deploy training instance (fictionally.org)
+
+# Builds and deploys the TRAINING Ring Promoter instance
+# (ring-promoter.fictionally.org) to k3s1 on every push to main, and automates
+# its edge wiring end to end:
+#
+#   1. build + push the image, apply the instance manifests, roll out
+#   2. ensure the Cloudflare CNAME  ring-promoter.fictionally.org -> pop0.wslproxy.com
+#   3. trigger the wslproxy vhost registration for the host on the pop0 edge
+#   4. verify in-cluster, then verify the public URL
+#
+# This workflow owns the TRAINING instance ONLY:
+#   namespace fictionally-ring-promoter, https://ring-promoter.fictionally.org
+# It never touches workstation-ring-promoter or ring-system.
+#
+# One-time bootstrap (CI never creates secrets): create the Postgres DB/role
+# `ringpromoter_training` and the Secret `ring-promoter` in the namespace — see
+# deploy/instances/fictionally/README.md.
+#
+# Repo secrets used:
+#   KUBE_CONFIG_DATA_K3S1  base64 kubeconfig for k3s1 (shared with the other deploy)
+#   DOCKER_USER / DOCKER_PASSWD   Docker Hub push
+#   CF_API_TOKEN           Cloudflare token with DNS:Edit on the fictionally.org zone
+#   WSLPROXY_USER / WSLPROXY_PASSWORD  wslproxy admin login (email + password)
+#   WSLPROXY_GATEWAY_URL   (optional) wslproxy admin gateway base URL
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "training/config/**"
+      - "deploy/instances/fictionally/**"
+      - ".github/workflows/deploy-training-k3s1.yml"
+      - "cmd/**"
+      - "internal/**"
+      - "web/**"
+      - "Dockerfile"
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: sha-<short>)"
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-training-k3s1
+  cancel-in-progress: false
+
+env:
+  IMAGE: docker.io/bwalia/ring-promoter
+  NAMESPACE: fictionally-ring-promoter
+  HOST: ring-promoter.fictionally.org
+  ZONE: fictionally.org
+  CNAME_TARGET: pop0.wslproxy.com
+  HEALTH_URL: https://ring-promoter.fictionally.org/healthz
+
+jobs:
+  test:
+    name: Test
+    runs-on: [self-hosted, mac-studio]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - run: go vet ./...
+      - run: go test ./...
+      # Fail fast if the training config no longer validates.
+      - name: Validate training config
+        run: |
+          set -euo pipefail
+          RP_API_TOKEN=ci RP_DB_DRIVER=memory RP_HEALTH=http \
+          RP_GITHUB_TOKEN=ci RP_JIRA_TOKEN=ci RP_LISTEN_ADDR=:18190 \
+          timeout 10 go run ./cmd/ringpromoter -config training/config/apps.training.yaml &
+          sleep 5
+          curl -fsS -H "Authorization: Bearer ci" http://127.0.0.1:18190/api/apps | grep -q '"operator"'
+          echo "training config validates (7 apps registered)."
+
+  deploy:
+    name: Build & deploy training instance
+    needs: test
+    runs-on: [self-hosted, mac-studio]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute build metadata
+        run: |
+          echo "SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_ENV"
+          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWD }}
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=sha-${{ env.SHORT_SHA }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ env.BUILD_TIME }}
+
+      - name: Configure kubeconfig (k3s1)
+        run: |
+          umask 077
+          echo "${{ secrets.KUBE_CONFIG_DATA_K3S1 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Preflight (namespaces exist + Secret present with required keys)
+        run: |
+          set -euo pipefail
+          kubectl get nodes -o wide
+          kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+          if ! kubectl -n "${NAMESPACE}" get secret ring-promoter >/dev/null 2>&1; then
+            echo "::error::secret/ring-promoter missing in ${NAMESPACE}. Bootstrap it first (see deploy/instances/fictionally/README.md). CI never creates secrets."
+            exit 1
+          fi
+          # The training config uses the github (operator) and jira (bank-api)
+          # backends, whose deployers/validators are built at boot — the pod
+          # crash-loops if these keys are absent. They may be dummy values until
+          # you actually promote operator / bank-api.
+          for k in RP_API_TOKEN RP_DB_DSN RP_GITHUB_TOKEN RP_JIRA_TOKEN; do
+            if ! kubectl -n "${NAMESPACE}" get secret ring-promoter -o jsonpath="{.data.$k}" | grep -q .; then
+              echo "::error::secret/ring-promoter is missing key $k (dummy is fine to boot). See the runbook."
+              exit 1
+            fi
+          done
+          echo "preflight ok."
+
+      - name: Ensure Helm
+        run: |
+          if ! command -v helm >/dev/null 2>&1; then
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          fi
+          helm version
+
+      - name: Deploy via Helm chart (beaconpulse-style)
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "$TAG" ]; then TAG="sha-${SHORT_SHA}"; fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          # The ring-exec namespace (for the k8sjob executor RoleBinding) must
+          # exist before the chart's RoleBinding applies; --create-namespace only
+          # makes the release namespace.
+          kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace ring-exec --dry-run=client -o yaml | kubectl apply -f -
+          # Single source of truth: the training app-registry is injected with
+          # --set-file, so training/config/apps.training.yaml is never duplicated.
+          # The config's sha256 is in the pod annotation, so a config change rolls
+          # the pod automatically (no manual rollout restart needed).
+          helm upgrade --install ring-promoter deploy/helm/ring-promoter \
+            -f deploy/helm/ring-promoter/values-fictionally.yaml \
+            --set-file config=training/config/apps.training.yaml \
+            --set image.tag="${TAG}" \
+            --namespace "${NAMESPACE}" --create-namespace \
+            --wait --timeout 5m
+          kubectl -n "${NAMESPACE}" rollout status deploy/ring-promoter --timeout=180s
+
+      - name: Ensure Cloudflare CNAME -> pop0
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          # DNS is normally maintained by external-dns from the Ingress
+          # annotations (hostname + target pop0.wslproxy.com). This step is an
+          # explicit, idempotent belt-and-suspenders for zones external-dns does
+          # not manage. It soft-skips when no token is configured, since the
+          # annotations already cover the common case.
+          if [ -z "${CF_API_TOKEN:-}" ]; then
+            echo "::notice::CF_API_TOKEN not set — relying on external-dns + the Ingress annotations to maintain ${HOST} -> ${CNAME_TARGET}."
+            exit 0
+          fi
+          api="https://api.cloudflare.com/client/v4"
+          auth=(-H "Authorization: Bearer ${CF_API_TOKEN}" -H "Content-Type: application/json")
+          zone_id=$(curl -fsS "${auth[@]}" "$api/zones?name=${ZONE}" | jq -r '.result[0].id')
+          if [ -z "$zone_id" ] || [ "$zone_id" = "null" ]; then
+            echo "::error::zone ${ZONE} not found for this Cloudflare token."; exit 1
+          fi
+          # Idempotent upsert: CNAME HOST -> pop0.wslproxy.com, unproxied.
+          rec=$(curl -fsS "${auth[@]}" "$api/zones/$zone_id/dns_records?type=CNAME&name=${HOST}")
+          rec_id=$(echo "$rec" | jq -r '.result[0].id // empty')
+          body=$(jq -nc --arg name "$HOST" --arg content "$CNAME_TARGET" \
+            '{type:"CNAME",name:$name,content:$content,ttl:1,proxied:false}')
+          if [ -n "$rec_id" ]; then
+            curl -fsS "${auth[@]}" -X PUT "$api/zones/$zone_id/dns_records/$rec_id" --data "$body" >/dev/null
+            echo "updated CNAME ${HOST} -> ${CNAME_TARGET}"
+          else
+            curl -fsS "${auth[@]}" -X POST "$api/zones/$zone_id/dns_records" --data "$body" >/dev/null
+            echo "created CNAME ${HOST} -> ${CNAME_TARGET}"
+          fi
+
+      - name: Register wslproxy vhost (pop0)
+        env:
+          WSLPROXY_USER: ${{ secrets.WSLPROXY_USER }}
+          WSLPROXY_PASSWORD: ${{ secrets.WSLPROXY_PASSWORD }}
+          # Admin gateway base URL; falls back to the pop0 admin endpoint.
+          WSLPROXY_GATEWAY_URL: ${{ secrets.WSLPROXY_GATEWAY_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WSLPROXY_USER:-}" ] || [ -z "${WSLPROXY_PASSWORD:-}" ]; then
+            echo "::warning::WSLPROXY_USER / WSLPROXY_PASSWORD not set — skipping wslproxy vhost registration."
+            echo "::warning::Register ${HOST} on pop0 manually (see deploy/instances/fictionally/wslproxy-vhost.md)."
+            exit 0
+          fi
+          # The wslproxy ADMIN gateway (api-<env>.wslproxy.com / an internal URL),
+          # NOT the pop0 edge. Must be set explicitly — there is no safe default.
+          GW="${WSLPROXY_GATEWAY_URL:-}"
+          if [ -z "$GW" ]; then
+            echo "::warning::WSLPROXY_GATEWAY_URL not set — skipping. Set it to the wslproxy admin gateway URL you use with api-scripts (e.g. the prod admin API), not the pop0 edge."
+            exit 0
+          fi
+          # 1) Login (email + password) -> JWT accessToken, exactly like
+          #    wslproxy/api-scripts/auth/login.sh.
+          TOKEN=$(curl -fsS -X POST "$GW/api/user/login" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -nc --arg e "$WSLPROXY_USER" --arg p "$WSLPROXY_PASSWORD" '{email:$e,password:$p}')" \
+            | jq -r '.data.accessToken')
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "::error::wslproxy login failed for ${WSLPROXY_USER} at ${GW}."; exit 1
+          fi
+          # 2) Idempotent upsert: skip if a server for HOST already exists.
+          existing=$(curl -fsS -X GET "$GW/api/servers" -H "Authorization: Bearer $TOKEN" \
+            | jq -r --arg h "$HOST" '.data[]? | select(.server_name==$h) | .id' | head -1)
+          if [ -n "$existing" ]; then
+            echo "wslproxy vhost for ${HOST} already exists (id=$existing) — nothing to do."
+            exit 0
+          fi
+          # 3) Create the server (vhost) from the checked-in spec, modeled on the
+          #    prod RP template (deploy/instances/fictionally/wslproxy-server.json).
+          resp=$(curl -fsS -X POST "$GW/api/servers" \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            -d @deploy/instances/fictionally/wslproxy-server.json)
+          sid=$(echo "$resp" | jq -r '.data.id // empty')
+          if [ -z "$sid" ]; then
+            echo "::error::wslproxy server create failed: $resp"; exit 1
+          fi
+          echo "registered wslproxy vhost ${HOST} (id=$sid)."
+          echo "::notice::If ${HOST} needs binding into a routing rule/upstream, attach it as for the other RP hosts (wslproxy/api-scripts/servers/attach-rule.sh)."
+
+      - name: Verify in-cluster
+        run: |
+          set -euo pipefail
+          kubectl -n "${NAMESPACE}" port-forward svc/ring-promoter 18080:80 >/dev/null 2>&1 &
+          PF_PID=$!; trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
+          sleep 3
+          for i in $(seq 1 10); do
+            code=$(curl -s -o "$RUNNER_TEMP/in.out" -w '%{http_code}' --max-time 5 http://127.0.0.1:18080/healthz || echo 000)
+            body=$(cat "$RUNNER_TEMP/in.out" 2>/dev/null || true)
+            echo "in-cluster healthz attempt $i -> code=$code body=$body"
+            if [ "$code" = "200" ] && printf '%s' "$body" | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"'; then
+              echo "training Ring Promoter serving in-cluster."; exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::pod did not serve {\"status\":\"ok\"} after rollout"; exit 1
+
+      - name: Post-deploy health check (public URL)
+        run: |
+          set -euo pipefail
+          # Assert the BODY: the pop0 edge answers 200 with "Host not configured"
+          # for unknown hosts, so a code-only check would pass with nothing wired.
+          for i in $(seq 1 18); do
+            code=$(curl -sL -o "$RUNNER_TEMP/healthz.out" -w '%{http_code}' --max-time 15 "${HEALTH_URL}" || echo 000)
+            body=$(cat "$RUNNER_TEMP/healthz.out" 2>/dev/null || true)
+            echo "public healthz attempt $i -> code=$code"
+            if [ "$code" = "200" ] && printf '%s' "$body" | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"'; then
+              echo "training Ring Promoter healthy at ${HEALTH_URL}."; exit 0
+            fi
+            sleep 5
+          done
+          if printf '%s' "$body" | grep -q "Host not configured"; then
+            echo "::error::${HEALTH_URL} is the wslproxy \"Host not configured\" page — the vhost isn't active yet."
+            echo "::error::DNS + deploy are fine (in-cluster check passed). Ensure the wslproxy vhost for ${HOST} is registered on pop0 (see the register step / wslproxy-vhost.md)."
+            exit 1
+          fi
+          echo "::error::${HEALTH_URL} did not report {\"status\":\"ok\"} (last code=$code) — DNS may still be propagating."
+          exit 1

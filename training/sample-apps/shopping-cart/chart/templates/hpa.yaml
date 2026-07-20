@@ -1,0 +1,47 @@
+{{- if .Values.backend.autoscaling.enabled -}}
+{{- $c := "backend" -}}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  minReplicas: {{ .Values.backend.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.backend.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.backend.autoscaling.targetCPUUtilizationPercentage }}
+{{- end -}}
+{{- if .Values.frontend.autoscaling.enabled }}
+{{- $c := "frontend" -}}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  minReplicas: {{ .Values.frontend.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.frontend.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.frontend.autoscaling.targetCPUUtilizationPercentage }}
+{{- end -}}

@@ -1,0 +1,68 @@
+{{- if .Values.frontend.ingress.enabled -}}
+{{- $c := "frontend" -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+  annotations:
+    # external-dns creates a Cloudflare CNAME for the host below pointing at the
+    # wslproxy POP target (k3s1 sits behind the wslproxy edge). Without an
+    # explicit target external-dns would publish the raw LoadBalancer IP.
+    external-dns.alpha.kubernetes.io/hostname: {{ include "app.frontendHost" . | quote }}
+    external-dns.alpha.kubernetes.io/target: {{ .Values.ingress.externalDnsTarget | quote }}
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ include "app.frontendHost" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+                port:
+                  number: {{ .Values.frontend.service.port }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ include "app.frontendHost" . | quote }}
+      secretName: {{ include "app.componentName" (dict "ctx" . "component" $c) }}-tls
+  {{- end }}
+{{- end -}}
+{{- if .Values.backend.ingress.enabled }}
+{{- $c := "backend" -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ include "app.backendHost" . | quote }}
+    external-dns.alpha.kubernetes.io/target: {{ .Values.ingress.externalDnsTarget | quote }}
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ include "app.backendHost" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+                port:
+                  number: {{ .Values.backend.service.port }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ include "app.backendHost" . | quote }}
+      secretName: {{ include "app.componentName" (dict "ctx" . "component" $c) }}-tls
+  {{- end }}
+{{- end -}}

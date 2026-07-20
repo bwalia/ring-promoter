@@ -1,0 +1,73 @@
+{{- if .Values.redis.enabled -}}
+{{- $c := "redis" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" (dict "ctx" . "component" $c) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 8 }}
+    spec:
+      securityContext:
+        # emptyDir at /data is group-owned by fsGroup so redis (uid 999) can use it.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: {{ $c }}
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
+          # Ephemeral: no persistence, no auth. A dependency for demos, not data.
+          args: ["--save", "", "--appendonly", "no", "--protected-mode", "no"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "app.selectorLabels" (dict "ctx" . "component" $c) | nindent 4 }}
+  ports:
+    - name: redis
+      port: {{ .Values.redis.service.port }}
+      targetPort: redis
+{{- end -}}

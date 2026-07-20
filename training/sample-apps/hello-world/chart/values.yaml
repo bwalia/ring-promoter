@@ -1,0 +1,58 @@
+# Default values for the hello-world chart. Per-ring overrides (namespace,
+# host, replicas) come from Ring Promoter / a values-<ring>.yaml at deploy time.
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/bwalia/rp-training-hello-world
+  # tag defaults to Chart.appVersion; Ring Promoter sets it to the promoted
+  # version on every deploy (kubectl set image / Helm --set image.tag=...).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# version is passed to the container as RP_VERSION so /healthz echoes it.
+# Empty = fall back to the image tag. Ring Promoter's version-aware health
+# check (health_version_field: version) compares this against the deployed tag.
+version: ""
+
+service:
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  # k3s1's in-cluster ingress controller.
+  className: traefik
+  # Public zone; the app is reachable at <name>.<domain>.
+  domain: fictionally.org
+  # Override to pin an exact host; empty = <chart name>.<domain>.
+  host: ""
+  # external-dns creates a CNAME for `host` pointing at this POP target
+  # (k3s1 sits behind the wslproxy edge; pop0 is the POP for these hosts).
+  externalDnsTarget: pop0.wslproxy.com
+  tls: false
+
+# Prometheus scrape annotations on the pod (a scrape config or ServiceMonitor
+# then collects /metrics).
+metrics:
+  enabled: true
+  path: /metrics
+  port: 8080
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

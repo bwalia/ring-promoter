@@ -1,0 +1,12 @@
+apiVersion: v2
+name: kuard
+description: |
+  Ring Promoter training academy — KUARD demo app. Deploys the upstream
+  gcr.io/kuar-demo/kuard-amd64 image (tags blue/green) to demonstrate
+  blue/green promotion of a third-party image with STATUS-ONLY health checks.
+type: application
+version: 0.1.0
+# appVersion is the default image tag when values.image.tag is empty. Ring
+# Promoter overrides the tag per deploy with the colour being promoted
+# (blue <-> green). kuard publishes no version field, so the tag IS the version.
+appVersion: "blue"

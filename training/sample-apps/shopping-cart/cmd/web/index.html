@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ring Promoter — Shopping Cart</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 40rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5;
+    }
+    h1 { margin-bottom: 0.25rem; }
+    .sub { color: #888; margin-top: 0; }
+    form { display: flex; gap: 0.5rem; margin: 1.5rem 0; }
+    input { flex: 1; padding: 0.5rem 0.75rem; font-size: 1rem; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
+    ul { padding-left: 1.25rem; }
+    li { padding: 0.15rem 0; }
+    .meta { font-size: 0.85rem; color: #888; margin-top: 2rem; }
+    .empty { color: #888; font-style: italic; }
+  </style>
+</head>
+<body>
+  <h1>🛒 Shopping Cart</h1>
+  <p class="sub">Ring Promoter training academy — frontend + backend promoted as a group.</p>
+
+  <form id="add-form">
+    <input id="item" type="text" placeholder="Add an item…" autocomplete="off" />
+    <button type="submit">Add</button>
+  </form>
+
+  <ul id="items"><li class="empty">Loading…</li></ul>
+
+  <p class="meta" id="meta"></p>
+
+  <script>
+    // API_BASE is injected by the web server (API_BASE env). Empty means the
+    // backend is reachable at the same origin under /api.
+    const API_BASE = "__API_BASE__";
+    const cartURL = API_BASE.replace(/\/$/, "") + "/api/cart";
+
+    async function refresh() {
+      const list = document.getElementById("items");
+      const meta = document.getElementById("meta");
+      try {
+        const res = await fetch(cartURL);
+        const data = await res.json();
+        const items = data.items || [];
+        list.innerHTML = items.length
+          ? items.map(i => `<li>${escapeHtml(i)}</li>`).join("")
+          : `<li class="empty">Your cart is empty.</li>`;
+        meta.textContent = `backend store: ${data.backend || "unknown"}`;
+      } catch (e) {
+        list.innerHTML = `<li class="empty">Backend unavailable — cart shown empty.</li>`;
+        meta.textContent = "backend store: unreachable";
+      }
+    }
+
+    document.getElementById("add-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("item");
+      const item = input.value.trim();
+      if (!item) return;
+      try {
+        await fetch(cartURL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ item }),
+        });
+        input.value = "";
+      } catch (e) { /* ignore; refresh will show state */ }
+      refresh();
+    });
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+
+    refresh();
+  </script>
+</body>
+</html>

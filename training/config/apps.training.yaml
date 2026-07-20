@@ -1,0 +1,158 @@
+# Ring Promoter — training academy instance configuration.
+#
+# This is the FULL config for the training instance served at
+# https://ring-promoter.fictionally.org. It registers all seven sample apps so
+# that, between them, EVERY Ring Promoter capability can be demonstrated live.
+#
+# Secrets come from the environment (never this file):
+#   RP_API_TOKEN         bearer token for /api
+#   RP_PROD_PASSWORD     extra password for production deploys
+#   RP_GITHUB_TOKEN      token for the github deployer (operator)
+#   RP_JIRA_TOKEN        token for the change-request (jira) gate (bank-api)
+#   RP_OLLAMA_JWT_SECRET enables AI failure diagnosis
+#
+# Health checks target in-cluster Service DNS. Each app is deployed per ring
+# into namespace <app>-<ring> with Helm release name <app> and
+# fullnameOverride=<app>, so its Service is <app>.<app>-<ring>.svc.cluster.local
+# (see training/config/README.md and the deployment runbook).
+
+listen_addr: ":8080"
+# api_token: provided via RP_API_TOKEN (Secret) — do not put it here.
+
+deployer: kubectl        # global default; per-app overrides below
+health: http             # real HTTP health checks (version-aware where set)
+
+retry:
+  count: 5
+  delay: 10s
+operation_timeout: 15m
+
+database:
+  driver: postgres       # DSN from RP_DB_DSN
+  # dsn: provided via RP_DB_DSN
+
+# AI failure diagnosis: when a deploy fails, the UI can ask Ollama to explain
+# why. Enabled once RP_OLLAMA_JWT_SECRET is also set. (Demonstrated by ai-chat.)
+ollama:
+  url: "https://ollama.workstation.co.uk"
+  model: "qwen3-coder:30b"
+
+apps:
+  # 1) hello-world — kubectl deployer, version-aware health via a JSON field.
+  #    Feature focus: seed/promote/rollback, auto_promote, health_version_field.
+  - name: hello-world
+    display_name: "Hello World"
+    rings:
+      int:  { namespace: hello-world-int,  deployment: hello-world, container: hello-world, image: ghcr.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-int.svc.cluster.local/healthz",  health_version_field: version }
+      test: { namespace: hello-world-test, deployment: hello-world, container: hello-world, image: ghcr.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-test.svc.cluster.local/healthz", health_version_field: version }
+      acc:  { namespace: hello-world-acc,  deployment: hello-world, container: hello-world, image: ghcr.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-acc.svc.cluster.local/healthz",  health_version_field: version }
+      prod: { namespace: hello-world-prod, deployment: hello-world, container: hello-world, image: ghcr.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-prod.svc.cluster.local/healthz", health_version_field: version }
+
+  # 2) kuard — canonical demo on a THIRD-PARTY image, STATUS-ONLY health check
+  #    (kuard's /healthy returns 200 but reports no version). Blue/green via the
+  #    image tag (blue <-> green). Feature focus: kubectl deployer, status-only
+  #    health, blue/green.
+  - name: kuard
+    display_name: "KUARD Demo"
+    rings:
+      int:  { namespace: kuard-int,  deployment: kuard, container: kuard, image: gcr.io/kuar-demo/kuard-amd64, health_url: "http://kuard.kuard-int.svc.cluster.local/healthy" }
+      test: { namespace: kuard-test, deployment: kuard, container: kuard, image: gcr.io/kuar-demo/kuard-amd64, health_url: "http://kuard.kuard-test.svc.cluster.local/healthy" }
+      acc:  { namespace: kuard-acc,  deployment: kuard, container: kuard, image: gcr.io/kuar-demo/kuard-amd64, health_url: "http://kuard.kuard-acc.svc.cluster.local/healthy" }
+      prod: { namespace: kuard-prod, deployment: kuard, container: kuard, image: gcr.io/kuar-demo/kuard-amd64, health_url: "http://kuard.kuard-prod.svc.cluster.local/healthy" }
+
+  # 3) shopping-cart — multi-service (backend+frontend+redis). Promoted together
+  #    as a GROUP (create it from the UI/API — see Lab 07). Feature focus:
+  #    groups, canary + blue/green, version-aware health on the backend.
+  - name: shopping-cart
+    display_name: "Shopping Cart"
+    rings:
+      int:  { namespace: shopping-cart-int,  deployment: shopping-cart, container: api, image: ghcr.io/bwalia/rp-training-shopping-cart, health_url: "http://shopping-cart.shopping-cart-int.svc.cluster.local/healthz",  health_version_field: version }
+      test: { namespace: shopping-cart-test, deployment: shopping-cart, container: api, image: ghcr.io/bwalia/rp-training-shopping-cart, health_url: "http://shopping-cart.shopping-cart-test.svc.cluster.local/healthz", health_version_field: version }
+      acc:  { namespace: shopping-cart-acc,  deployment: shopping-cart, container: api, image: ghcr.io/bwalia/rp-training-shopping-cart, health_url: "http://shopping-cart.shopping-cart-acc.svc.cluster.local/healthz",  health_version_field: version }
+      prod: { namespace: shopping-cart-prod, deployment: shopping-cart, container: api, image: ghcr.io/bwalia/rp-training-shopping-cart, health_url: "http://shopping-cart.shopping-cart-prod.svc.cluster.local/healthz", health_version_field: version }
+
+  # 4) bank-api — the GOVERNANCE showcase. Demonstrates ALL THREE promotion
+  #    gates plus the production password and secrets. Promoting to acc/prod
+  #    requires an open maintenance window + a release-engineer GO sign-off for
+  #    the exact version + a valid change-request code (validated against JIRA).
+  - name: bank-api
+    display_name: "Bank API"
+    promotion_policy:
+      maintenance_window:
+        rings: [prod]
+        recurring:
+          - days: [Sat, Sun]
+            start: "02:00"
+            end:   "05:00"
+            timezone: Europe/London
+      qa_signoff:
+        rings: [acc, prod]
+      change_request:
+        rings: [acc, prod]
+        provider: jira
+        jira:
+          base_url: https://your-org.atlassian.net
+          email: releases@your-org.com
+          allowed_statuses: [Approved, "Ready for Release"]
+          project_keys: [CR, OPS]
+    rings:
+      int:  { namespace: bank-api-int,  deployment: bank-api, container: bank-api, image: ghcr.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-int.svc.cluster.local/healthz",  health_version_field: version }
+      test: { namespace: bank-api-test, deployment: bank-api, container: bank-api, image: ghcr.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-test.svc.cluster.local/healthz", health_version_field: version }
+      acc:  { namespace: bank-api-acc,  deployment: bank-api, container: bank-api, image: ghcr.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-acc.svc.cluster.local/healthz",  health_version_field: version }
+      prod: { namespace: bank-api-prod, deployment: bank-api, container: bank-api, image: ghcr.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-prod.svc.cluster.local/healthz", health_version_field: version }
+
+  # 5) image-proc — deployed via the K8SJOB deployer (each deploy runs as a
+  #    Kubernetes Job executing a deploy script). Version-aware health via a
+  #    RESPONSE HEADER (X-App-Version) instead of a JSON field. Feature focus:
+  #    k8sjob deployer, async worker scaling, health_version_header.
+  - name: image-proc
+    display_name: "Image Processing"
+    deployer: k8sjob
+    k8sjob:
+      image: ghcr.io/bwalia/rp-deploy-runner:v1
+      command: ["/scripts/deploy.sh"]
+      service_account: ring-deploy-job
+      env_from_secrets: [image-proc-deploy]
+      resources: { cpu_request: 250m, memory_limit: 512Mi }
+      timeout: 20m
+      retries: 0
+      ttl_after_finished: 1h
+    rings:
+      int:  { namespace: image-proc-int,  target_env: int,  health_url: "http://image-proc.image-proc-int.svc.cluster.local/healthz",  health_version_header: X-App-Version }
+      test: { namespace: image-proc-test, target_env: test, health_url: "http://image-proc.image-proc-test.svc.cluster.local/healthz", health_version_header: X-App-Version }
+      acc:  { namespace: image-proc-acc,  target_env: acc,  health_url: "http://image-proc.image-proc-acc.svc.cluster.local/healthz",  health_version_header: X-App-Version }
+      prod: { namespace: image-proc-prod, target_env: prod, health_url: "http://image-proc.image-proc-prod.svc.cluster.local/healthz", health_version_header: X-App-Version }
+
+  # 6) ai-chat — kubectl deployer with a REF-PINNED acceptance ring: acc always
+  #    ships the ":release" tag regardless of what was promoted (int/test carry
+  #    main). Feature focus: ref-pinned ring, AI-diagnosis ecosystem, optional
+  #    GPU deployment, health_version_field.
+  - name: ai-chat
+    display_name: "AI Chat Service"
+    rings:
+      int:  { namespace: ai-chat-int,  deployment: ai-chat, container: ai-chat, image: ghcr.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-int.svc.cluster.local/healthz",  health_version_field: version }
+      test: { namespace: ai-chat-test, deployment: ai-chat, container: ai-chat, image: ghcr.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-test.svc.cluster.local/healthz", health_version_field: version }
+      acc:  { namespace: ai-chat-acc,  deployment: ai-chat, container: ai-chat, image: ghcr.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-acc.svc.cluster.local/healthz",  health_version_field: version, ref: release }
+      prod: { namespace: ai-chat-prod, deployment: ai-chat, container: ai-chat, image: ghcr.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-prod.svc.cluster.local/healthz", health_version_field: version }
+
+  # 7) operator — a Kubernetes operator released BY TAG via the GITHUB deployer
+  #    (version_as_ref: dispatch the release workflow on the deployed tag). It
+  #    has no user ingress, so its health check is status-only against its
+  #    metrics/health port. A maintenance_window gate guards prod. Feature focus:
+  #    github deployer + version_as_ref, operator/CRD lifecycle, maintenance gate.
+  - name: operator
+    display_name: "Greeting Operator"
+    deployer: github
+    github:
+      owner: bwalia
+      repo: rp-training-operator
+      workflow: release.yml
+      version_as_ref: true
+    promotion_policy:
+      maintenance_window:
+        rings: [prod]
+    rings:
+      int:  { namespace: operator-int,  target_env: int,  health_url: "http://operator.operator-int.svc.cluster.local:8080/healthz" }
+      test: { namespace: operator-test, target_env: test, health_url: "http://operator.operator-test.svc.cluster.local:8080/healthz" }
+      acc:  { namespace: operator-acc,  target_env: acc,  health_url: "http://operator.operator-acc.svc.cluster.local:8080/healthz" }
+      prod: { namespace: operator-prod, target_env: prod, health_url: "http://operator.operator-prod.svc.cluster.local:8080/healthz" }

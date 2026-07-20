@@ -1,0 +1,79 @@
+# Release CI/CD for a Ring Promoter-managed operator that ships via the
+# "github" deployer.
+#
+# NOTE: In production each sample app lives in its OWN repository, with this
+# file at .github/workflows/release.yml there. It is kept under the app
+# directory in the training repo as a copy-me template (GitHub only runs
+# workflows from the repository root .github/workflows).
+#
+# Unlike the kubectl-deployed apps, an operator is released BY GIT TAG. Ring
+# Promoter's "github" deployer dispatches this workflow with `version_as_ref:
+# true`, so the workflow runs ON the tag being promoted (workflow_dispatch on
+# refs/tags/vX.Y.Z) and builds/pushes exactly that tag — no version input is
+# passed. The same workflow also runs automatically on a tag push.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # Dispatched by Ring Promoter's github deployer. Because the deployer sets
+  # version_as_ref, the dispatch targets the version's tag as the git ref, and
+  # this workflow releases whatever ref it runs from — so it needs no inputs.
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/bwalia/rp-training-operator
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.26" }
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./... -count=1
+
+  build-and-push:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        # Released by tag. On a tag ref (push or version_as_ref dispatch) the tag
+        # IS the version; a manual dispatch on a branch falls back to a short SHA.
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: VERSION=${{ steps.ver.outputs.version }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.ver.outputs.version }}
+      # Generate an SBOM for supply-chain hygiene (informational in training).
+      - uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}:${{ steps.ver.outputs.version }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with: { name: sbom, path: sbom.spdx.json }
