@@ -118,10 +118,10 @@ apps:
       retries: 0
       ttl_after_finished: 1h
     rings:
-      int:  { namespace: image-proc-int,  target_env: int,  health_url: "http://image-proc.image-proc-int.svc.cluster.local/healthz",  health_version_header: X-App-Version }
-      test: { namespace: image-proc-test, target_env: test, health_url: "http://image-proc.image-proc-test.svc.cluster.local/healthz", health_version_header: X-App-Version }
-      acc:  { namespace: image-proc-acc,  target_env: acc,  health_url: "http://image-proc.image-proc-acc.svc.cluster.local/healthz",  health_version_header: X-App-Version }
-      prod: { namespace: image-proc-prod, target_env: prod, health_url: "http://image-proc.image-proc-prod.svc.cluster.local/healthz", health_version_header: X-App-Version }
+      int:  { namespace: image-proc-int,  target_env: int,  health_url: "http://image-proc-api.image-proc-int.svc.cluster.local/healthz",  health_version_header: X-App-Version }
+      test: { namespace: image-proc-test, target_env: test, health_url: "http://image-proc-api.image-proc-test.svc.cluster.local/healthz", health_version_header: X-App-Version }
+      acc:  { namespace: image-proc-acc,  target_env: acc,  health_url: "http://image-proc-api.image-proc-acc.svc.cluster.local/healthz",  health_version_header: X-App-Version }
+      prod: { namespace: image-proc-prod, target_env: prod, health_url: "http://image-proc-api.image-proc-prod.svc.cluster.local/healthz", health_version_header: X-App-Version }
 
   # 6) ai-chat — kubectl deployer with a REF-PINNED acceptance ring: acc always
   #    ships the ":release" tag regardless of what was promoted (int/test carry
