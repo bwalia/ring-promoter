@@ -20,7 +20,8 @@ verify in-cluster and at the public URL.
 | `KUBE_CONFIG_DATA_K3S1` | ✅ set | base64 kubeconfig for k3s1 (shared) |
 | `DOCKER_USER` / `DOCKER_PASSWD` | ✅ set | Docker Hub push |
 | `CF_API_TOKEN` | optional | Cloudflare DNS:Edit on `fictionally.org`. **Not required** — external-dns already maintains the CNAME from the Ingress annotations; the workflow soft-skips without it. |
-| `WSLPROXY_DISPATCH_TOKEN` | optional | PAT to auto-dispatch the wslproxy register-domains workflow. Without it the step warns and you register the vhost manually ([wslproxy-vhost.md](./wslproxy-vhost.md)). |
+| `WSLPROXY_USER` / `WSLPROXY_PASSWORD` | for edge | wslproxy admin login (email + password). The workflow logs in and upserts the vhost for the host via the wslproxy admin API (`/api/user/login` → `/api/servers`), mirroring `wslproxy/api-scripts`. Without them the step warns and you register the vhost manually ([wslproxy-vhost.md](./wslproxy-vhost.md)). |
+| `WSLPROXY_GATEWAY_URL` | optional | wslproxy admin gateway base URL (defaults to `https://pop0.wslproxy.com`). |
 
 **One-time bootstrap the workflow can't do** (CI never creates secrets): create
 the Postgres DB/role `ringpromoter_training` and the `ring-promoter` Secret in

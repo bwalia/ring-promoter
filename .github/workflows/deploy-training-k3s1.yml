@@ -21,7 +21,8 @@ name: Deploy training instance (fictionally.org)
 #   KUBE_CONFIG_DATA_K3S1  base64 kubeconfig for k3s1 (shared with the other deploy)
 #   DOCKER_USER / DOCKER_PASSWD   Docker Hub push
 #   CF_API_TOKEN           Cloudflare token with DNS:Edit on the fictionally.org zone
-#   WSLPROXY_DISPATCH_TOKEN (optional) PAT to dispatch the wslproxy register workflow
+#   WSLPROXY_USER / WSLPROXY_PASSWORD  wslproxy admin login (email + password)
+#   WSLPROXY_GATEWAY_URL   (optional) wslproxy admin gateway base URL
 
 on:
   push:
@@ -208,23 +209,45 @@ jobs:
 
       - name: Register wslproxy vhost (pop0)
         env:
-          WSLPROXY_DISPATCH_TOKEN: ${{ secrets.WSLPROXY_DISPATCH_TOKEN }}
+          WSLPROXY_USER: ${{ secrets.WSLPROXY_USER }}
+          WSLPROXY_PASSWORD: ${{ secrets.WSLPROXY_PASSWORD }}
+          # Admin gateway base URL; falls back to the pop0 admin endpoint.
+          WSLPROXY_GATEWAY_URL: ${{ secrets.WSLPROXY_GATEWAY_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${WSLPROXY_DISPATCH_TOKEN:-}" ]; then
-            echo "::warning::WSLPROXY_DISPATCH_TOKEN not set — skipping automated wslproxy registration."
+          if [ -z "${WSLPROXY_USER:-}" ] || [ -z "${WSLPROXY_PASSWORD:-}" ]; then
+            echo "::warning::WSLPROXY_USER / WSLPROXY_PASSWORD not set — skipping wslproxy vhost registration."
             echo "::warning::Register ${HOST} on pop0 manually (see deploy/instances/fictionally/wslproxy-vhost.md)."
             exit 0
           fi
-          # Dispatch the wslproxy repo's register-domains workflow to add/activate
-          # the vhost for HOST on the pop0 edge, backed by the k3s1 Traefik
-          # addresses. Adjust the repo / workflow / inputs to your wslproxy setup.
-          curl -fsS -X POST \
-            -H "Authorization: Bearer ${WSLPROXY_DISPATCH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/bwalia/wslproxy/actions/workflows/wslproxy-register-domains.yml/dispatches \
-            -d "$(jq -nc --arg host "$HOST" '{ref:"main",inputs:{domains:$host,pop:"pop0",environment:"prod"}}')"
-          echo "dispatched wslproxy-register-domains for ${HOST} (watch it in bwalia/wslproxy)."
+          GW="${WSLPROXY_GATEWAY_URL:-https://pop0.wslproxy.com}"
+          # 1) Login (email + password) -> JWT accessToken, exactly like
+          #    wslproxy/api-scripts/auth/login.sh.
+          TOKEN=$(curl -fsS -X POST "$GW/api/user/login" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -nc --arg e "$WSLPROXY_USER" --arg p "$WSLPROXY_PASSWORD" '{email:$e,password:$p}')" \
+            | jq -r '.data.accessToken')
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "::error::wslproxy login failed for ${WSLPROXY_USER} at ${GW}."; exit 1
+          fi
+          # 2) Idempotent upsert: skip if a server for HOST already exists.
+          existing=$(curl -fsS -X GET "$GW/api/servers" -H "Authorization: Bearer $TOKEN" \
+            | jq -r --arg h "$HOST" '.data[]? | select(.server_name==$h) | .id' | head -1)
+          if [ -n "$existing" ]; then
+            echo "wslproxy vhost for ${HOST} already exists (id=$existing) — nothing to do."
+            exit 0
+          fi
+          # 3) Create the server (vhost) from the checked-in spec, modeled on the
+          #    prod RP template (deploy/instances/fictionally/wslproxy-server.json).
+          resp=$(curl -fsS -X POST "$GW/api/servers" \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            -d @deploy/instances/fictionally/wslproxy-server.json)
+          sid=$(echo "$resp" | jq -r '.data.id // empty')
+          if [ -z "$sid" ]; then
+            echo "::error::wslproxy server create failed: $resp"; exit 1
+          fi
+          echo "registered wslproxy vhost ${HOST} (id=$sid)."
+          echo "::notice::If ${HOST} needs binding into a routing rule/upstream, attach it as for the other RP hosts (wslproxy/api-scripts/servers/attach-rule.sh)."
 
       - name: Verify in-cluster
         run: |

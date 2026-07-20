@@ -18,17 +18,32 @@ outside the cluster:
 2. **A wslproxy vhost (tenant)** for the host on the pop0 edge, backing onto the
    k3s1 Traefik addresses — the same pattern used for `rp.workstation.co.uk`.
 
-## Register the vhost (in the wslproxy repo)
+## Register the vhost — automated by the deploy workflow
 
-This repo does not contain the wslproxy edge config; register there exactly as
-`rp.workstation.co.uk` was:
+The deploy workflow registers the vhost via the **wslproxy admin API** using the
+`WSLPROXY_USER` / `WSLPROXY_PASSWORD` repo secrets (with the server spec
+[`wslproxy-server.json`](./wslproxy-server.json), modeled on the prod RP
+template). It mirrors `wslproxy/api-scripts`:
 
-1. Clone the wslproxy vhost template used for the Ring Promoter hosts (OpenResty
-   auto-ssl, HTTP→HTTPS redirect) and add `ring-promoter.fictionally.org` as a
-   new vhost whose upstream is the k3s1 Traefik LoadBalancer addresses.
-2. Wire the new host into the pop0 routing rule alongside the other hosts.
-3. Open a PR, merge, then run the **`wslproxy-register-domains`** workflow to
-   push the host to the wslproxy **prod** edge and activate it. Dry-run first.
+1. **Login** — `POST $GW/api/user/login {email,password}` → `.data.accessToken`.
+2. **Upsert** — `GET $GW/api/servers`; if no server matches
+   `ring-promoter.fictionally.org`, `POST $GW/api/servers` with the spec.
+
+`$GW` defaults to `https://pop0.wslproxy.com` (override with
+`WSLPROXY_GATEWAY_URL`).
+
+### Manual equivalent (from the wslproxy repo)
+
+```bash
+cd wslproxy/api-scripts
+ADMIN_EMAIL="$WSLPROXY_USER" ADMIN_PASSWORD="$WSLPROXY_PASSWORD" GATEWAY_URL="$GW" \
+  ./auth/login.sh
+./servers/create-server.sh /path/to/wslproxy-server.json
+```
+
+If the host needs binding into a routing rule/upstream (as the other RP hosts
+are), attach it with `api-scripts/servers/attach-rule.sh` — the deploy step logs
+a reminder when it creates a fresh vhost.
 
 ## Verify
 
