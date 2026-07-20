@@ -18,19 +18,25 @@ outside the cluster:
 2. **A wslproxy vhost (tenant)** for the host on the pop0 edge, backing onto the
    k3s1 Traefik addresses — the same pattern used for `rp.workstation.co.uk`.
 
-## Register the vhost — automated by the deploy workflow
+## Register the vhost — automated by the deploy workflow (on push to main)
 
-The deploy workflow registers the vhost via the **wslproxy admin API** using the
-`WSLPROXY_USER` / `WSLPROXY_PASSWORD` repo secrets (with the server spec
-[`wslproxy-server.json`](./wslproxy-server.json), modeled on the prod RP
-template). It mirrors `wslproxy/api-scripts`:
+The deploy workflow registers the vhost via the **wslproxy admin API** on every
+push to main, using the `WSLPROXY_USER` / `WSLPROXY_PASSWORD` /
+`WSLPROXY_GATEWAY_URL` repo secrets and the server spec
+[`wslproxy-server.json`](./wslproxy-server.json). It mirrors `wslproxy/api-scripts`:
 
 1. **Login** — `POST $GW/api/user/login {email,password}` → `.data.accessToken`.
 2. **Upsert** — `GET $GW/api/servers`; if no server matches
    `ring-promoter.fictionally.org`, `POST $GW/api/servers` with the spec.
 
-`$GW` defaults to `https://pop0.wslproxy.com` (override with
-`WSLPROXY_GATEWAY_URL`).
+- `$GW` = `WSLPROXY_GATEWAY_URL` = **`https://prod-our-v1.wslproxy.com`** (the
+  pop0 admin API backend).
+- The spec attaches **rule `8f161403-8592-1111-6294-9c57974505b0`** — the same
+  routing rule kuard.fictionally.org uses, which points at the k3s1 Traefik
+  backend. That rule (not a `proxy_pass`) is what routes the host into the
+  cluster. SSL is enabled with auto-renew, so pop0 auto-ssl issues a cert.
+
+The pop0 edge picks the new vhost up within ~1 minute via its config-sync cron.
 
 ### Manual equivalent (from the wslproxy repo)
 
