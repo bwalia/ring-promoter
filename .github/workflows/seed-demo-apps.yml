@@ -1,0 +1,295 @@
+name: Seed demo apps (fictionally.org)
+
+# One-shot seeding of ALL Ring Promoter training demo apps onto the live
+# training instance (https://ring-promoter.fictionally.org) and k3s1.
+#
+# It does three things, as three dependent jobs:
+#   1. build  — build + push every demo app image to Docker Hub (docker.io/bwalia)
+#   2. deploy — helm upgrade --install each app's chart into its four ring
+#               namespaces <app>-<int|test|acc|prod>
+#   3. seed   — POST an initial version into the `int` ring via the Ring Promoter
+#               API, for the kubectl-deployed apps only
+#
+# This is a MANUAL, one-shot job (workflow_dispatch only) — it is not wired to
+# push. Re-running it is safe (idempotent namespaces, helm upgrade --install,
+# best-effort seed).
+#
+# Repo secrets used:
+#   DOCKER_USER / DOCKER_PASSWD    Docker Hub push (docker.io/bwalia)
+#   KUBE_CONFIG_DATA_K3S1          base64 kubeconfig for k3s1
+#   RP_URL                         base URL of the training instance (no trailing /)
+#   RP_TOKEN                       bearer token for the training instance /api
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to build/deploy/seed (default: v1)"
+        required: false
+        default: "v1"
+
+concurrency:
+  group: seed-demo-apps
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Build + push every demo app image to Docker Hub.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & push demo images
+    runs-on: [self-hosted, mac-studio]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        run: echo "IMAGE_TAG=${{ github.event.inputs.image_tag || 'v1' }}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWD }}
+
+      - name: Build & push hello-world
+        uses: docker/build-push-action@v5
+        with:
+          context: training/sample-apps/hello-world
+          file: training/sample-apps/hello-world/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            docker.io/bwalia/rp-training-hello-world:${{ env.IMAGE_TAG }}
+            docker.io/bwalia/rp-training-hello-world:latest
+          cache-from: type=gha,scope=hello-world
+          cache-to: type=gha,mode=max,scope=hello-world
+
+      - name: Build & push shopping-cart-api
+        uses: docker/build-push-action@v5
+        with:
+          context: training/sample-apps/shopping-cart
+          file: training/sample-apps/shopping-cart/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            docker.io/bwalia/rp-training-shopping-cart-api:${{ env.IMAGE_TAG }}
+            docker.io/bwalia/rp-training-shopping-cart-api:latest
+          cache-from: type=gha,scope=shopping-cart-api
+          cache-to: type=gha,mode=max,scope=shopping-cart-api
+
+      - name: Build & push shopping-cart-web
+        uses: docker/build-push-action@v5
+        with:
+          context: training/sample-apps/shopping-cart
+          file: training/sample-apps/shopping-cart/Dockerfile.web
+          platforms: linux/amd64
+          push: true
+          tags: |
+            docker.io/bwalia/rp-training-shopping-cart-web:${{ env.IMAGE_TAG }}
+            docker.io/bwalia/rp-training-shopping-cart-web:latest
+          cache-from: type=gha,scope=shopping-cart-web
+          cache-to: type=gha,mode=max,scope=shopping-cart-web
+
+      - name: Build & push bank-api
+        uses: docker/build-push-action@v5
+        with:
+          context: training/sample-apps/bank-api
+          file: training/sample-apps/bank-api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            docker.io/bwalia/rp-training-bank-api:${{ env.IMAGE_TAG }}
+            docker.io/bwalia/rp-training-bank-api:latest
+          cache-from: type=gha,scope=bank-api
+          cache-to: type=gha,mode=max,scope=bank-api
+
+      - name: Build & push image-proc-api
+        uses: docker/build-push-action@v5
+        with:
+          context: training/sample-apps/image-proc
+          file: training/sample-apps/image-proc/Dockerfile
+          target: api
+          platforms: linux/amd64
+          push: true
+          tags: |
+            docker.io/bwalia/rp-training-image-proc-api:${{ env.IMAGE_TAG }}
+            docker.io/bwalia/rp-training-image-proc-api:latest
+          cache-from: type=gha,scope=image-proc-api
+          cache-to: type=gha,mode=max,scope=image-proc-api
+
+      - name: Build & push image-proc-worker
+        uses: docker/build-push-action@v5
+        with:
+          context: training/sample-apps/image-proc
+          file: training/sample-apps/image-proc/Dockerfile
+          target: worker
+          platforms: linux/amd64
+          push: true
+          tags: |
+            docker.io/bwalia/rp-training-image-proc-worker:${{ env.IMAGE_TAG }}
+            docker.io/bwalia/rp-training-image-proc-worker:latest
+          cache-from: type=gha,scope=image-proc-worker
+          cache-to: type=gha,mode=max,scope=image-proc-worker
+
+      - name: Build & push ai-chat
+        uses: docker/build-push-action@v5
+        with:
+          context: training/sample-apps/ai-chat
+          file: training/sample-apps/ai-chat/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            docker.io/bwalia/rp-training-ai-chat:${{ env.IMAGE_TAG }}
+            docker.io/bwalia/rp-training-ai-chat:latest
+          cache-from: type=gha,scope=ai-chat
+          cache-to: type=gha,mode=max,scope=ai-chat
+
+      - name: Build & push operator
+        uses: docker/build-push-action@v5
+        with:
+          context: training/sample-apps/operator
+          file: training/sample-apps/operator/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            docker.io/bwalia/rp-training-operator:${{ env.IMAGE_TAG }}
+            docker.io/bwalia/rp-training-operator:latest
+          cache-from: type=gha,scope=operator
+          cache-to: type=gha,mode=max,scope=operator
+
+  # ---------------------------------------------------------------------------
+  # 2) Deploy each app's chart into its four ring namespaces.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy demo charts (4 rings each)
+    needs: build
+    runs-on: [self-hosted, mac-studio]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        run: echo "IMAGE_TAG=${{ github.event.inputs.image_tag || 'v1' }}" >> "$GITHUB_ENV"
+
+      - name: Configure kubeconfig (k3s1)
+        run: |
+          umask 077
+          echo "${{ secrets.KUBE_CONFIG_DATA_K3S1 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Ensure Helm
+        run: |
+          if ! command -v helm >/dev/null 2>&1; then
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          fi
+          helm version
+
+      - name: Deploy all demo charts into the ring namespaces
+        run: |
+          set -uo pipefail
+          TAG="${IMAGE_TAG}"
+          RINGS="int test acc prod"
+          CHARTS=training/sample-apps
+
+          deploy_app() {
+            local app="$1"; shift
+            for ring in $RINGS; do
+              local ns="${app}-${ring}"
+              echo "::group::${app} -> ${ns}"
+              kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+              helm upgrade --install "$app" "${CHARTS}/${app}/chart" \
+                --namespace "$ns" \
+                --set fullnameOverride="$app" \
+                --set ingress.enabled=false \
+                --wait --timeout 120s "$@" \
+                || echo "::warning::${ns} deploy incomplete"
+              echo "::endgroup::"
+            done
+          }
+
+          # hello-world, bank-api, ai-chat: standard single-image charts.
+          # (bank-api bundles postgres.enabled=true — left on for training.)
+          deploy_app hello-world \
+            --set image.repository=docker.io/bwalia/rp-training-hello-world \
+            --set image.tag="$TAG"
+
+          deploy_app bank-api \
+            --set image.repository=docker.io/bwalia/rp-training-bank-api \
+            --set image.tag="$TAG"
+
+          deploy_app ai-chat \
+            --set image.repository=docker.io/bwalia/rp-training-ai-chat \
+            --set image.tag="$TAG"
+
+          # shopping-cart: multi-component (backend api + frontend web + redis).
+          # Backend and frontend share image.tag; repos are backend.image.repository
+          # and frontend.image.repository. Ingress is gated per-component.
+          deploy_app shopping-cart \
+            --set backend.image.repository=docker.io/bwalia/rp-training-shopping-cart-api \
+            --set frontend.image.repository=docker.io/bwalia/rp-training-shopping-cart-web \
+            --set image.tag="$TAG" \
+            --set backend.ingress.enabled=false \
+            --set frontend.ingress.enabled=false
+
+          # image-proc: multi-component (api + worker + redis). Image ref is
+          # image.registry + "/" + <api|worker>.repository : image.tag.
+          deploy_app image-proc \
+            --set image.registry=docker.io/bwalia \
+            --set api.repository=rp-training-image-proc-api \
+            --set worker.repository=rp-training-image-proc-worker \
+            --set image.tag="$TAG"
+
+          # operator: installs the Greeting CRD + RBAC; already no ingress.
+          deploy_app operator \
+            --set image.repository=docker.io/bwalia/rp-training-operator \
+            --set image.tag="$TAG"
+
+          # kuard: third-party image, status-only health, no version field.
+          # Pinned to the Docker Hub mirror at tag latest (gcr.io is unreachable
+          # from the cluster).
+          deploy_app kuard \
+            --set image.repository=docker.io/jmutai/kuard-amd64 \
+            --set image.tag=latest
+
+          echo "deploy pass complete (warnings above, if any, are non-fatal)."
+
+  # ---------------------------------------------------------------------------
+  # 3) Seed an initial version into `int` via the Ring Promoter API.
+  #    Only the kubectl-deployed apps are seeded — image-proc (k8sjob) and
+  #    operator (github) use special deployers and are excluded.
+  # ---------------------------------------------------------------------------
+  seed:
+    name: Seed initial versions into int
+    needs: deploy
+    runs-on: [self-hosted, mac-studio]
+    steps:
+      - name: Resolve image tag
+        run: echo "IMAGE_TAG=${{ github.event.inputs.image_tag || 'v1' }}" >> "$GITHUB_ENV"
+
+      - name: Seed int ring via Ring Promoter API
+        env:
+          RP_URL: ${{ secrets.RP_URL }}
+          RP_TOKEN: ${{ secrets.RP_TOKEN }}
+        run: |
+          set -uo pipefail
+          TAG="${IMAGE_TAG}"
+
+          seed_app() {
+            local app="$1"; local ver="$2"
+            echo "seeding ${app} -> int @ ${ver}"
+            curl --fail -sS -X POST "$RP_URL/api/apps/${app}/seed" \
+              -H "Authorization: Bearer $RP_TOKEN" \
+              -H 'Content-Type: application/json' \
+              -d "$(printf '{"ring":"int","version":"%s"}' "$ver")" \
+              || echo "::warning::seed ${app} failed"
+          }
+
+          # Go apps carry the built image tag; kuard carries `latest` (no version).
+          seed_app hello-world   "$TAG"
+          seed_app shopping-cart "$TAG"
+          seed_app bank-api      "$TAG"
+          seed_app ai-chat       "$TAG"
+          seed_app kuard         "latest"
+
+          echo "seed pass complete (warnings above, if any, are non-fatal)."
