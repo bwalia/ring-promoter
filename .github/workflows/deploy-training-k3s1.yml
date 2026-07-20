@@ -178,9 +178,14 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: |
           set -euo pipefail
+          # DNS is normally maintained by external-dns from the Ingress
+          # annotations (hostname + target pop0.wslproxy.com). This step is an
+          # explicit, idempotent belt-and-suspenders for zones external-dns does
+          # not manage. It soft-skips when no token is configured, since the
+          # annotations already cover the common case.
           if [ -z "${CF_API_TOKEN:-}" ]; then
-            echo "::error::CF_API_TOKEN not set — cannot manage DNS. Add a Cloudflare token with DNS:Edit on ${ZONE}."
-            exit 1
+            echo "::notice::CF_API_TOKEN not set — relying on external-dns + the Ingress annotations to maintain ${HOST} -> ${CNAME_TARGET}."
+            exit 0
           fi
           api="https://api.cloudflare.com/client/v4"
           auth=(-H "Authorization: Bearer ${CF_API_TOKEN}" -H "Content-Type: application/json")

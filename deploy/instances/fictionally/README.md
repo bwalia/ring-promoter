@@ -4,6 +4,36 @@ A **new, separate** Ring Promoter instance on k3s1 that manages the seven
 training apps. It does not touch the workstation instance
 (`workstation-ring-promoter`) or the diytaxreturn instance (`ring-system`).
 
+## Automated (recommended): push to main
+
+`.github/workflows/deploy-training-k3s1.yml` does everything on every push to
+`main` (self-hosted `mac-studio` runner): test + validate the training config →
+build/push the image → apply the manifests (namespace, RBAC, ConfigMap from the
+training config, service, ingress) → roll out → ensure the Cloudflare
+**CNAME → pop0.wslproxy.com** → trigger the **wslproxy** vhost registration →
+verify in-cluster and at the public URL.
+
+**Repo secrets** (`gh secret set … -R bwalia/ring-promoter`):
+
+| Secret | Set? | Purpose |
+|--------|------|---------|
+| `KUBE_CONFIG_DATA_K3S1` | ✅ set | base64 kubeconfig for k3s1 (shared) |
+| `DOCKER_USER` / `DOCKER_PASSWD` | ✅ set | Docker Hub push |
+| `CF_API_TOKEN` | optional | Cloudflare DNS:Edit on `fictionally.org`. **Not required** — external-dns already maintains the CNAME from the Ingress annotations; the workflow soft-skips without it. |
+| `WSLPROXY_DISPATCH_TOKEN` | optional | PAT to auto-dispatch the wslproxy register-domains workflow. Without it the step warns and you register the vhost manually ([wslproxy-vhost.md](./wslproxy-vhost.md)). |
+
+**One-time bootstrap the workflow can't do** (CI never creates secrets): create
+the Postgres DB/role `ringpromoter_training` and the `ring-promoter` Secret in
+the namespace (steps 1–2 below). After that, merging to `main` deploys.
+
+> DNS note: `ring-promoter.fictionally.org` already resolves to
+> `pop0.wslproxy.com` (verified). The remaining gate is the wslproxy vhost — the
+> public health check fails with "Host not configured" until it's registered.
+
+---
+
+## Manual runbook (for the first bootstrap, or a cluster without the workflow)
+
 | | |
 |---|---|
 | Namespace | `fictionally-ring-promoter` (+ `ring-exec` for k8sjob Jobs) |
