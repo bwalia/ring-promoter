@@ -43,10 +43,10 @@ apps:
   - name: hello-world
     display_name: "Hello World"
     rings:
-      int:  { namespace: hello-world-int,  deployment: hello-world, container: hello-world, image: ghcr.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-int.svc.cluster.local/healthz",  health_version_field: version }
-      test: { namespace: hello-world-test, deployment: hello-world, container: hello-world, image: ghcr.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-test.svc.cluster.local/healthz", health_version_field: version }
-      acc:  { namespace: hello-world-acc,  deployment: hello-world, container: hello-world, image: ghcr.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-acc.svc.cluster.local/healthz",  health_version_field: version }
-      prod: { namespace: hello-world-prod, deployment: hello-world, container: hello-world, image: ghcr.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-prod.svc.cluster.local/healthz", health_version_field: version }
+      int:  { namespace: hello-world-int,  deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-int.svc.cluster.local/healthz",  health_version_field: version }
+      test: { namespace: hello-world-test, deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-test.svc.cluster.local/healthz", health_version_field: version }
+      acc:  { namespace: hello-world-acc,  deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-acc.svc.cluster.local/healthz",  health_version_field: version }
+      prod: { namespace: hello-world-prod, deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-prod.svc.cluster.local/healthz", health_version_field: version }
 
   # 2) kuard — canonical demo on a THIRD-PARTY image, STATUS-ONLY health check
   #    (kuard's /healthy returns 200 but reports no version). Blue/green via the
@@ -55,10 +55,10 @@ apps:
   - name: kuard
     display_name: "KUARD Demo"
     rings:
-      int:  { namespace: kuard-int,  deployment: kuard, container: kuard, image: gcr.io/kuar-demo/kuard-amd64, health_url: "http://kuard.kuard-int.svc.cluster.local/healthy" }
-      test: { namespace: kuard-test, deployment: kuard, container: kuard, image: gcr.io/kuar-demo/kuard-amd64, health_url: "http://kuard.kuard-test.svc.cluster.local/healthy" }
-      acc:  { namespace: kuard-acc,  deployment: kuard, container: kuard, image: gcr.io/kuar-demo/kuard-amd64, health_url: "http://kuard.kuard-acc.svc.cluster.local/healthy" }
-      prod: { namespace: kuard-prod, deployment: kuard, container: kuard, image: gcr.io/kuar-demo/kuard-amd64, health_url: "http://kuard.kuard-prod.svc.cluster.local/healthy" }
+      int:  { namespace: kuard-int,  deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-int.svc.cluster.local/healthy" }
+      test: { namespace: kuard-test, deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-test.svc.cluster.local/healthy" }
+      acc:  { namespace: kuard-acc,  deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-acc.svc.cluster.local/healthy" }
+      prod: { namespace: kuard-prod, deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-prod.svc.cluster.local/healthy" }
 
   # 3) shopping-cart — multi-service (backend+frontend+redis). Promoted together
   #    as a GROUP (create it from the UI/API — see Lab 07). Feature focus:
@@ -66,10 +66,10 @@ apps:
   - name: shopping-cart
     display_name: "Shopping Cart"
     rings:
-      int:  { namespace: shopping-cart-int,  deployment: shopping-cart, container: api, image: ghcr.io/bwalia/rp-training-shopping-cart, health_url: "http://shopping-cart.shopping-cart-int.svc.cluster.local/healthz",  health_version_field: version }
-      test: { namespace: shopping-cart-test, deployment: shopping-cart, container: api, image: ghcr.io/bwalia/rp-training-shopping-cart, health_url: "http://shopping-cart.shopping-cart-test.svc.cluster.local/healthz", health_version_field: version }
-      acc:  { namespace: shopping-cart-acc,  deployment: shopping-cart, container: api, image: ghcr.io/bwalia/rp-training-shopping-cart, health_url: "http://shopping-cart.shopping-cart-acc.svc.cluster.local/healthz",  health_version_field: version }
-      prod: { namespace: shopping-cart-prod, deployment: shopping-cart, container: api, image: ghcr.io/bwalia/rp-training-shopping-cart, health_url: "http://shopping-cart.shopping-cart-prod.svc.cluster.local/healthz", health_version_field: version }
+      int:  { namespace: shopping-cart-int,  deployment: shopping-cart, container: api, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart.shopping-cart-int.svc.cluster.local/healthz",  health_version_field: version }
+      test: { namespace: shopping-cart-test, deployment: shopping-cart, container: api, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart.shopping-cart-test.svc.cluster.local/healthz", health_version_field: version }
+      acc:  { namespace: shopping-cart-acc,  deployment: shopping-cart, container: api, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart.shopping-cart-acc.svc.cluster.local/healthz",  health_version_field: version }
+      prod: { namespace: shopping-cart-prod, deployment: shopping-cart, container: api, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart.shopping-cart-prod.svc.cluster.local/healthz", health_version_field: version }
 
   # 4) bank-api — the GOVERNANCE showcase. Demonstrates ALL THREE promotion
   #    gates plus the production password and secrets. Promoting to acc/prod
@@ -96,10 +96,10 @@ apps:
           allowed_statuses: [Approved, "Ready for Release"]
           project_keys: [CR, OPS]
     rings:
-      int:  { namespace: bank-api-int,  deployment: bank-api, container: bank-api, image: ghcr.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-int.svc.cluster.local/healthz",  health_version_field: version }
-      test: { namespace: bank-api-test, deployment: bank-api, container: bank-api, image: ghcr.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-test.svc.cluster.local/healthz", health_version_field: version }
-      acc:  { namespace: bank-api-acc,  deployment: bank-api, container: bank-api, image: ghcr.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-acc.svc.cluster.local/healthz",  health_version_field: version }
-      prod: { namespace: bank-api-prod, deployment: bank-api, container: bank-api, image: ghcr.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-prod.svc.cluster.local/healthz", health_version_field: version }
+      int:  { namespace: bank-api-int,  deployment: bank-api, container: bank-api, image: docker.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-int.svc.cluster.local/healthz",  health_version_field: version }
+      test: { namespace: bank-api-test, deployment: bank-api, container: bank-api, image: docker.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-test.svc.cluster.local/healthz", health_version_field: version }
+      acc:  { namespace: bank-api-acc,  deployment: bank-api, container: bank-api, image: docker.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-acc.svc.cluster.local/healthz",  health_version_field: version }
+      prod: { namespace: bank-api-prod, deployment: bank-api, container: bank-api, image: docker.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-prod.svc.cluster.local/healthz", health_version_field: version }
 
   # 5) image-proc — deployed via the K8SJOB deployer (each deploy runs as a
   #    Kubernetes Job executing a deploy script). Version-aware health via a
@@ -130,10 +130,10 @@ apps:
   - name: ai-chat
     display_name: "AI Chat Service"
     rings:
-      int:  { namespace: ai-chat-int,  deployment: ai-chat, container: ai-chat, image: ghcr.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-int.svc.cluster.local/healthz",  health_version_field: version }
-      test: { namespace: ai-chat-test, deployment: ai-chat, container: ai-chat, image: ghcr.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-test.svc.cluster.local/healthz", health_version_field: version }
-      acc:  { namespace: ai-chat-acc,  deployment: ai-chat, container: ai-chat, image: ghcr.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-acc.svc.cluster.local/healthz",  health_version_field: version, ref: release }
-      prod: { namespace: ai-chat-prod, deployment: ai-chat, container: ai-chat, image: ghcr.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-prod.svc.cluster.local/healthz", health_version_field: version }
+      int:  { namespace: ai-chat-int,  deployment: ai-chat, container: ai-chat, image: docker.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-int.svc.cluster.local/healthz",  health_version_field: version }
+      test: { namespace: ai-chat-test, deployment: ai-chat, container: ai-chat, image: docker.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-test.svc.cluster.local/healthz", health_version_field: version }
+      acc:  { namespace: ai-chat-acc,  deployment: ai-chat, container: ai-chat, image: docker.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-acc.svc.cluster.local/healthz",  health_version_field: version, ref: release }
+      prod: { namespace: ai-chat-prod, deployment: ai-chat, container: ai-chat, image: docker.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-prod.svc.cluster.local/healthz", health_version_field: version }
 
   # 7) operator — a Kubernetes operator released BY TAG via the GITHUB deployer
   #    (version_as_ref: dispatch the release workflow on the deployed tag). It
