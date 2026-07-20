@@ -109,19 +109,36 @@ apps:
     display_name: "Image Processing"
     deployer: k8sjob
     k8sjob:
-      image: ghcr.io/bwalia/rp-deploy-runner:v1
-      command: ["/scripts/deploy.sh"]
+      namespace: ring-exec
+      # Public helm+kubectl image — the bespoke ghcr.io/bwalia/rp-deploy-runner
+      # image was never published, so the Job used a generic tool image instead.
+      # The Job runs as the namespaced ring-deploy-job SA (Jobs in ring-exec +
+      # per-ring deploy rights) and rolls image-proc's Deployments to the
+      # promoted version: a real, idempotent deploy against the running app.
+      image: docker.io/dtzar/helm-kubectl:latest
       service_account: ring-deploy-job
-      env_from_secrets: [image-proc-deploy]
-      resources: { cpu_request: 250m, memory_limit: 512Mi }
-      timeout: 20m
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -eu
+          ns="image-proc-${RP_TARGET_ENV}"
+          echo "deploy image-proc ${RP_VERSION} -> ${ns}"
+          kubectl -n "$ns" set image deployment/image-proc-api \
+            api=docker.io/bwalia/rp-training-image-proc-api:${RP_VERSION}
+          kubectl -n "$ns" set image deployment/image-proc-worker \
+            worker=docker.io/bwalia/rp-training-image-proc-worker:${RP_VERSION}
+          kubectl -n "$ns" rollout status deployment/image-proc-api --timeout=120s
+          kubectl -n "$ns" rollout status deployment/image-proc-worker --timeout=120s
+          echo "image-proc ${RP_VERSION} live in ${ns}"
+      resources: { cpu_request: 100m, memory_limit: 256Mi }
+      timeout: 10m
       retries: 0
       ttl_after_finished: 1h
     rings:
-      int:  { namespace: image-proc-int,  target_env: int,  health_url: "http://image-proc.image-proc-int.svc.cluster.local/healthz",  health_version_header: X-App-Version }
-      test: { namespace: image-proc-test, target_env: test, health_url: "http://image-proc.image-proc-test.svc.cluster.local/healthz", health_version_header: X-App-Version }
-      acc:  { namespace: image-proc-acc,  target_env: acc,  health_url: "http://image-proc.image-proc-acc.svc.cluster.local/healthz",  health_version_header: X-App-Version }
-      prod: { namespace: image-proc-prod, target_env: prod, health_url: "http://image-proc.image-proc-prod.svc.cluster.local/healthz", health_version_header: X-App-Version }
+      int:  { namespace: image-proc-int,  target_env: int,  health_url: "http://image-proc-api.image-proc-int.svc.cluster.local/healthz",  health_version_header: X-App-Version }
+      test: { namespace: image-proc-test, target_env: test, health_url: "http://image-proc-api.image-proc-test.svc.cluster.local/healthz", health_version_header: X-App-Version }
+      acc:  { namespace: image-proc-acc,  target_env: acc,  health_url: "http://image-proc-api.image-proc-acc.svc.cluster.local/healthz",  health_version_header: X-App-Version }
+      prod: { namespace: image-proc-prod, target_env: prod, health_url: "http://image-proc-api.image-proc-prod.svc.cluster.local/healthz", health_version_header: X-App-Version }
 
   # 6) ai-chat — kubectl deployer with a REF-PINNED acceptance ring: acc always
   #    ships the ":release" tag regardless of what was promoted (int/test carry

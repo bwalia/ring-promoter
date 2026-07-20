@@ -129,6 +129,38 @@ Each app is deployed per ring with its Helm chart — see
 [`training/config/README.md`](../../../training/config/README.md) and
 [Lab 01](../../../training/labs/lab-01-first-deployment.md).
 
+## 8. Special-deployer prerequisites (image-proc + operator)
+
+Five apps use the in-process kubectl deployer and need nothing extra. The two
+"advanced deployer" apps each need a one-time bootstrap, without which they
+cannot be seeded/promoted (they were originally excluded from the seed workflow
+for exactly this reason):
+
+- **image-proc (`k8sjob`)** — each deploy runs as a Job in `ring-exec` under the
+  `ring-deploy-job` ServiceAccount. Apply that SA + RBAC:
+
+  ```bash
+  kubectl apply -f deploy/instances/fictionally/ring-exec-rbac.yaml
+  ```
+
+  The deploy image is public (`docker.io/dtzar/helm-kubectl`); no pull secret is
+  required. If you swap in a private deploy image, add a pull secret to
+  `ring-exec` and attach it to `ring-deploy-job` (see that file's header).
+
+- **operator (`github`)** — the deployer dispatches `release.yml` in
+  `bwalia/rp-training-operator` on the deployed version's tag (`version_as_ref`)
+  and waits for the run to succeed. It requires:
+  - the **repo to exist** with `release.yml` (declaring the `ENV`,
+    `DEPLOY_BRANCH`, `DEPLOY_MODE` workflow_dispatch inputs) and a **`v1` tag**;
+  - the repo **public** (or an Actions budget on the account — private-repo
+    Actions consume billed minutes and fail closed when the budget is spent);
+  - a real **`RP_GITHUB_TOKEN`** in the `ring-promoter` Secret with rights to
+    resolve refs and dispatch Actions on that repo (the placeholder `ci` token
+    only works for the in-memory CI smoke test).
+
+  Prod is `maintenance_window`-gated: open a window before seeding/promoting to
+  `prod` (`POST /api/apps/operator/maintenance-windows`).
+
 ## Rebuild the Ring Promoter image (if needed)
 
 The image `docker.io/bwalia/ring-promoter:latest` is built from the repo root
