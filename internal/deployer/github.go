@@ -1,103 +1,42 @@
 package deployer
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"strings"
-	"time"
+
+	"github.com/example/ring-promoter/internal/executor"
+	ghexec "github.com/example/ring-promoter/internal/executor/github"
 )
 
-// GitHubActionsDeployer deploys an application by triggering an existing GitHub
-// Actions workflow via the workflow-dispatch API and then waiting for that run
-// to complete. It is the deploy mechanism for applications that are NOT on
-// Kubernetes but already have a CI/CD pipeline that ships to their VMs — for
-// example wslproxy, whose delivery pipeline builds the requested ref and rolls
-// it out to the OpenResty hosts of a given environment (reloading OpenResty on
-// each host).
-//
-// The version acted upon is passed as the workflow's DEPLOY_BRANCH input (a git
-// branch, tag or commit SHA that the pipeline checks out). The ring is mapped
-// to the environment via Target.TargetEnv, sent as the TARGET_ENV input.
-//
-// Deploy returns a non-nil error unless the dispatched run concludes with
-// "success", so Ring Promoter's health-check + auto-rollback logic works
-// unchanged: a failed pipeline (or a failed post-deploy health check) triggers
-// a rollback that re-dispatches the pipeline for the previous version.
-type GitHubActionsDeployer struct {
-	log  *slog.Logger
-	http httpDoer
-	cfg  GitHubActionsConfig
-}
-
-// httpDoer is the subset of *http.Client used here; it lets tests substitute a
-// fake transport.
+// httpDoer is the subset of *http.Client used by the GitHub backend; it lets
+// tests substitute a fake transport.
 type httpDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// GitHubActionsConfig configures a GitHubActionsDeployer.
-type GitHubActionsConfig struct {
-	// Owner and Repo identify the repository hosting the workflow.
-	Owner string
-	Repo  string
-	// Workflow is the workflow file name (e.g.
-	// "deploy-wslproxy-delivery-pipeline.yml") or its numeric id.
-	Workflow string
-	// Ref is the git ref the workflow itself runs FROM (must be a branch or
-	// tag, e.g. "build"). The version being deployed is a separate input.
-	Ref string
-	// VersionAsRef makes Deploy dispatch the workflow ON the deployed
-	// version's git ref (branch or tag) instead of the static Ref. For
-	// workflows that declare no version input and simply build whatever ref
-	// they run from — e.g. ios_release.yml, where dispatching on a v* tag
-	// releases that tag and dispatching on main releases main. The workflow
-	// file must exist on every ref that can be deployed.
-	VersionAsRef bool
-	// Input names carried on the dispatch. They default to the wslproxy
-	// deploy-single-environment.yml schema but are configurable so this
-	// deployer can drive any workflow-dispatch pipeline.
-	//   EnvInput     <- Target.TargetEnv   (default "ENV")
-	//   VersionInput <- version            (default "DEPLOY_BRANCH")
-	//   ModeInput    <- DeployMode         (default "DEPLOY_MODE"; omitted if empty)
-	//
-	// Set any of these to the sentinel "-" to OMIT that input from the
-	// dispatch entirely. This is needed for workflows whose schema does not
-	// declare the input — GitHub rejects a dispatch carrying an undeclared
-	// input with HTTP 422. For example spectoncr's deploy-spectoncr.yml has no
-	// version or mode input, so it sets version_input and mode_input to "-".
-	EnvInput     string
-	VersionInput string
-	ModeInput    string
-	// DeployMode is the value sent as ModeInput (e.g. "full").
-	DeployMode string
-	// ExtraInputs are additional static inputs sent verbatim on every dispatch.
-	ExtraInputs map[string]string
-	// Token authenticates to the GitHub API (a PAT or App token). It should
-	// come from a secret, never the config file.
-	Token string
-	// APIBaseURL is the GitHub API base (default https://api.github.com).
-	APIBaseURL string
-	// PollInterval is how often the run's status is polled (default 15s).
-	PollInterval time.Duration
-	// RunLookupTimeout bounds how long Deploy waits for the dispatched run to
-	// become visible via the API before giving up (default 60s).
-	RunLookupTimeout time.Duration
-	// ClockSkew is subtracted from the dispatch time when matching the run, to
-	// tolerate clock differences with GitHub (default 60s).
-	ClockSkew time.Duration
-	// MaxRetries is how many extra attempts each API request makes on a
-	// transport error (DNS/TLS/connection failure) before giving up. Transport
-	// errors mean no response was received, so retrying is safe (default 3).
-	MaxRetries int
-	// RetryBackoff is the base linear backoff between transport-error retries
-	// (attempt N waits N*RetryBackoff; default 2s).
-	RetryBackoff time.Duration
+// GitHubActionsConfig configures a GitHubActionsDeployer. The configuration
+// lives with the GitHub execution backend; this alias keeps the deployer-level
+// name stable.
+type GitHubActionsConfig = ghexec.Config
+
+// GitHubActionsDeployer deploys an application by triggering an existing
+// GitHub Actions workflow and waiting for that run to complete. It is a thin
+// composition over the execution abstraction: the GitHub backend
+// (internal/executor/github) dispatches and tracks the run, and the embedded
+// ExecDeployer adapts it to the Deployer contract — Deploy returns a non-nil
+// error unless the run concludes "success", so Ring Promoter's health-check +
+// auto-rollback logic works unchanged.
+//
+// It additionally implements VersionSource: the deployable versions of a
+// github-deployed app are the repository's git refs.
+type GitHubActionsDeployer struct {
+	*ExecDeployer
+	gh    *ghexec.Executor
+	owner string
+	repo  string
 }
 
 // NewGitHubActionsDeployer returns a GitHubActionsDeployer, filling defaults.
@@ -105,299 +44,39 @@ func NewGitHubActionsDeployer(log *slog.Logger, cfg GitHubActionsConfig, client 
 	if log == nil {
 		log = slog.Default()
 	}
-	if client == nil {
-		client = &http.Client{Timeout: 20 * time.Second}
-	}
-	if cfg.APIBaseURL == "" {
-		cfg.APIBaseURL = "https://api.github.com"
-	}
-	cfg.APIBaseURL = strings.TrimRight(cfg.APIBaseURL, "/")
-	if cfg.Ref == "" {
-		cfg.Ref = "build"
-	}
-	if cfg.EnvInput == "" {
-		cfg.EnvInput = "ENV"
-	}
-	if cfg.VersionInput == "" {
-		cfg.VersionInput = "DEPLOY_BRANCH"
-	}
-	if cfg.ModeInput == "" {
-		cfg.ModeInput = "DEPLOY_MODE"
-	}
-	if cfg.DeployMode == "" {
-		cfg.DeployMode = "full"
-	}
-	if cfg.PollInterval <= 0 {
-		cfg.PollInterval = 15 * time.Second
-	}
-	if cfg.RunLookupTimeout <= 0 {
-		cfg.RunLookupTimeout = 60 * time.Second
-	}
-	if cfg.ClockSkew <= 0 {
-		cfg.ClockSkew = 60 * time.Second
-	}
-	if cfg.MaxRetries <= 0 {
-		cfg.MaxRetries = 3
-	}
-	if cfg.RetryBackoff <= 0 {
-		cfg.RetryBackoff = 2 * time.Second
-	}
-	return &GitHubActionsDeployer{log: log, http: client, cfg: cfg}
-}
+	ex := ghexec.New(log, cfg, client)
 
-// Deploy implements Deployer: dispatch the workflow for (TargetEnv, version)
-// and wait for the resulting run to conclude successfully.
-func (d *GitHubActionsDeployer) Deploy(ctx context.Context, t Target, version string) error {
-	if t.TargetEnv == "" {
-		return fmt.Errorf("github deployer: no target_env configured for %s ring %s", t.App, t.Ring)
-	}
-	if d.cfg.Token == "" {
-		return fmt.Errorf("github deployer: no API token configured for %s", t.App)
+	// Map the promotion vocabulary onto the runner contract: the GitHub
+	// backend reads the target environment and version from the Spec's env.
+	specFor := func(t Target, version string) (executor.Spec, error) {
+		return executor.Spec{
+			App:  t.App,
+			Ring: t.Ring,
+			Env: map[string]string{
+				executor.EnvTargetEnv: t.TargetEnv,
+				executor.EnvVersion:   version,
+			},
+		}, nil
 	}
 
-	// Record when we dispatch so we can find the run we just created. Subtract
-	// the skew to tolerate clock differences with GitHub's servers.
-	since := time.Now().Add(-d.cfg.ClockSkew)
-
-	d.log.Info("github deploy: dispatching workflow",
-		"app", t.App, "ring", t.Ring, "env", t.TargetEnv, "version", version,
-		"workflow", d.cfg.Workflow, "ref", d.cfg.Ref)
-
-	if err := d.dispatch(ctx, t.TargetEnv, version); err != nil {
-		return fmt.Errorf("dispatch workflow: %w", err)
-	}
-
-	run, err := d.findRun(ctx, since)
-	if err != nil {
-		return fmt.Errorf("locate dispatched run: %w", err)
-	}
-	d.log.Info("github deploy: run started",
-		"app", t.App, "ring", t.Ring, "run_id", run.ID, "url", run.HTMLURL)
-
-	if err := d.waitForRun(ctx, run.ID); err != nil {
-		return err
-	}
-	d.log.Info("github deploy: run succeeded",
-		"app", t.App, "ring", t.Ring, "run_id", run.ID, "url", run.HTMLURL)
-	return nil
-}
-
-// sendInput reports whether a dispatch input with the given configured name
-// should be sent. The "-" sentinel means "omit". (An empty name is also
-// treated as omit defensively, but note NewGitHubActionsDeployer defaults empty
-// Env/Version/Mode input names to ENV/DEPLOY_BRANCH/DEPLOY_MODE, so a name only
-// reaches here empty if a caller sets one explicitly — normal config uses "-".)
-func sendInput(name string) bool { return name != "" && name != "-" }
-
-// dispatch triggers the workflow via the workflow-dispatch API.
-func (d *GitHubActionsDeployer) dispatch(ctx context.Context, env, version string) error {
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/actions/workflows/%s/dispatches",
-		d.cfg.APIBaseURL, d.cfg.Owner, d.cfg.Repo, url.PathEscape(d.cfg.Workflow))
-
-	// An input whose configured name is the "-" sentinel is omitted: GitHub
-	// 422s on any input the target workflow does not declare, so a workflow
-	// lacking a version/mode input (e.g. spectoncr) sets those names to "-" and
-	// only its declared inputs get sent. (Blank names were already defaulted by
-	// the constructor, so they are sent, not omitted.)
-	inputs := map[string]string{}
-	if name := d.cfg.EnvInput; sendInput(name) {
-		inputs[name] = env
-	}
-	if name := d.cfg.VersionInput; sendInput(name) {
-		inputs[name] = version
-	}
-	if name := d.cfg.ModeInput; sendInput(name) && d.cfg.DeployMode != "" {
-		inputs[name] = d.cfg.DeployMode
-	}
-	for k, v := range d.cfg.ExtraInputs {
-		inputs[k] = v
-	}
-
-	// The ref the workflow runs from: static by default; the version itself
-	// for VersionAsRef workflows (they build whatever ref they run on).
-	ref := d.cfg.Ref
-	if d.cfg.VersionAsRef && version != "" {
-		ref = version
-	}
-	body, err := json.Marshal(map[string]any{
-		"ref":    ref,
-		"inputs": inputs,
-	})
-	if err != nil {
-		return err
-	}
-
-	resp, err := d.do(ctx, http.MethodPost, endpoint, body)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	// A successful dispatch returns 204 No Content.
-	if resp.StatusCode != http.StatusNoContent {
-		return apiError("workflow dispatch", resp)
-	}
-	return nil
-}
-
-// findRun polls the workflow's run list until a workflow_dispatch run created
-// at/after `since` appears, returning the newest such run.
-func (d *GitHubActionsDeployer) findRun(ctx context.Context, since time.Time) (ghRun, error) {
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/actions/workflows/%s/runs?event=workflow_dispatch&per_page=20",
-		d.cfg.APIBaseURL, d.cfg.Owner, d.cfg.Repo, url.PathEscape(d.cfg.Workflow))
-
-	deadline := time.Now().Add(d.cfg.RunLookupTimeout)
-	// Poll a little faster than the run poll while we wait for the run to appear.
-	lookupDelay := d.cfg.PollInterval
-	if lookupDelay > 5*time.Second {
-		lookupDelay = 5 * time.Second
-	}
-
-	for {
-		var latest ghRun
-		found := false
-
-		resp, err := d.do(ctx, http.MethodGet, endpoint, nil)
-		if err != nil {
-			return ghRun{}, err
-		}
-		var runs ghRunsResponse
-		derr := decode(resp, &runs)
-		if derr != nil {
-			return ghRun{}, derr
-		}
-		for _, r := range runs.WorkflowRuns {
-			if r.CreatedAt.Before(since) {
-				continue
-			}
-			if !found || r.CreatedAt.After(latest.CreatedAt) || (r.CreatedAt.Equal(latest.CreatedAt) && r.ID > latest.ID) {
-				latest = r
-				found = true
-			}
-		}
-		if found {
-			return latest, nil
-		}
-
-		if time.Now().After(deadline) {
-			return ghRun{}, fmt.Errorf("no workflow_dispatch run appeared within %s", d.cfg.RunLookupTimeout)
-		}
-		if err := sleep(ctx, lookupDelay); err != nil {
-			return ghRun{}, err
-		}
+	return &GitHubActionsDeployer{
+		ExecDeployer: FromExecutor(log, ex, specFor, ex.PollInterval()),
+		gh:           ex,
+		owner:        cfg.Owner,
+		repo:         cfg.Repo,
 	}
 }
-
-// waitForRun polls a run until it completes, returning nil only when its
-// conclusion is "success".
-func (d *GitHubActionsDeployer) waitForRun(ctx context.Context, runID int64) error {
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/actions/runs/%d",
-		d.cfg.APIBaseURL, d.cfg.Owner, d.cfg.Repo, runID)
-
-	for {
-		resp, err := d.do(ctx, http.MethodGet, endpoint, nil)
-		if err != nil {
-			return err
-		}
-		var run ghRun
-		if derr := decode(resp, &run); derr != nil {
-			return derr
-		}
-		if run.Status == "completed" {
-			if run.Conclusion == "success" {
-				return nil
-			}
-			return fmt.Errorf("workflow run concluded %q (see %s)", run.Conclusion, run.HTMLURL)
-		}
-		if err := sleep(ctx, d.cfg.PollInterval); err != nil {
-			return err
-		}
-	}
-}
-
-// do performs an authenticated GitHub API request, retrying on transport
-// errors (DNS/TLS handshake/connection failures) with linear backoff. A
-// transport error means the request never got a response, so retrying is safe
-// even for the dispatch POST — e.g. a "TLS handshake timeout" reaching
-// api.github.com is retried rather than failing the whole deploy.
-func (d *GitHubActionsDeployer) do(ctx context.Context, method, endpoint string, body []byte) (*http.Response, error) {
-	var lastErr error
-	for attempt := 0; ; attempt++ {
-		var rdr io.Reader
-		if body != nil {
-			rdr = bytes.NewReader(body)
-		}
-		req, err := http.NewRequestWithContext(ctx, method, endpoint, rdr)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Accept", "application/vnd.github+json")
-		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-		req.Header.Set("Authorization", "Bearer "+d.cfg.Token)
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
-
-		resp, err := d.http.Do(req)
-		if err == nil {
-			return resp, nil
-		}
-		lastErr = err
-		if attempt >= d.cfg.MaxRetries {
-			return nil, lastErr
-		}
-		backoff := time.Duration(attempt+1) * d.cfg.RetryBackoff
-		d.log.Warn("github api transient error, retrying",
-			"method", method, "attempt", attempt+1, "max", d.cfg.MaxRetries,
-			"backoff", backoff.String(), "err", err)
-		if serr := sleep(ctx, backoff); serr != nil {
-			return nil, serr
-		}
-	}
-}
-
-// ---- VersionSource: the versions of a github-deployed app are git refs ----
 
 // ListVersions implements VersionSource: the deployable versions are the
-// repository's branches and tags (branches first). Paginated up to a sane cap;
-// a repo with more refs than that should be seeded by exact name/SHA instead.
+// repository's branches and tags (branches first).
 func (d *GitHubActionsDeployer) ListVersions(ctx context.Context) ([]Version, error) {
-	if d.cfg.Token == "" {
-		return nil, fmt.Errorf("github deployer: no API token configured")
-	}
-	branches, err := d.listRefs(ctx, "branches", "branch")
+	refs, err := d.gh.ListRefs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list branches: %w", err)
+		return nil, err
 	}
-	tags, err := d.listRefs(ctx, "tags", "tag")
-	if err != nil {
-		return nil, fmt.Errorf("list tags: %w", err)
-	}
-	return append(branches, tags...), nil
-}
-
-// listRefs pages through /repos/{owner}/{repo}/{branches|tags}.
-func (d *GitHubActionsDeployer) listRefs(ctx context.Context, endpoint, typ string) ([]Version, error) {
-	const perPage, maxPages = 100, 3
-	var out []Version
-	for page := 1; page <= maxPages; page++ {
-		u := fmt.Sprintf("%s/repos/%s/%s/%s?per_page=%d&page=%d",
-			d.cfg.APIBaseURL, d.cfg.Owner, d.cfg.Repo, endpoint, perPage, page)
-		resp, err := d.do(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			return nil, err
-		}
-		var refs []struct {
-			Name string `json:"name"`
-		}
-		if err := decode(resp, &refs); err != nil {
-			return nil, err
-		}
-		for _, r := range refs {
-			out = append(out, Version{Name: r.Name, Type: typ})
-		}
-		if len(refs) < perPage {
-			break
-		}
+	out := make([]Version, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, Version{Name: r.Name, Type: r.Type})
 	}
 	return out, nil
 }
@@ -405,69 +84,10 @@ func (d *GitHubActionsDeployer) listRefs(ctx context.Context, endpoint, typ stri
 // ValidateVersion implements VersionSource: a version is valid when GitHub can
 // resolve it to a commit — which covers branches, tags and (abbreviated) SHAs.
 func (d *GitHubActionsDeployer) ValidateVersion(ctx context.Context, version string) error {
-	if d.cfg.Token == "" {
-		return fmt.Errorf("github deployer: no API token configured")
-	}
-	u := fmt.Sprintf("%s/repos/%s/%s/commits/%s",
-		d.cfg.APIBaseURL, d.cfg.Owner, d.cfg.Repo, url.PathEscape(version))
-	resp, err := d.do(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	switch {
-	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		return nil
-	// GitHub answers 404 for unknown refs and 422 for malformed ones.
-	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnprocessableEntity:
+	err := d.gh.ResolveRef(ctx, version)
+	if errors.Is(err, ghexec.ErrRefNotFound) {
 		return fmt.Errorf("%w: %q does not resolve in %s/%s",
-			ErrVersionNotFound, version, d.cfg.Owner, d.cfg.Repo)
-	default:
-		return apiError("resolve version", resp)
+			ErrVersionNotFound, version, d.owner, d.repo)
 	}
-}
-
-// ghRun is the subset of a GitHub Actions workflow run we consume.
-type ghRun struct {
-	ID         int64     `json:"id"`
-	Status     string    `json:"status"`
-	Conclusion string    `json:"conclusion"`
-	HTMLURL    string    `json:"html_url"`
-	CreatedAt  time.Time `json:"created_at"`
-	Event      string    `json:"event"`
-	HeadBranch string    `json:"head_branch"`
-}
-
-type ghRunsResponse struct {
-	WorkflowRuns []ghRun `json:"workflow_runs"`
-}
-
-// decode reads and JSON-decodes a 2xx response body, or turns a non-2xx into an
-// error. It always closes the body.
-func decode(resp *http.Response, v any) error {
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return apiError("github api", resp)
-	}
-	return json.NewDecoder(resp.Body).Decode(v)
-}
-
-// apiError builds an error including the status and a snippet of the body.
-func apiError(what string, resp *http.Response) error {
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	msg := strings.TrimSpace(string(b))
-	if msg == "" {
-		return fmt.Errorf("%s: unexpected status %d", what, resp.StatusCode)
-	}
-	return fmt.Errorf("%s: status %d: %s", what, resp.StatusCode, msg)
-}
-
-// sleep waits for d or until ctx is cancelled.
-func sleep(ctx context.Context, d time.Duration) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(d):
-		return nil
-	}
+	return err
 }

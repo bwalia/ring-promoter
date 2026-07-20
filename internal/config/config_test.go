@@ -229,3 +229,110 @@ apps:
 		t.Fatal("expected error for unknown per-app deployer")
 	}
 }
+
+// ---- k8sjob deployer ----
+
+const k8sjobApp = `
+apps:
+  - name: myapp
+    deployer: k8sjob
+    k8sjob:
+      image: ghcr.io/bwalia/deploy-runner:v1
+      command: ["/scripts/deploy.sh"]
+      env: { DEPLOY_FLAVOR: full }
+      env_from_secrets: [myapp-deploy-credentials]
+      service_account: ring-deploy-job
+      resources: { cpu_request: 250m, memory_limit: 512Mi }
+      timeout: 45m
+      retries: 2
+      ttl_after_finished: 2h
+    rings:
+      int:  { target_env: int,  health_url: "http://int/health" }
+      test: { target_env: test, health_url: "http://test/health" }
+`
+
+func TestK8sJobDeployer_ValidAndDefaults(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	cfg, err := Load(writeConfig(t, k8sjobApp))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	app, ok := cfg.App("myapp")
+	if !ok {
+		t.Fatal("myapp missing")
+	}
+	if cfg.DeployerFor(app) != DeployerK8sJob {
+		t.Fatalf("DeployerFor = %q, want k8sjob", cfg.DeployerFor(app))
+	}
+	j := app.K8sJob
+	if j.ResolvedNamespace() != "ring-exec" {
+		t.Fatalf("default namespace = %q", j.ResolvedNamespace())
+	}
+	if j.ResolvedTimeout().Minutes() != 45 {
+		t.Fatalf("timeout = %s", j.ResolvedTimeout())
+	}
+	if j.ResolvedRetries() != 2 {
+		t.Fatalf("retries = %d", j.ResolvedRetries())
+	}
+	if j.ResolvedTTL().Hours() != 2 {
+		t.Fatalf("ttl = %s", j.ResolvedTTL())
+	}
+	if j.ResolvedPollInterval().Seconds() != 3 {
+		t.Fatalf("default poll = %s", j.ResolvedPollInterval())
+	}
+	if j.Env["DEPLOY_FLAVOR"] != "full" || j.EnvFromSecrets[0] != "myapp-deploy-credentials" {
+		t.Fatalf("k8sjob block parsed wrong: %+v", j)
+	}
+}
+
+func TestK8sJobDeployer_RequiresBlock(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	body := `
+apps:
+  - name: myapp
+    deployer: k8sjob
+    rings:
+      int: { health_url: "http://int/health" }
+`
+	if _, err := Load(writeConfig(t, body)); err == nil {
+		t.Fatal("expected error: k8sjob deployer without k8sjob block")
+	}
+}
+
+func TestK8sJobDeployer_RequiresImage(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	body := `
+apps:
+  - name: myapp
+    deployer: k8sjob
+    k8sjob: { namespace: ring-exec }
+    rings:
+      int: { health_url: "http://int/health" }
+`
+	if _, err := Load(writeConfig(t, body)); err == nil {
+		t.Fatal("expected error: k8sjob block without image")
+	}
+}
+
+// An explicit retries: 0 must be honored (no retries), not defaulted away.
+func TestK8sJobDeployer_ZeroRetriesHonored(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	body := `
+apps:
+  - name: myapp
+    deployer: k8sjob
+    k8sjob:
+      image: ghcr.io/x/runner:v1
+      retries: 0
+    rings:
+      int: { health_url: "http://int/health" }
+`
+	cfg, err := Load(writeConfig(t, body))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	app, _ := cfg.App("myapp")
+	if got := app.K8sJob.ResolvedRetries(); got != 0 {
+		t.Fatalf("retries = %d, want 0", got)
+	}
+}

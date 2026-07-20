@@ -22,6 +22,10 @@ const (
 	// deployed to VMs by their own CI/CD, e.g. wslproxy) rather than talking
 	// to Kubernetes. It requires a per-app `github:` block.
 	DeployerGitHub = "github"
+	// DeployerK8sJob runs each deploy as a Kubernetes Job executing the app's
+	// deployment script (see internal/executor/k8sjob). It requires a per-app
+	// `k8sjob:` block.
+	DeployerK8sJob = "k8sjob"
 
 	HealthHTTP   = "http"
 	HealthAlways = "always"
@@ -140,6 +144,9 @@ type AppConfig struct {
 	// GitHub configures the CI-dispatch deployer; required when Deployer is
 	// "github", ignored otherwise.
 	GitHub *GitHubDeployConfig `yaml:"github"`
+	// K8sJob configures the Kubernetes Job deployer; required when Deployer is
+	// "k8sjob", ignored otherwise.
+	K8sJob *K8sJobConfig `yaml:"k8sjob"`
 	// PromotionPolicy adds gates (maintenance windows, QA/release sign-off, a
 	// valid change-request code) that must be satisfied before a version may be
 	// deployed into a sensitive ring. Optional; nil means no extra gating.
@@ -191,6 +198,121 @@ type GitHubDeployConfig struct {
 	// RunLookupTimeout bounds how long to wait for the dispatched run to appear.
 	// Default 60s.
 	RunLookupTimeout *Duration `yaml:"run_lookup_timeout"`
+}
+
+// K8sJobConfig configures the "k8sjob" deployer for one application: each
+// seed/promote/rollback runs as a Kubernetes Job whose container executes the
+// app's deployment script. Ring Promoter injects the runner contract as
+// environment variables (RP_APP, RP_RING, RP_VERSION, RP_TARGET_ENV,
+// RP_EXECUTION_ID); the script signals the outcome through its exit code and
+// its stdout/stderr become the live deploy log.
+type K8sJobConfig struct {
+	// Namespace the Jobs run in. Default "ring-exec".
+	Namespace string `yaml:"namespace"`
+	// Image is the runner image containing the deployment script. Required.
+	// Pin a version (no :latest) — a runner change should ship like any other
+	// version change.
+	Image string `yaml:"image"`
+	// Command and Args override the image's entrypoint, e.g.
+	// command: ["/scripts/deploy.sh"].
+	Command []string `yaml:"command"`
+	Args    []string `yaml:"args"`
+	// Env are additional environment variables, merged with the injected RP_*
+	// contract variables (the contract wins on a name clash).
+	Env map[string]string `yaml:"env"`
+	// EnvFromSecrets / EnvFromConfigMaps expose whole Secrets/ConfigMaps (in
+	// the Job's namespace) to the container as environment. Secret VALUES
+	// never appear in this file — only names.
+	EnvFromSecrets    []string `yaml:"env_from_secrets"`
+	EnvFromConfigMaps []string `yaml:"env_from_config_maps"`
+	// ImagePullSecrets name the registry credentials for pulling Image.
+	ImagePullSecrets []string `yaml:"image_pull_secrets"`
+	// ServiceAccount the Job pods run as. Empty = the namespace's default
+	// ServiceAccount; set "ring-deploy-job" (see deploy/k8s/rbac.yaml) when
+	// the script needs to talk to the cluster.
+	ServiceAccount string          `yaml:"service_account"`
+	Resources      K8sJobResources `yaml:"resources"`
+	// Timeout bounds one Job end-to-end (activeDeadlineSeconds). Default 30m.
+	Timeout *Duration `yaml:"timeout"`
+	// Retries is the Job's backoffLimit: extra attempts after a failed one,
+	// each in a fresh pod. Default 0.
+	Retries *int `yaml:"retries"`
+	// TTLAfterFinished keeps the finished Job (and its logs) inspectable
+	// before Kubernetes garbage-collects it. Default 1h.
+	TTLAfterFinished *Duration          `yaml:"ttl_after_finished"`
+	NodeSelector     map[string]string  `yaml:"node_selector"`
+	Tolerations      []K8sJobToleration `yaml:"tolerations"`
+	// Affinity is a raw Kubernetes affinity object passed through verbatim.
+	Affinity    map[string]any    `yaml:"affinity"`
+	Labels      map[string]string `yaml:"labels"`
+	Annotations map[string]string `yaml:"annotations"`
+	// PollInterval is how often the Job's status is polled. Default 3s.
+	PollInterval *Duration `yaml:"poll_interval"`
+}
+
+// K8sJobResources are the Job container's compute requests/limits, as
+// Kubernetes quantity strings (e.g. "250m", "512Mi").
+type K8sJobResources struct {
+	CPURequest    string `yaml:"cpu_request"`
+	MemoryRequest string `yaml:"memory_request"`
+	CPULimit      string `yaml:"cpu_limit"`
+	MemoryLimit   string `yaml:"memory_limit"`
+}
+
+// K8sJobToleration mirrors a Kubernetes toleration.
+type K8sJobToleration struct {
+	Key      string `yaml:"key"`
+	Operator string `yaml:"operator"`
+	Value    string `yaml:"value"`
+	Effect   string `yaml:"effect"`
+}
+
+// Defaults applied to an unset k8sjob field.
+const (
+	defaultK8sJobNamespace = "ring-exec"
+	defaultK8sJobTimeout   = 30 * time.Minute
+	defaultK8sJobTTL       = time.Hour
+	defaultK8sJobPoll      = 3 * time.Second
+)
+
+// ResolvedNamespace returns the namespace (default if unset).
+func (k *K8sJobConfig) ResolvedNamespace() string {
+	if k.Namespace != "" {
+		return k.Namespace
+	}
+	return defaultK8sJobNamespace
+}
+
+// ResolvedTimeout returns the job timeout (default if unset).
+func (k *K8sJobConfig) ResolvedTimeout() time.Duration {
+	if k.Timeout != nil {
+		return k.Timeout.Std()
+	}
+	return defaultK8sJobTimeout
+}
+
+// ResolvedRetries returns the backoffLimit (default 0; explicit 0 honored).
+func (k *K8sJobConfig) ResolvedRetries() int {
+	if k.Retries != nil {
+		return *k.Retries
+	}
+	return 0
+}
+
+// ResolvedTTL returns the finished-Job retention (default if unset).
+func (k *K8sJobConfig) ResolvedTTL() time.Duration {
+	if k.TTLAfterFinished != nil {
+		return k.TTLAfterFinished.Std()
+	}
+	return defaultK8sJobTTL
+}
+
+// ResolvedPollInterval returns the status poll cadence (default if unset).
+func (k *K8sJobConfig) ResolvedPollInterval() time.Duration {
+	if k.PollInterval != nil {
+		return k.PollInterval.Std()
+	}
+	return defaultK8sJobPoll
 }
 
 // RingConfig describes how to deploy and health-check one application in one
@@ -383,9 +505,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("api token is required (set RP_API_TOKEN or api_token)")
 	}
 	switch c.Deployer {
-	case DeployerKubectl, DeployerLog, DeployerGitHub:
+	case DeployerKubectl, DeployerLog, DeployerGitHub, DeployerK8sJob:
 	default:
-		return fmt.Errorf("unknown deployer %q (want %q, %q or %q)", c.Deployer, DeployerKubectl, DeployerLog, DeployerGitHub)
+		return fmt.Errorf("unknown deployer %q (want %q, %q, %q or %q)", c.Deployer, DeployerKubectl, DeployerLog, DeployerGitHub, DeployerK8sJob)
 	}
 	switch c.Health {
 	case HealthHTTP, HealthAlways:
@@ -460,24 +582,38 @@ func (c *Config) DeployerFor(a AppConfig) string {
 // specific requirements (e.g. github needs a github block + per-ring env).
 func (c *Config) validateAppDeployer(a AppConfig) error {
 	switch a.Deployer {
-	case "", DeployerKubectl, DeployerLog, DeployerGitHub:
+	case "", DeployerKubectl, DeployerLog, DeployerGitHub, DeployerK8sJob:
 	default:
 		return fmt.Errorf("application %q has unknown deployer %q", a.Name, a.Deployer)
 	}
-	if c.DeployerFor(a) != DeployerGitHub {
-		return nil
-	}
-	// github deployer requirements.
-	g := a.GitHub
-	if g == nil {
-		return fmt.Errorf("application %q uses the github deployer but has no `github` block", a.Name)
-	}
-	if g.Owner == "" || g.Repo == "" || g.Workflow == "" {
-		return fmt.Errorf("application %q github block requires owner, repo and workflow", a.Name)
-	}
-	for rname, rc := range a.Rings {
-		if rc.TargetEnv == "" {
-			return fmt.Errorf("application %q ring %q needs target_env for the github deployer", a.Name, rname)
+
+	switch c.DeployerFor(a) {
+	case DeployerGitHub:
+		g := a.GitHub
+		if g == nil {
+			return fmt.Errorf("application %q uses the github deployer but has no `github` block", a.Name)
+		}
+		if g.Owner == "" || g.Repo == "" || g.Workflow == "" {
+			return fmt.Errorf("application %q github block requires owner, repo and workflow", a.Name)
+		}
+		for rname, rc := range a.Rings {
+			if rc.TargetEnv == "" {
+				return fmt.Errorf("application %q ring %q needs target_env for the github deployer", a.Name, rname)
+			}
+		}
+	case DeployerK8sJob:
+		j := a.K8sJob
+		if j == nil {
+			return fmt.Errorf("application %q uses the k8sjob deployer but has no `k8sjob` block", a.Name)
+		}
+		if j.Image == "" {
+			return fmt.Errorf("application %q k8sjob block requires an image", a.Name)
+		}
+		if j.ResolvedRetries() < 0 {
+			return fmt.Errorf("application %q k8sjob retries must not be negative", a.Name)
+		}
+		if j.ResolvedTimeout() <= 0 {
+			return fmt.Errorf("application %q k8sjob timeout must be positive", a.Name)
 		}
 	}
 	return nil

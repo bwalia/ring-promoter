@@ -99,6 +99,27 @@ ollama:
 # offline: seed/promote/rollback exercise the UI + memory store without touching
 # a real cluster or dispatching a workflow (which would need RP_GITHUB_TOKEN).
 # ---------------------------------------------------------------------------
+# A third deploy mechanism is the per-app "k8sjob" deployer: each seed/promote/
+# rollback runs as a Kubernetes Job in the ring-exec namespace, executing YOUR
+# deployment script from a runner image. Ring Promoter injects RP_APP, RP_RING,
+# RP_VERSION, RP_TARGET_ENV and RP_EXECUTION_ID; the script's exit code decides
+# success and its stdout streams into the live job log. Example:
+#
+#   - name: myapp
+#     deployer: k8sjob
+#     k8sjob:
+#       image: ghcr.io/bwalia/deploy-runner:v1   # pin a version, no :latest
+#       command: ["/scripts/deploy.sh"]
+#       service_account: ring-deploy-job          # only if the script needs the cluster
+#       env_from_secrets: [myapp-deploy-credentials]
+#       resources: { cpu_request: 250m, memory_limit: 512Mi }
+#       timeout: 30m        # Job activeDeadlineSeconds
+#       retries: 0          # Job backoffLimit
+#       ttl_after_finished: 1h
+#     rings:
+#       int: { target_env: int, health_url: "http://..." }
+#
+# Requires the ring-exec namespace + executor RBAC from deploy/k8s/.
 apps:
   - name: wslproxy
     display_name: "diytaxreturn proxy"

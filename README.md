@@ -72,11 +72,12 @@ in **configuration**, not code.
 
 ### Clean, swappable interfaces
 
-| Concern      | Interface            | Production impls                          | Local/dev impl        |
-|--------------|----------------------|-------------------------------------------|-----------------------|
-| Deploy       | `deployer.Deployer`  | `KubectlDeployer`, `GitHubActionsDeployer`| `LogDeployer` (no-op) |
-| Health check | `health.Checker`     | `HTTPChecker`                             | `AlwaysHealthy`       |
-| Persistence  | `store.Store`        | `Postgres`                                | `Memory`              |
+| Concern      | Interface            | Production impls                                    | Local/dev impl        |
+|--------------|----------------------|------------------------------------------------------|-----------------------|
+| Deploy       | `deployer.Deployer`  | `KubectlDeployer`, `GitHubActionsDeployer`, `k8sjob` | `LogDeployer` (no-op) |
+| Execution    | `executor.Executor`  | GitHub Actions (`executor/github`), Kubernetes Jobs (`executor/k8sjob`) | scripted fakes |
+| Health check | `health.Checker`     | `HTTPChecker`                                        | `AlwaysHealthy`       |
+| Persistence  | `store.Store`        | `Postgres`                                           | `Memory`              |
 
 The `KubectlDeployer` shells out to `kubectl` (`set image` + `rollout status`),
 authenticating in-cluster via the pod's ServiceAccount. It keeps the binary and
@@ -87,6 +88,16 @@ Kubernetes) but already have a CI/CD pipeline — it triggers that pipeline via
 the GitHub Actions **workflow-dispatch** API and waits for the run to conclude,
 returning an error unless it succeeds (so the same health-check + auto-rollback
 logic applies). See [Deploy a VM/CI app](#deploy-a-vmci-app-e.g-wslproxy).
+
+The **`k8sjob` deployer** runs each seed/promote/rollback as a **Kubernetes
+Job** in the `ring-exec` namespace: a configurable runner image receives the
+runner contract as environment variables (`RP_APP`, `RP_RING`, `RP_VERSION`,
+`RP_TARGET_ENV`, `RP_EXECUTION_ID`), its stdout streams live into the job's
+step log, and its exit code decides success — so the same health-check +
+auto-rollback logic applies. Both it and the GitHub deployer sit on the
+shared execution abstraction (`internal/executor`): a backend implements
+`Start/Status/Logs/Cancel/Cleanup` once and the promotion engine needs no
+changes. Design: `docs/kubernetes-executor-design.md`.
 
 The deployer is selected **per application** (via an optional `deployer:` field
 in the app's config), so a single control plane can promote Kubernetes apps and
