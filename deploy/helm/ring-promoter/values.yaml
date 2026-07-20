@@ -1,0 +1,62 @@
+# Ring Promoter chart — base values. Per-instance files override these
+# (e.g. values-fictionally.yaml), mirroring the beaconpulse values-<env> split.
+
+# Public host for the UI + API.
+host: ring-promoter.fictionally.org
+
+image:
+  repository: docker.io/bwalia/ring-promoter
+  tag: latest          # the deploy workflow overrides with the built tag
+  pullPolicy: IfNotPresent
+
+# Name of the pre-created Secret holding RP_API_TOKEN, RP_DB_DSN, and the
+# optional RP_GITHUB_TOKEN / RP_JIRA_TOKEN / RP_PROD_PASSWORD /
+# RP_OLLAMA_JWT_SECRET keys. The chart NEVER creates secrets.
+secretName: ring-promoter
+
+# Optional secret keys to wire as env (each marked optional in the pod).
+optionalSecretKeys:
+  - RP_GITHUB_TOKEN
+  - RP_JIRA_TOKEN
+  - RP_PROD_PASSWORD
+  - RP_OLLAMA_JWT_SECRET
+
+service:
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: traefik            # k3s1 in-cluster ingress
+  externalDnsTarget: pop0.wslproxy.com
+  tls: false
+  clusterIssuer: ""
+  # Extra annotations merged onto the Ingress.
+  annotations: {}
+
+# RBAC: enable for instances that really deploy (kubectl / k8sjob). The
+# workstation instance (deployer: log) sets rbac.enabled: false.
+rbac:
+  enabled: true
+  # Also create the ring-exec namespace + executor role for the k8sjob deployer.
+  executor: true
+  execNamespace: ring-exec
+
+serviceAccount:
+  # When rbac.enabled, the SA is created and used; otherwise the pod runs with
+  # automountServiceAccountToken: false and no SA.
+  name: ring-promoter
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# The full Ring Promoter config.yaml (app registry + runtime settings), rendered
+# into a ConfigMap and mounted at /etc/ringpromoter/config.yaml. Provide it at
+# deploy time with `--set-file config=training/config/apps.training.yaml` so the
+# training config stays the single source of truth (see the deploy workflow).
+config: ""

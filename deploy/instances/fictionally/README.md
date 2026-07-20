@@ -8,10 +8,24 @@ training apps. It does not touch the workstation instance
 
 `.github/workflows/deploy-training-k3s1.yml` does everything on every push to
 `main` (self-hosted `mac-studio` runner): test + validate the training config →
-build/push the image → apply the manifests (namespace, RBAC, ConfigMap from the
-training config, service, ingress) → roll out → ensure the Cloudflare
-**CNAME → pop0.wslproxy.com** → trigger the **wslproxy** vhost registration →
-verify in-cluster and at the public URL.
+build/push the image → **`helm upgrade --install`** the
+[`deploy/helm/ring-promoter`](../../helm/ring-promoter) chart (Deployment,
+Service, Traefik Ingress, RBAC, and the app-registry ConfigMap injected from the
+training config via `--set-file` — single source of truth) → ensure the
+Cloudflare **CNAME → pop0.wslproxy.com** → register the **wslproxy** vhost via
+its admin API → verify in-cluster and at the public URL.
+
+The manifests live in a **Helm chart**, so this instance can equally be deployed
+by **ArgoCD** — apply [`deploy/argocd/ring-promoter-fictionally.yaml`](../../argocd/ring-promoter-fictionally.yaml).
+
+Deploy by hand with the same chart:
+
+```bash
+helm upgrade --install ring-promoter deploy/helm/ring-promoter \
+  -f deploy/helm/ring-promoter/values-fictionally.yaml \
+  --set-file config=training/config/apps.training.yaml \
+  --set image.tag=<tag> -n fictionally-ring-promoter --create-namespace
+```
 
 **Repo secrets** (`gh secret set … -R bwalia/ring-promoter`):
 

@@ -1,0 +1,44 @@
+# ArgoCD Application for the training Ring Promoter instance
+# (ring-promoter.fictionally.org), the GitOps alternative to the deploy
+# workflow. Apply once into the argocd namespace; Argo then keeps the instance
+# synced to the Helm chart in this repo.
+#
+# NOTE ON CONFIG: the chart's ConfigMap needs the training app-registry via
+# `config`. The deploy workflow injects it with `--set-file`; ArgoCD cannot read
+# a sibling path, so for a pure-Argo flow supply it as a Helm parameter that
+# references a vendored copy, OR keep the deploy workflow as the config source.
+# The simplest Argo-native option is to set `config` from a values file that
+# inlines training/config/apps.training.yaml (kept in sync in CI).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ring-promoter-training
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/bwalia/ring-promoter
+    targetRevision: main
+    path: deploy/helm/ring-promoter
+    helm:
+      valueFiles:
+        - values-fictionally.yaml
+      parameters:
+        - name: image.tag
+          value: latest
+      # config must be provided (see NOTE above). Example for a vendored copy:
+      # fileParameters:
+      #   - name: config
+      #     path: ../../training/config/apps.training.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fictionally-ring-promoter
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

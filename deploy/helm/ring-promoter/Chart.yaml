@@ -1,0 +1,22 @@
+apiVersion: v2
+name: ring-promoter
+description: |
+  Ring Promoter — the ring-promotion control plane (HTTP API + embedded web UI)
+  and its per-instance config. Deploys one instance: Deployment, Service,
+  Traefik Ingress (external-dns CNAME to the wslproxy POP), the app-registry
+  ConfigMap, and — for instances that really deploy — its RBAC. Secrets are
+  provided out of band (never by this chart).
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - cd
+  - promotion
+  - gitops
+  - kubernetes
+home: https://ring-promoter.fictionally.org
+sources:
+  - https://github.com/bwalia/ring-promoter
+maintainers:
+  - name: Balinder Walia
+    email: bwalia@workstation.co.uk

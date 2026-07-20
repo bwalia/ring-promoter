@@ -129,7 +129,7 @@ jobs:
         run: |
           set -euo pipefail
           kubectl get nodes -o wide
-          kubectl apply -f deploy/instances/fictionally/namespace.yaml
+          kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
           if ! kubectl -n "${NAMESPACE}" get secret ring-promoter >/dev/null 2>&1; then
             echo "::error::secret/ring-promoter missing in ${NAMESPACE}. Bootstrap it first (see deploy/instances/fictionally/README.md). CI never creates secrets."
             exit 1
@@ -146,32 +146,34 @@ jobs:
           done
           echo "preflight ok."
 
-      - name: Apply RBAC + config + manifests (GitOps; never secret.yaml)
+      - name: Ensure Helm
         run: |
-          set -euo pipefail
-          kubectl apply -f deploy/instances/fictionally/rbac.yaml
-          # ConfigMap is generated from the single-source training config (no dup).
-          kubectl -n "${NAMESPACE}" create configmap ring-promoter-config \
-            --from-file=config.yaml=training/config/apps.training.yaml \
-            --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply \
-            -f deploy/instances/fictionally/service.yaml \
-            -f deploy/instances/fictionally/ingress.yaml
+          if ! command -v helm >/dev/null 2>&1; then
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          fi
+          helm version
 
-      - name: Roll out image
+      - name: Deploy via Helm chart (beaconpulse-style)
         run: |
           set -euo pipefail
           TAG="${{ github.event.inputs.image_tag }}"
           if [ -z "$TAG" ]; then TAG="sha-${SHORT_SHA}"; fi
           echo "TAG=$TAG" >> "$GITHUB_ENV"
-          echo "Deploying ${IMAGE}:${TAG}"
-          sed "s#image: docker.io/bwalia/ring-promoter:.*#image: ${IMAGE}:${TAG}#" \
-            deploy/instances/fictionally/deployment.yaml | kubectl apply -f -
-
-      - name: Restart to pick up config, and wait
-        run: |
-          set -euo pipefail
-          kubectl -n "${NAMESPACE}" rollout restart deploy/ring-promoter
+          # The ring-exec namespace (for the k8sjob executor RoleBinding) must
+          # exist before the chart's RoleBinding applies; --create-namespace only
+          # makes the release namespace.
+          kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace ring-exec --dry-run=client -o yaml | kubectl apply -f -
+          # Single source of truth: the training app-registry is injected with
+          # --set-file, so training/config/apps.training.yaml is never duplicated.
+          # The config's sha256 is in the pod annotation, so a config change rolls
+          # the pod automatically (no manual rollout restart needed).
+          helm upgrade --install ring-promoter deploy/helm/ring-promoter \
+            -f deploy/helm/ring-promoter/values-fictionally.yaml \
+            --set-file config=training/config/apps.training.yaml \
+            --set image.tag="${TAG}" \
+            --namespace "${NAMESPACE}" --create-namespace \
+            --wait --timeout 5m
           kubectl -n "${NAMESPACE}" rollout status deploy/ring-promoter --timeout=180s
 
       - name: Ensure Cloudflare CNAME -> pop0
@@ -220,7 +222,13 @@ jobs:
             echo "::warning::Register ${HOST} on pop0 manually (see deploy/instances/fictionally/wslproxy-vhost.md)."
             exit 0
           fi
-          GW="${WSLPROXY_GATEWAY_URL:-https://pop0.wslproxy.com}"
+          # The wslproxy ADMIN gateway (api-<env>.wslproxy.com / an internal URL),
+          # NOT the pop0 edge. Must be set explicitly — there is no safe default.
+          GW="${WSLPROXY_GATEWAY_URL:-}"
+          if [ -z "$GW" ]; then
+            echo "::warning::WSLPROXY_GATEWAY_URL not set — skipping. Set it to the wslproxy admin gateway URL you use with api-scripts (e.g. the prod admin API), not the pop0 edge."
+            exit 0
+          fi
           # 1) Login (email + password) -> JWT accessToken, exactly like
           #    wslproxy/api-scripts/auth/login.sh.
           TOKEN=$(curl -fsS -X POST "$GW/api/user/login" \

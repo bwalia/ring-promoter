@@ -1,0 +1,38 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ring-promoter
+  labels:
+    {{- include "rp.labels" . | nindent 4 }}
+  annotations:
+    # external-dns publishes a Cloudflare CNAME for the host -> the wslproxy POP.
+    external-dns.alpha.kubernetes.io/hostname: {{ .Values.host | quote }}
+    external-dns.alpha.kubernetes.io/target: {{ .Values.ingress.externalDnsTarget | quote }}
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    {{- if .Values.ingress.tls }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ring-promoter
+                port:
+                  number: {{ .Values.service.port }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.host | quote }}
+      secretName: ring-promoter-tls
+  {{- end }}
+{{- end }}

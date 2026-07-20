@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ring-promoter
+  labels:
+    {{- include "rp.labels" . | nindent 4 }}
+spec:
+  # Single replica: promotion ops are serialized by a Postgres advisory lock.
+  # Do NOT attach an HPA.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "rp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rp.labels" . | nindent 8 }}
+      annotations:
+        # Roll the pod when the mounted config changes.
+        checksum/config: {{ include "rp.config" . | sha256sum }}
+    spec:
+      {{- if .Values.rbac.enabled }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- else }}
+      automountServiceAccountToken: false
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ring-promoter
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+          env:
+            - name: RP_CONFIG_FILE
+              value: /etc/ringpromoter/config.yaml
+            - name: RP_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: RP_API_TOKEN
+            - name: RP_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: RP_DB_DSN
+            {{- range .Values.optionalSecretKeys }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.secretName }}
+                  key: {{ . }}
+                  optional: true
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/ringpromoter
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: ring-promoter-config
