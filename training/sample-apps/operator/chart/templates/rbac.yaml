@@ -1,11 +1,21 @@
 {{- if .Values.rbac.create -}}
+{{- /*
+  ClusterRole/ClusterRoleBinding are CLUSTER-SCOPED, so their names must be
+  unique per ring — every ring deploys this chart with fullnameOverride=operator,
+  and a bare "operator" name would make all four rings fight over one pair of
+  objects (Helm refuses to import a cluster-scoped resource owned by another
+  release's namespace). Suffixing with .Release.Namespace (operator-int, -test,
+  -acc, -prod) gives each ring its own cluster-scoped RBAC that it cleanly owns.
+  Mirrors why the Greeting CRD lives in crds/ rather than templates/.
+*/ -}}
+{{- $clusterName := printf "%s-%s" (include "app.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" -}}
 # The operator watches Greetings cluster-wide and manages their ConfigMaps, so
 # it needs a ClusterRole. Narrow watchNamespace in values does NOT narrow this
 # grant — tighten to a namespaced Role if you scope the operator to one ns.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "app.fullname" . }}
+  name: {{ $clusterName }}
   labels:
     {{- include "app.labels" . | nindent 4 }}
 rules:
@@ -21,13 +31,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "app.fullname" . }}
+  name: {{ $clusterName }}
   labels:
     {{- include "app.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "app.fullname" . }}
+  name: {{ $clusterName }}
 subjects:
   - kind: ServiceAccount
     name: {{ include "app.serviceAccountName" . }}
