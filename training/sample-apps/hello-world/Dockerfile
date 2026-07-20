@@ -2,14 +2,20 @@
 # baked in via ldflags AND readable at runtime from RP_VERSION, so the image is
 # immutable but self-describing — exactly what Ring Promoter's version-aware
 # health checks rely on.
-FROM golang:1.26-alpine AS build
+# --platform=$BUILDPLATFORM runs the Go toolchain NATIVELY on the builder (e.g.
+# arm64), then cross-compiles to the target arch below — so building linux/amd64
+# on an arm64 runner never emulates the Go toolchain under QEMU (which crashes).
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 # Module files first for layer caching (no deps here, but keeps the pattern).
 COPY go.mod ./
 RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/hello-world ./cmd
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/hello-world ./cmd
 
 FROM gcr.io/distroless/static:nonroot
 COPY --from=build /out/hello-world /hello-world
