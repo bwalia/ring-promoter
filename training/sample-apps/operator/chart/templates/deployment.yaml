@@ -22,6 +22,15 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "app.serviceAccountName" . }}
+      # Pod-level securityContext: distroless :nonroot images set USER to the
+      # name "nonroot"; kubelet needs a NUMERIC uid to enforce runAsNonRoot.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: {{ include "app.name" . }}
           image: "{{ .Values.image.repository }}:{{ include "app.imageTag" . }}"

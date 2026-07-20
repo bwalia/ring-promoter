@@ -71,10 +71,15 @@ secret:
 # and the alternative RUN_MIGRATIONS=true boot path.
 # ---------------------------------------------------------------------------
 migrations:
-  enabled: true
-  # Also run migrations on boot inside the app pod (RUN_MIGRATIONS=true). Off by
-  # default because the Job is the canonical, race-free path.
-  runOnBoot: false
+  # The former pre-install/pre-upgrade Helm HOOK Job was removed: hooks run
+  # BEFORE the chart's Secret + bundled Postgres exist, so it could never resolve
+  # bank-api-secrets / reach the database and the release failed. Migrations now
+  # run on boot inside the app pod instead (RUN_MIGRATIONS=true), which is
+  # self-contained: the pod waits for its own Postgres and applies the idempotent
+  # embedded migrations before serving.
+  enabled: false
+  # Run migrations on boot inside the app pod (RUN_MIGRATIONS=true).
+  runOnBoot: true
 
 # ---------------------------------------------------------------------------
 # Ephemeral in-cluster PostgreSQL for TRAINING ONLY. Gated by postgres.enabled.
