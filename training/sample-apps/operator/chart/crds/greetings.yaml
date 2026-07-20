@@ -1,0 +1,59 @@
+# The Greeting CRD.
+#
+# This lives in the chart's special crds/ directory (NOT templates/) on purpose.
+# A CRD is a CLUSTER-SCOPED, cluster-singleton object, but the operator chart is
+# installed once PER RING (operator-int / -test / -acc / -prod). With the CRD in
+# templates/, the first ring's release claimed ownership and every other ring
+# then failed to install with "CRD exists and cannot be imported — owned by
+# another release", leaving those namespaces with no operator at all.
+#
+# Helm installs everything under crds/ exactly once, before the templates, and
+# does NOT record per-release ownership — so all four ring releases coexist and
+# share the single cluster-scoped CRD without conflict.
+#
+# Trade-off (acceptable for this training chart): Helm never upgrades or deletes
+# crds/ resources. To change this CRD, `kubectl replace -f` it by hand; and
+# `helm uninstall` deliberately leaves it in place (it must outlive any single
+# ring's release, so removing it never deletes everyone's Greetings).
+#
+# NOTE: crds/ files are plain YAML — Helm does not template them, so there are no
+# {{ ... }} directives, no labels helper, and no crd.install toggle here.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: greetings.training.ringpromoter.io
+spec:
+  group: training.ringpromoter.io
+  names:
+    kind: Greeting
+    listKind: GreetingList
+    plural: greetings
+    singular: greeting
+    shortNames:
+      - greet
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  description: The text the operator writes into the managed ConfigMap.
+                  minLength: 1
+                  maxLength: 1024
+      additionalPrinterColumns:
+        - name: Message
+          type: string
+          jsonPath: .spec.message
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

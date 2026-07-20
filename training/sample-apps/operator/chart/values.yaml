@@ -54,10 +54,11 @@ serviceAccount:
   # Empty = use the chart fullname.
   name: ""
 
-# Optionally install the Greeting CRD with the chart. When false, apply
-# api/crd.yaml separately before installing (see README).
-crd:
-  install: true
+# NOTE: the Greeting CRD is installed from the chart's crds/ directory (Helm
+# installs it once, cluster-wide, with no per-release ownership) rather than
+# from templates/ — so every ring's release can share the one cluster-scoped
+# CRD without colliding. There is deliberately no crd.install toggle: to manage
+# the CRD out-of-band, remove crds/greetings.yaml and apply api/crd.yaml.
 
 resources:
   requests:
