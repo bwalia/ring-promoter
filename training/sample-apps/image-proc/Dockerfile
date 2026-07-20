@@ -7,15 +7,17 @@
 # The version is baked in via ldflags AND readable at runtime from RP_VERSION,
 # so the image is immutable but self-describing — what Ring Promoter's
 # version-aware health checks rely on (here via the X-App-Version header).
-FROM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 # Module files first for layer caching (no deps here, but keeps the pattern).
 COPY go.mod ./
 RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/api    ./cmd/api && \
-    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/worker ./cmd/worker
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/api    ./cmd/api && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/worker ./cmd/worker
 
 FROM gcr.io/distroless/static:nonroot AS api
 COPY --from=build /out/api /api
