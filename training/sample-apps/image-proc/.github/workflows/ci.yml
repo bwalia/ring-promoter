@@ -1,0 +1,103 @@
+# Reference CI/CD for a Ring Promoter-managed app deployed via the k8sjob
+# DEPLOYER.
+#
+# NOTE: In production each sample app lives in its OWN repository, with this
+# file at .github/workflows/ci.yml there. It is kept under the app directory in
+# the training repo as a copy-me template (GitHub only runs workflows from the
+# repository root .github/workflows).
+#
+# Flow: lint + test -> build & push TWO versioned images (api + worker) -> tell
+# Ring Promoter to seed that version into the first ring. Ring Promoter then runs
+# a Kubernetes Job (the k8sjob deployer) in the ring-exec namespace that helm
+# upgrades the chart and health-checks the API via the X-App-Version header.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io/bwalia
+  API_IMAGE: ghcr.io/bwalia/rp-training-image-proc-api
+  WORKER_IMAGE: ghcr.io/bwalia/rp-training-image-proc-worker
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.26" }
+      - run: go vet ./...
+      - run: go test ./... -race -count=1
+
+  build-and-push:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        # Tag pushes deploy the tag; main deploys a short SHA.
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Both binaries come from one multi-target Dockerfile.
+      - name: Build & push api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: api
+          push: true
+          build-args: VERSION=${{ steps.ver.outputs.version }}
+          tags: ${{ env.API_IMAGE }}:${{ steps.ver.outputs.version }}
+      - name: Build & push worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: worker
+          push: true
+          build-args: VERSION=${{ steps.ver.outputs.version }}
+          tags: ${{ env.WORKER_IMAGE }}:${{ steps.ver.outputs.version }}
+      # Generate an SBOM for supply-chain hygiene (informational in training).
+      - uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.API_IMAGE }}:${{ steps.ver.outputs.version }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with: { name: sbom, path: sbom.spdx.json }
+
+  seed-into-ring-promoter:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      # Hand the freshly built version to Ring Promoter, which runs a k8sjob
+      # deploy into the first ring and health-checks it. RP_URL / RP_TOKEN are
+      # repo secrets pointing at the training instance.
+      - name: Seed int
+        run: |
+          curl --fail -sS -X POST "${RP_URL}/api/apps/image-proc/seed" \
+            -H "Authorization: Bearer ${RP_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"ring\":\"int\",\"version\":\"${VERSION}\"}"
+        env:
+          RP_URL: ${{ secrets.RP_URL }}
+          RP_TOKEN: ${{ secrets.RP_TOKEN }}
+          VERSION: ${{ needs.build-and-push.outputs.version }}

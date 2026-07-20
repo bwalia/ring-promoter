@@ -1,0 +1,64 @@
+{{- if .Values.api.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app.fullname" . }}-api
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+      {{- if .Values.metrics.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: {{ .Values.metrics.path | quote }}
+        prometheus.io/port: {{ .Values.api.service.targetPort | quote }}
+      {{- end }}
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.image.registry }}/{{ .Values.api.repository }}:{{ include "app.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.service.targetPort }}
+          env:
+            # Reported via the X-App-Version response header so Ring Promoter can
+            # confirm the running build matches the promoted version.
+            - name: RP_VERSION
+              value: {{ include "app.version" . | quote }}
+            - name: PORT
+              value: {{ .Values.api.service.targetPort | quote }}
+            - name: REDIS_ADDR
+              value: {{ include "app.redisAddr" . | quote }}
+          livenessProbe:
+            # /healthz stays ok even if Redis is down — the API process itself.
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+{{- end -}}

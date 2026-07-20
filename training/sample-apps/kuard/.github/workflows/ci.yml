@@ -1,0 +1,51 @@
+# Reference CI/CD for a Ring Promoter-managed app that ships a THIRD-PARTY image.
+#
+# NOTE: In production each sample app lives in its OWN repository, with this
+# file at .github/workflows/ci.yml there. It is kept under the app directory in
+# the training repo as a copy-me template (GitHub only runs workflows from the
+# repository root .github/workflows).
+#
+# kuard is the upstream gcr.io/kuar-demo/kuard-amd64 image, so there is NOTHING
+# to build here — no Go, no Dockerfile. "Releasing" a new colour just means
+# telling Ring Promoter to seed the blue or green tag; RP then health-checks it
+# (STATUS-ONLY: /healthy returns 200, no version field) and promotes it onward.
+name: ci
+
+on:
+  # Run the promotion manually and pick which colour to seed.
+  workflow_dispatch:
+    inputs:
+      colour:
+        description: "Image tag to promote (blue/green)"
+        required: true
+        default: blue
+        type: choice
+        options: [blue, green]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  seed-into-ring-promoter:
+    runs-on: ubuntu-latest
+    steps:
+      - id: colour
+        # Manual runs pass the colour; a push to main defaults to blue.
+        run: echo "value=${COLOUR:-blue}" >> "$GITHUB_OUTPUT"
+        env:
+          COLOUR: ${{ github.event.inputs.colour }}
+      # Hand the chosen upstream tag to Ring Promoter, which deploys it into the
+      # first ring and health-checks it. RP_URL / RP_TOKEN are repo secrets
+      # pointing at the training instance (https://ring-promoter.fictionally.org).
+      - name: Seed int
+        run: |
+          curl --fail -sS -X POST "${RP_URL}/api/apps/kuard/seed" \
+            -H "Authorization: Bearer ${RP_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"ring\":\"int\",\"version\":\"${VERSION}\"}"
+        env:
+          RP_URL: ${{ secrets.RP_URL }}
+          RP_TOKEN: ${{ secrets.RP_TOKEN }}
+          VERSION: ${{ steps.colour.outputs.value }}

@@ -1,0 +1,24 @@
+# Namespaces for the training Ring Promoter instance (ring-promoter.fictionally.org).
+#
+#  - fictionally-ring-promoter : the control-plane (this instance)
+#  - ring-exec                 : where the k8sjob deployer runs deploy Jobs
+#                                (image-proc). Kept separate from app workloads.
+#
+# The per-app/per-ring namespaces (<app>-<ring>, e.g. bank-api-acc) are created
+# by `helm --create-namespace` when you deploy each sample app — see the
+# training config README.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fictionally-ring-promoter
+  labels:
+    app.kubernetes.io/name: ring-promoter
+    app.kubernetes.io/part-of: ring-promoter-training
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ring-exec
+  labels:
+    app.kubernetes.io/name: ring-promoter
+    app.kubernetes.io/part-of: ring-promoter-training

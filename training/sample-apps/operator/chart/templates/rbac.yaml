@@ -1,0 +1,35 @@
+{{- if .Values.rbac.create -}}
+# The operator watches Greetings cluster-wide and manages their ConfigMaps, so
+# it needs a ClusterRole. Narrow watchNamespace in values does NOT narrow this
+# grant — tighten to a namespaced Role if you scope the operator to one ns.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "app.fullname" . }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+rules:
+  # Read the custom resources this operator reconciles.
+  - apiGroups: ["training.ringpromoter.io"]
+    resources: ["greetings"]
+    verbs: ["get", "list", "watch"]
+  # Manage the ConfigMaps it derives from each Greeting.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "app.fullname" . }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "app.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "app.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end -}}

@@ -1,0 +1,60 @@
+{{- if .Values.worker.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app.fullname" . }}-worker
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  {{- if not .Values.worker.autoscaling.enabled }}
+  replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+      {{- if .Values.metrics.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: {{ .Values.metrics.path | quote }}
+        prometheus.io/port: {{ .Values.worker.metricsPort | quote }}
+      {{- end }}
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.image.registry }}/{{ .Values.worker.repository }}:{{ include "app.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.worker.metricsPort }}
+          env:
+            - name: RP_VERSION
+              value: {{ include "app.version" . | quote }}
+            - name: METRICS_PORT
+              value: {{ .Values.worker.metricsPort | quote }}
+            - name: REDIS_ADDR
+              value: {{ include "app.redisAddr" . | quote }}
+            - name: PROCESS_DELAY
+              value: {{ .Values.worker.processDelay | quote }}
+          livenessProbe:
+            # The worker has no ingress; probes hit the side metrics port.
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+{{- end -}}

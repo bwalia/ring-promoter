@@ -1,0 +1,11 @@
+apiVersion: v2
+name: hello-world
+description: |
+  Ring Promoter training academy — hello-world reference app. The smallest
+  realistic service: reports its running version so version-aware promotions
+  can be demonstrated end to end.
+type: application
+version: 0.1.0
+# appVersion is the default image tag when values.image.tag is empty. Ring
+# Promoter overrides the tag per deploy with the version being promoted.
+appVersion: "v0.1.0"

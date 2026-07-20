@@ -1,0 +1,42 @@
+# values-acc.yaml — the ACCEPTANCE (acc) ring overrides.
+#
+# acc is a REF-PINNED ring: it does NOT track whatever floats through int/test.
+# It always ships the "release" ref. In Ring Promoter's app config the acc ring
+# is declared with a fixed ref so a promotion INTO acc only ever deploys the
+# build tagged `release` — the last blessed candidate — never an arbitrary SHA.
+#
+# Ring Promoter app config sketch (lives in training/config/apps.training.yaml):
+#
+#   rings:
+#     - name: int      # tracks main: every green build seeds here
+#     - name: test
+#     - name: acc
+#       ref: release   # <-- REF-PINNED: acc always deploys the `release` ref
+#       promotion_policy: manual
+#     - name: prod
+#       ref: release   # prod inherits the same blessed ref after sign-off
+#
+# So the image tag below is pinned to the `release` ref rather than a rolling
+# SHA. Ring Promoter sets image.tag to the resolved `release` version at deploy
+# time; the value here documents the intent and gives a working default.
+image:
+  # Pinned to the blessed release ref (Ring Promoter resolves `release` -> tag).
+  tag: "release"
+
+# acc uses the ring's own in-cluster Ollama so /chat exercises a real model.
+# This is also the Ollama Ring Promoter's AI failure diagnosis calls when an
+# acc deploy goes unhealthy.
+ollama:
+  url: "http://ollama.ollama.svc.cluster.local:11434"
+  model: "qwen3-coder:30b"
+
+# acc pins an explicit host in the fictionally.org zone.
+ingress:
+  host: ai-chat-acc.fictionally.org
+
+replicaCount: 2
+
+# GPU stays disabled by default; enable per-cluster if acc runs Ollama on a
+# GPU node alongside this proxy.
+# gpu:
+#   enabled: true

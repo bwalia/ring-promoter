@@ -1,0 +1,68 @@
+# Default values for the operator chart. Per-ring overrides (namespace,
+# replicas) come from Ring Promoter / a values-<ring>.yaml at deploy time.
+#
+# This app deliberately has NO Ingress — an operator has no user-facing HTTP
+# surface. It exposes only a cluster-internal metrics/health Service.
+
+# An operator is a singleton controller: run one replica (leader election is out
+# of scope for the training sample). Do not scale this above 1.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/bwalia/rp-training-operator
+  # tag defaults to Chart.appVersion; Ring Promoter sets it to the promoted
+  # version on every deploy.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# version is passed to the container as RP_VERSION so /healthz echoes it.
+# Empty = fall back to the image tag. Ring Promoter's version-aware health
+# check (health_version_field: version) compares this against the deployed tag.
+version: ""
+
+# Reconcile behaviour.
+reconcile:
+  # How often the poll loop lists Greetings and reconciles their ConfigMaps.
+  interval: 15s
+  # Namespace to watch. Empty = all namespaces (requires the cluster-scoped
+  # ClusterRole below). Set to a single namespace to narrow the blast radius.
+  watchNamespace: ""
+
+# Health + metrics port (no Service ports beyond this; no Ingress).
+health:
+  port: 8080
+
+# Cluster-internal Service exposing /healthz + /metrics. There is intentionally
+# no Ingress: nothing external talks to an operator.
+service:
+  enabled: true
+  port: 8080
+
+# Prometheus scrape annotations on the pod (a scrape config or ServiceMonitor
+# then collects /metrics).
+metrics:
+  enabled: true
+  path: /metrics
+  port: 8080
+
+# RBAC: the operator needs to watch/list/get Greetings and manage ConfigMaps.
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  # Empty = use the chart fullname.
+  name: ""
+
+# Optionally install the Greeting CRD with the chart. When false, apply
+# api/crd.yaml separately before installing (see README).
+crd:
+  install: true
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi

@@ -1,0 +1,80 @@
+{{- $c := "backend" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+spec:
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" (dict "ctx" . "component" $c) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 8 }}
+      {{- if .Values.metrics.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: {{ .Values.metrics.path | quote }}
+        prometheus.io/port: {{ .Values.metrics.port | quote }}
+      {{- end }}
+    spec:
+      containers:
+        - name: {{ $c }}
+          image: "{{ .Values.backend.image.repository }}:{{ include "app.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.service.targetPort }}
+          env:
+            # Reported by /healthz so Ring Promoter can confirm the running build
+            # actually matches the promoted version.
+            - name: RP_VERSION
+              value: {{ include "app.version" . | quote }}
+            - name: PORT
+              value: {{ .Values.backend.service.targetPort | quote }}
+            {{- if .Values.redis.enabled }}
+            # Points the backend at the in-release Redis. If Redis is down the
+            # backend degrades gracefully (empty cart, not-ready) — never crashes.
+            - name: REDIS_ADDR
+              value: {{ printf "%s-redis:%v" (include "app.fullname" .) .Values.redis.service.port | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "app.componentName" (dict "ctx" . "component" $c) }}
+  labels:
+    {{- include "app.labels" (dict "ctx" . "component" $c) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "app.selectorLabels" (dict "ctx" . "component" $c) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.backend.service.port }}
+      targetPort: http

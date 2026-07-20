@@ -1,0 +1,91 @@
+# Default values for the image-proc chart. Per-ring overrides (namespace, host,
+# replicas) come from Ring Promoter / a values-<ring>.yaml at deploy time.
+#
+# image-proc has three workloads: the API (public via ingress), the worker
+# (no ingress, autoscaled), and an ephemeral Redis that backs the job queue.
+
+# version is passed to both the API and worker containers as RP_VERSION so the
+# X-App-Version response header echoes it. Empty = fall back to the image tag.
+# Ring Promoter's version-aware health check (health_version_header:
+# X-App-Version) compares this against the deployed tag.
+version: ""
+
+image:
+  # Both API and worker are built from the same source (multi-target Dockerfile)
+  # and share a version tag. Ring Promoter sets .tag to the promoted version.
+  registry: ghcr.io/bwalia
+  tag: ""
+  pullPolicy: IfNotPresent
+
+api:
+  enabled: true
+  replicaCount: 2
+  # repository (under image.registry) for the API image.
+  repository: rp-training-image-proc-api
+  port: 8080
+  service:
+    port: 80
+    targetPort: 8080
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+worker:
+  enabled: true
+  replicaCount: 2
+  repository: rp-training-image-proc-worker
+  # Side HTTP port for /healthz + /metrics only (no ingress).
+  metricsPort: 9090
+  # Stand-in for real image work; longer delay = deeper queue under load.
+  processDelay: 500ms
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 64Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    # CPU is a stand-in in training. In production you would scale on QUEUE
+    # DEPTH via a custom/external metric (e.g. imageproc_queue_depth exported to
+    # Prometheus Adapter or KEDA) — see worker-hpa.yaml.
+    targetCPUUtilizationPercentage: 70
+
+redis:
+  # Ephemeral, single-replica Redis for the demo (no persistence). In
+  # production you would point REDIS_ADDR at a managed/HA Redis instead.
+  enabled: true
+  image: redis:7-alpine
+  port: 6379
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+ingress:
+  enabled: true
+  # k3s1's in-cluster ingress controller.
+  className: traefik
+  # Public zone; the API is reachable at <host>.
+  domain: fictionally.org
+  # Override to pin an exact host; empty = imageproc.<domain>.
+  host: ""
+  # external-dns creates a CNAME for `host` pointing at this POP target
+  # (k3s1 sits behind the wslproxy edge; pop0 is the POP for these hosts).
+  externalDnsTarget: pop0.wslproxy.com
+  tls: false
+
+# Prometheus scrape annotations on the API and worker pods.
+metrics:
+  enabled: true
+  path: /metrics

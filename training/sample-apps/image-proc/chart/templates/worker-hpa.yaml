@@ -1,0 +1,37 @@
+{{- if and .Values.worker.enabled .Values.worker.autoscaling.enabled -}}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "app.fullname" . }}-worker
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "app.fullname" . }}-worker
+  minReplicas: {{ .Values.worker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.worker.autoscaling.maxReplicas }}
+  metrics:
+    # TRAINING STAND-IN: we scale on CPU because it works on any cluster with
+    # metrics-server and no extra wiring. In PRODUCTION an async worker like this
+    # should scale on QUEUE DEPTH, not CPU — the backlog, not the burn, is the
+    # signal. You would expose imageproc_queue_depth to a custom/external metric
+    # source (Prometheus Adapter or KEDA's Redis scaler) and use, e.g.:
+    #
+    #   - type: External
+    #     external:
+    #       metric:
+    #         name: imageproc_queue_depth
+    #       target:
+    #         type: AverageValue
+    #         averageValue: "30"   # ~30 queued jobs per worker replica
+    #
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.autoscaling.targetCPUUtilizationPercentage }}
+{{- end -}}

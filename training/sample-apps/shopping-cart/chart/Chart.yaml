@@ -1,0 +1,13 @@
+apiVersion: v2
+name: shopping-cart
+description: |
+  Ring Promoter training academy — shopping-cart reference app. A multi-service
+  workload (Go backend API + minimal Go frontend + Redis) deployed as ONE Helm
+  release and promoted as a Ring Promoter GROUP, used to demonstrate canary and
+  blue/green deployment patterns with version-aware health checks.
+type: application
+version: 0.1.0
+# appVersion is the default image tag when image.tag is empty. Ring Promoter
+# overrides the tag per deploy with the version being promoted. The backend and
+# frontend share this version so the group is promoted atomically.
+appVersion: "v0.1.0"

@@ -1,0 +1,120 @@
+# The training Ring Promoter control-plane (ring-promoter.fictionally.org).
+#
+# Single replica with the Postgres store: promotion operations are serialized by
+# a Postgres session advisory lock, so even an accidental scale-up cannot run
+# two concurrent promotions. Do NOT attach an HPA. State/history live in
+# Postgres and survive restarts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ring-promoter
+  namespace: fictionally-ring-promoter
+  labels:
+    app: ring-promoter
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ring-promoter
+  template:
+    metadata:
+      labels:
+        app: ring-promoter
+      annotations:
+        # Bump (or `kubectl rollout restart`) to roll the pod on a config change.
+        ring-promoter/config-revision: "1"
+    spec:
+      # The training instance really deploys (kubectl + k8sjob), so it runs as a
+      # ServiceAccount with RBAC (see rbac.yaml) and mounts its token.
+      serviceAccountName: ring-promoter-training
+      securityContext:
+        runAsNonRoot: true
+        # distroless :nonroot UID/GID (pinned numerically for runAsNonRoot).
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ring-promoter
+          image: docker.io/bwalia/ring-promoter:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: RP_CONFIG_FILE
+              value: /etc/ringpromoter/config.yaml
+            - name: RP_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_API_TOKEN
+            - name: RP_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_DB_DSN
+            # github deployer (operator) — dispatches the release workflow.
+            - name: RP_GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_GITHUB_TOKEN
+                  optional: true
+            # change-request (JIRA) gate (bank-api).
+            - name: RP_JIRA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_JIRA_TOKEN
+                  optional: true
+            # Extra password gating deploys to prod (bank-api / any last-ring op).
+            - name: RP_PROD_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_PROD_PASSWORD
+                  optional: true
+            # Enables AI failure diagnosis (ai-chat ecosystem).
+            - name: RP_OLLAMA_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_OLLAMA_JWT_SECRET
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/ringpromoter
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            # Created from training/config/apps.training.yaml — see README.
+            name: ring-promoter-config

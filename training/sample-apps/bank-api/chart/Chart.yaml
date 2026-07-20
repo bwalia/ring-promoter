@@ -1,0 +1,12 @@
+apiVersion: v2
+name: bank-api
+description: |
+  Ring Promoter training academy — bank-api, the high-governance app. A Go REST
+  API backed by PostgreSQL with JWT auth and database migrations. Demonstrates
+  Secrets, a migrate Job, and all three promotion gates (maintenance_window,
+  qa_signoff, change_request) plus the production password.
+type: application
+version: 0.1.0
+# appVersion is the default image tag when values.image.tag is empty. Ring
+# Promoter overrides the tag per deploy with the version being promoted.
+appVersion: "v0.1.0"

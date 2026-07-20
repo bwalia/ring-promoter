@@ -1,0 +1,34 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "app.fullname" . }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+  annotations:
+    # external-dns creates a Cloudflare CNAME for the host below pointing at the
+    # wslproxy POP target (k3s1 sits behind the wslproxy edge). Without an
+    # explicit target external-dns would publish the raw LoadBalancer IP.
+    external-dns.alpha.kubernetes.io/hostname: {{ include "app.host" . | quote }}
+    external-dns.alpha.kubernetes.io/target: {{ .Values.ingress.externalDnsTarget | quote }}
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ include "app.host" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "app.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ include "app.host" . | quote }}
+      secretName: {{ include "app.fullname" . }}-tls
+  {{- end }}
+{{- end -}}

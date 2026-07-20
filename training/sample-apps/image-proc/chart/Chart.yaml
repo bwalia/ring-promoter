@@ -1,0 +1,12 @@
+apiVersion: v2
+name: image-proc
+description: |
+  Ring Promoter training academy — image-proc app. An async, queue-backed
+  workload: an API enqueues jobs onto Redis, a horizontally-scaled worker
+  drains them. Demonstrates worker autoscaling and version-aware health via the
+  X-App-Version response header.
+type: application
+version: 0.1.0
+# appVersion is the default image tag when values.image.tag is empty. Ring
+# Promoter overrides the tag per deploy with the version being promoted.
+appVersion: "v0.1.0"

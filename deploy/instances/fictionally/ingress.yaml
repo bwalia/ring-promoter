@@ -1,0 +1,30 @@
+# Public Ingress for the training Ring Promoter UI + API at
+# ring-promoter.fictionally.org.
+#
+# In-cluster ingress is k3s1's Traefik. Public reachability comes from the
+# wslproxy edge: external-dns publishes a Cloudflare CNAME for this host to the
+# POP target pop0.wslproxy.com, and a wslproxy vhost for the host backs onto the
+# k3s1 Traefik addresses (see wslproxy-vhost.md). Until that vhost exists the
+# edge answers "Host not configured".
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ring-promoter
+  namespace: fictionally-ring-promoter
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: ring-promoter.fictionally.org
+    external-dns.alpha.kubernetes.io/target: pop0.wslproxy.com
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ring-promoter.fictionally.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ring-promoter
+                port:
+                  number: 80
