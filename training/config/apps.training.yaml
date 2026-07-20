@@ -66,10 +66,10 @@ apps:
   - name: shopping-cart
     display_name: "Shopping Cart"
     rings:
-      int:  { namespace: shopping-cart-int,  deployment: shopping-cart, container: api, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart.shopping-cart-int.svc.cluster.local/healthz",  health_version_field: version }
-      test: { namespace: shopping-cart-test, deployment: shopping-cart, container: api, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart.shopping-cart-test.svc.cluster.local/healthz", health_version_field: version }
-      acc:  { namespace: shopping-cart-acc,  deployment: shopping-cart, container: api, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart.shopping-cart-acc.svc.cluster.local/healthz",  health_version_field: version }
-      prod: { namespace: shopping-cart-prod, deployment: shopping-cart, container: api, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart.shopping-cart-prod.svc.cluster.local/healthz", health_version_field: version }
+      int:  { namespace: shopping-cart-int,  deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-int.svc.cluster.local/healthz",  health_version_field: version }
+      test: { namespace: shopping-cart-test, deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-test.svc.cluster.local/healthz", health_version_field: version }
+      acc:  { namespace: shopping-cart-acc,  deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-acc.svc.cluster.local/healthz",  health_version_field: version }
+      prod: { namespace: shopping-cart-prod, deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-prod.svc.cluster.local/healthz", health_version_field: version }
 
   # 4) bank-api — the GOVERNANCE showcase. Demonstrates ALL THREE promotion
   #    gates plus the production password and secrets. Promoting to acc/prod
