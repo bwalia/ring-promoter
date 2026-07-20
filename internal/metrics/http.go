@@ -3,9 +3,15 @@ package metrics
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// nowFunc is the clock the HTTP middleware times requests against. It is a
+// package var (not a direct time.Now call) so tests can substitute a
+// deterministic clock.
+var nowFunc = time.Now
 
 // HTTP server metrics. These instrument the inbound API + UI surface. The route
 // label is the matched ServeMux *pattern* (e.g. "GET /api/apps/{app}/rings"),
@@ -111,10 +117,6 @@ func HTTPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		httpRequestsInFlight.Inc()
 		defer httpRequestsInFlight.Dec()
-
-		timer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {}))
-		start := timer // placeholder to avoid unused; real timing below
-		_ = start
 
 		rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 		startAt := nowFunc()
