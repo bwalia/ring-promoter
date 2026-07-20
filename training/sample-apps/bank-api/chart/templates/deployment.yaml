@@ -22,6 +22,41 @@ spec:
         prometheus.io/port: {{ .Values.metrics.port | quote }}
       {{- end }}
     spec:
+      # Pod-level securityContext: distroless :nonroot images set USER to the
+      # name "nonroot"; kubelet needs a NUMERIC uid to enforce runAsNonRoot.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+        # Boot migrations (RUN_MIGRATIONS=true) run ONCE at app startup and do not
+        # retry, so on a cold deploy they race the bundled Postgres and fail with
+        # "connection refused" — leaving the schema empty. This gate blocks the app
+        # until Postgres accepts connections, making the boot-migration path
+        # race-free and the release self-contained.
+        - name: wait-for-postgres
+          image: {{ .Values.postgres.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ include "app.postgresName" . }} -p {{ .Values.postgres.port }} -U {{ .Values.postgres.user | quote }}; do
+                echo "waiting for postgres..."; sleep 2;
+              done
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+      {{- end }}
       containers:
         - name: {{ include "app.name" . }}
           image: "{{ .Values.image.repository }}:{{ include "app.imageTag" . }}"

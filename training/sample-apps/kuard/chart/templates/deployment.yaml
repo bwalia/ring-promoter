@@ -48,8 +48,9 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
+            # kuard (jmutai/kuard-amd64) is NOT distroless: it runs as root and
+            # writes to its own filesystem, so runAsNonRoot + readOnlyRootFilesystem
+            # break it. Keep only the safe hardening that it tolerates.
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            runAsNonRoot: true
             capabilities:
               drop: ["ALL"]

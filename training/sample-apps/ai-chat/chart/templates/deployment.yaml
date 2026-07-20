@@ -22,6 +22,15 @@ spec:
         prometheus.io/port: {{ .Values.metrics.port | quote }}
       {{- end }}
     spec:
+      # Pod-level securityContext: distroless :nonroot images set USER to the
+      # name "nonroot"; kubelet needs a NUMERIC uid to enforce runAsNonRoot.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       {{- if .Values.gpu.enabled }}
       # GPU scheduling (values.gpu.enabled=true). Pins pods to GPU nodes and
       # tolerates their taint. Disabled by default so the chart deploys anywhere.
