@@ -66,16 +66,25 @@ jobs:
           cache: true
       - run: go vet ./...
       - run: go test ./...
-      # Fail fast if the training config no longer validates.
+      # Fail fast if the training config no longer validates. Build then run in
+      # the background with a PID trap — the self-hosted macOS runner has no GNU
+      # `timeout`, and killing the built binary (not `go run`) actually stops it.
       - name: Validate training config
         run: |
           set -euo pipefail
+          go build -o "$RUNNER_TEMP/rp-validate" ./cmd/ringpromoter
           RP_API_TOKEN=ci RP_DB_DRIVER=memory RP_HEALTH=http \
           RP_GITHUB_TOKEN=ci RP_JIRA_TOKEN=ci RP_LISTEN_ADDR=:18190 \
-          timeout 10 go run ./cmd/ringpromoter -config training/config/apps.training.yaml &
-          sleep 5
-          curl -fsS -H "Authorization: Bearer ci" http://127.0.0.1:18190/api/apps | grep -q '"operator"'
-          echo "training config validates (7 apps registered)."
+            "$RUNNER_TEMP/rp-validate" -config training/config/apps.training.yaml &
+          RP_PID=$!
+          trap 'kill "$RP_PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 10); do
+            if curl -fsS -H "Authorization: Bearer ci" http://127.0.0.1:18190/api/apps 2>/dev/null | grep -q '"operator"'; then
+              echo "training config validates (7 apps registered)."; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::training config did not serve all 7 apps"; exit 1
 
   deploy:
     name: Build & deploy training instance
