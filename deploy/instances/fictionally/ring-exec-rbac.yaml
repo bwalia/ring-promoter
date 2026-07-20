@@ -1,0 +1,86 @@
+# ring-exec RBAC for the k8sjob deployer (image-proc).
+#
+# Ring Promoter's k8sjob deployer runs each image-proc deploy as a short-lived
+# Job in ring-exec, under the `ring-deploy-job` ServiceAccount. That SA and its
+# per-ring deploy rights were referenced by training/config/apps.training.yaml
+# but never shipped as a manifest — so the Jobs failed with
+# "serviceaccount \"ring-deploy-job\" not found". This file provides them.
+#
+# The SA also needs a registry pull secret for the deploy image; attach one with:
+#   kubectl -n ring-exec create secret ... ghcr-bwalia   # (or your registry)
+#   kubectl -n ring-exec patch sa ring-deploy-job \
+#     -p '{"imagePullSecrets":[{"name":"ghcr-bwalia"}]}'
+# (The current deploy image docker.io/dtzar/helm-kubectl is public, so this is
+# only needed for private deploy images.)
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ring-deploy-job
+  namespace: ring-exec
+  labels: { app.kubernetes.io/part-of: ring-promoter-training, app.kubernetes.io/managed-by: manual-bootstrap }
+---
+# Helm-deploy rights the k8sjob runner needs inside each image-proc-<ring> ns.
+# Scoped to exactly what the image-proc chart manages (+ Helm release Secrets).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rp-deploy-image-proc
+  labels: { app.kubernetes.io/part-of: ring-promoter-training }
+rules:
+  - apiGroups: [""]
+    resources: ["services","configmaps","secrets","serviceaccounts","pods","persistentvolumeclaims"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments","replicasets"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-image-proc
+  namespace: image-proc-int
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-image-proc }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-image-proc
+  namespace: image-proc-test
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-image-proc }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-image-proc
+  namespace: image-proc-acc
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-image-proc }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-image-proc
+  namespace: image-proc-prod
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-image-proc }
