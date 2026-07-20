@@ -61,8 +61,7 @@ the [sample-apps catalog + feature matrix](./sample-apps). Start with
 9. Canary & blue/green
 10. Production incident (end-to-end)
 
-*(Lab 01 is written in full as the worked example; the rest follow its shape —
-see the [labs README](./labs).)*
+*(All ten labs are written in full — see the [labs README](./labs).)*
 
 ## Prerequisites
 
