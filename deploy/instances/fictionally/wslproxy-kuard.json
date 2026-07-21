@@ -1,0 +1,12 @@
+{
+  "server_name": "kuard.fictionally.org",
+  "rules": ["8f161403-8592-1111-6294-9c57974505b0"],
+  "profile_id": "prod",
+  "ssl_enabled": true,
+  "ssl_force_https": true,
+  "ssl_auto_renew": true,
+  "ssl_staging": false,
+  "ssl_email": "balinder.walia@gmail.com",
+  "listens": [ { "listen": "80" } ],
+  "match_cases": {}
+}
