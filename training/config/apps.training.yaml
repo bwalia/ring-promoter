@@ -173,3 +173,55 @@ apps:
       test: { namespace: operator-test, target_env: test, health_url: "http://operator.operator-test.svc.cluster.local:8080/healthz" }
       acc:  { namespace: operator-acc,  target_env: acc,  health_url: "http://operator.operator-acc.svc.cluster.local:8080/healthz" }
       prod: { namespace: operator-prod, target_env: prod, health_url: "http://operator.operator-prod.svc.cluster.local:8080/healthz" }
+
+  # 8) Core Platform — five INERT dummy apps forming a demo group for videos
+  #    and walkthroughs. Per-app `deployer: log` overrides the global kubectl
+  #    deployer, so seed/promote/rollback succeed instantly WITHOUT touching
+  #    the cluster. The global checker is `http`, so their health_url points at
+  #    this control plane's own /healthz (same namespace, always 200).
+  #    Seed/refresh their version spread and the "Core Platform" group with the
+  #    one-shot seed-core-platform.yml workflow.
+  - name: api-gateway
+    display_name: "API Gateway"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+
+  - name: identity-service
+    display_name: "Identity Service"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+
+  - name: billing-engine
+    display_name: "Billing Engine"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+
+  - name: data-pipeline
+    display_name: "Data Pipeline"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+
+  - name: notification-service
+    display_name: "Notification Service"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
