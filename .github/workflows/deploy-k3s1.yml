@@ -201,3 +201,41 @@ jobs:
           fi
           echo "::error::${HEALTH_URL} did not report {\"status\":\"ok\"} after the rollout (last code=$code)"
           exit 1
+
+  notify-diytaxreturn:
+    # ring-system (the diytaxreturn "core" instance) is owned by the
+    # diy-tax-return-uk repo and must NEVER be applied from here — see the header
+    # of this file and the deliberate split in that repo's PR #754. But that
+    # repo's deploy only fires on its own manifest changes, so a new image built
+    # here would not reach ring-system until something unrelated pushed there
+    # (which is exactly how ring-system drifted onto a stale :latest). This job
+    # closes the gap without crossing the ownership boundary: after a successful
+    # workstation build + deploy, it fires a repository_dispatch carrying the
+    # immutable sha tag, and diy-tax-return-uk rolls ring-system onto the exact
+    # image we just pushed.
+    #
+    # Coupling note: this needs the workstation deploy to succeed first. The
+    # image is built and pushed early in that job, so if it got that far a
+    # failure is almost always the workstation edge health check, not the image
+    # — in which case ring-system simply keeps its current build until the next
+    # green run.
+    name: Trigger ring-system (diytaxreturn) deploy
+    needs: deploy
+    runs-on: [self-hosted, mac-studio]
+    steps:
+      - name: Dispatch ring-promoter-image to diy-tax-return-uk
+        env:
+          # A fine-grained PAT with Contents: write on bwalia/diy-tax-return-uk
+          # (the default GITHUB_TOKEN cannot dispatch to another repo). One-time
+          # bootstrap; the step below fails loudly if it is missing.
+          GH_TOKEN: ${{ secrets.DIYTAX_DISPATCH_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::Secret DIYTAX_DISPATCH_PAT is missing. Create a fine-grained PAT with Contents: write on bwalia/diy-tax-return-uk and add it as this repo's Actions secret DIYTAX_DISPATCH_PAT. Until then ring-system will not auto-update to new builds."
+            exit 1
+          fi
+          TAG="sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          echo "Dispatching ring-promoter-image (${TAG}) to bwalia/diy-tax-return-uk"
+          printf '{"event_type":"ring-promoter-image","client_payload":{"image_tag":"%s"}}' "${TAG}" \
+            | gh api repos/bwalia/diy-tax-return-uk/dispatches --method POST --input -
