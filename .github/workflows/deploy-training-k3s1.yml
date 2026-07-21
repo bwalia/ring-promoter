@@ -177,11 +177,17 @@ jobs:
           # --set-file, so training/config/apps.training.yaml is never duplicated.
           # The config's sha256 is in the pod annotation, so a config change rolls
           # the pod automatically (no manual rollout restart needed).
+          # --force-conflicts: Helm 4 server-side apply refuses to update a field
+          # another manager owns (e.g. a hot `kubectl patch` of the ConfigMap
+          # takes ownership of .data.config.yaml and every later deploy fails
+          # with "conflict with kubectl-patch"). Git is the source of truth, so
+          # take the field back and overwrite hot patches instead of failing.
           helm upgrade --install ring-promoter deploy/helm/ring-promoter \
             -f deploy/helm/ring-promoter/values-fictionally.yaml \
             --set-file config=training/config/apps.training.yaml \
             --set image.tag="${TAG}" \
             --namespace "${NAMESPACE}" --create-namespace \
+            --force-conflicts \
             --wait --timeout 5m
           kubectl -n "${NAMESPACE}" rollout status deploy/ring-promoter --timeout=180s
 
