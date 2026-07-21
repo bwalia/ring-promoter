@@ -135,6 +135,9 @@ jobs:
           set -euo pipefail
           TAG="${{ github.event.inputs.image_tag }}"
           if [ -z "$TAG" ]; then TAG="sha-${SHORT_SHA}"; fi
+          # Export for later steps (e.g. the post-deploy health check, which runs
+          # under `set -u` and references ${TAG} in its success message).
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "Deploying ${IMAGE}:${TAG}"
           sed "s#image: docker.io/bwalia/ring-promoter:.*#image: ${IMAGE}:${TAG}#" \
             deploy/k8s/deployment.yaml | kubectl apply -f -
