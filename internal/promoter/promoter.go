@@ -25,6 +25,7 @@ import (
 	"github.com/example/ring-promoter/internal/config"
 	"github.com/example/ring-promoter/internal/deployer"
 	"github.com/example/ring-promoter/internal/health"
+	"github.com/example/ring-promoter/internal/metrics"
 	"github.com/example/ring-promoter/internal/ring"
 	"github.com/example/ring-promoter/internal/store"
 )
@@ -328,7 +329,11 @@ func (p *Promoter) validateVersion(ctx context.Context, app, version string) err
 
 // Seed sets an initial version for one ring, deploys it and health-checks it.
 // It does not roll back on failure (there is no baseline to return to).
-func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (Result, error) {
+func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (outcome Result, outErr error) {
+	start := time.Now()
+	defer func() {
+		metrics.ObservePromotion(app, ringName, metrics.ActionSeed, outcome.Success, time.Since(start).Seconds())
+	}()
 	if version == "" {
 		return Result{}, ErrEmptyVersion
 	}
@@ -466,7 +471,13 @@ func (p *Promoter) autoChain(ctx context.Context, app string, res Result) (Resul
 // has auto-promote enabled, the promotion continues ring by ring — in the same
 // operation, under the same application lock — until a ring with the setting
 // off, the end of the pipeline, or a failure.
-func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (Result, error) {
+func (p *Promoter) Promote(ctx context.Context, app, fromRing string) (outcome Result, outErr error) {
+	start := time.Now()
+	// ring resolves lazily from the result — the target ring isn't known until
+	// the source ring is read; falls back to "unknown" on an early failure.
+	defer func() {
+		metrics.ObservePromotion(app, outcome.Ring, metrics.ActionPromote, outcome.Success, time.Since(start).Seconds())
+	}()
 	unlock, err := p.store.Lock(ctx, "app:"+app)
 	if err != nil {
 		return Result{}, fmt.Errorf("lock application: %w", err)
@@ -619,7 +630,11 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 }
 
 // Rollback returns a ring to its previous version.
-func (p *Promoter) Rollback(ctx context.Context, app, ringName string) (Result, error) {
+func (p *Promoter) Rollback(ctx context.Context, app, ringName string) (outcome Result, outErr error) {
+	start := time.Now()
+	defer func() {
+		metrics.ObservePromotion(app, ringName, metrics.ActionRollback, outcome.Success, time.Since(start).Seconds())
+	}()
 	rc, err := p.ringConfig(app, ringName)
 	if err != nil {
 		return Result{}, err
