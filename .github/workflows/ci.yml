@@ -1,0 +1,59 @@
+name: CI
+
+# Gates every pull request (and push to main) on the Go build, vet, and test
+# suite. Until this existed the only PR check was GitGuardian secret-scanning, so
+# a change that broke the build or a test could merge unnoticed. This workflow is
+# build/test ONLY — it never deploys or pushes images (deploy-k3s1.yml owns that).
+#
+# Runs on the self-hosted Mac Studio runner, same as the deploy workflows, so it
+# reuses the module/build cache already warm on that host.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref (e.g. a force-push to a PR branch) so we
+# don't queue stale CI on the self-hosted runner.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build & test
+    runs-on: [self-hosted, mac-studio]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          check-latest: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Verify go.mod / go.sum are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum \
+            || (echo "::error::go.mod/go.sum are not tidy — run 'go mod tidy' and commit the result" && exit 1)
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race + coverage)
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Coverage summary
+        if: always()
+        run: go tool cover -func=coverage.out | tail -1
