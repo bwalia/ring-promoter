@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/example/ring-promoter/internal/deployer"
+	"github.com/example/ring-promoter/internal/metrics"
 	"github.com/example/ring-promoter/internal/promoter"
 	"github.com/example/ring-promoter/internal/ring"
 	"github.com/example/ring-promoter/internal/store"
@@ -97,6 +98,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /version", s.handleVersion)
 
+	// Prometheus scrape endpoint — unauthenticated, like /healthz (scrapers
+	// send no bearer token; restrict at the network layer if needed).
+	mux.Handle("GET /metrics", metrics.Handler())
+
 	// App-scoped REST API — authenticated.
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/apps", s.handleListApps)
@@ -130,7 +135,10 @@ func (s *Server) Handler() http.Handler {
 	// Web UI (single-page app) — served at the root.
 	mux.Handle("/", s.ui)
 
-	return s.logRequests(mux)
+	// metrics.HTTPMiddleware wraps the mux so it reads the matched route pattern
+	// (set during ServeMux routing) for a bounded `route` label. logRequests
+	// stays outermost so access logs cover the metrics endpoint too.
+	return s.logRequests(metrics.HTTPMiddleware(mux))
 }
 
 // ---- middleware ----

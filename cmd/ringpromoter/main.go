@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/example/ring-promoter/internal/executor"
 	"github.com/example/ring-promoter/internal/executor/k8sjob"
 	"github.com/example/ring-promoter/internal/health"
+	"github.com/example/ring-promoter/internal/metrics"
 	"github.com/example/ring-promoter/internal/promoter"
 	"github.com/example/ring-promoter/internal/ring"
 	"github.com/example/ring-promoter/internal/store"
@@ -94,6 +96,17 @@ func run(configPath string, logger *slog.Logger) error {
 	} else {
 		logger.Info("ai diagnosis disabled (set ollama.url and RP_OLLAMA_JWT_SECRET to enable)")
 	}
+
+	// Publish build metadata as the ringpromoter_build_info gauge (scraped from
+	// /metrics), mirroring the same fields the /version endpoint reports.
+	metrics.SetBuildInfo(metrics.BuildInfo{
+		Version:   version,
+		Commit:    commit,
+		BuildDate: buildTime,
+		GoVersion: runtime.Version(),
+		Platform:  runtime.GOOS,
+		Arch:      runtime.GOARCH,
+	})
 
 	srv := api.NewServer(prom, cfg.APIToken, cfg.ProdPassword, web.Handler(), cfg.OperationTimeout.Std(), logger,
 		api.BuildInfo{Version: version, Commit: commit, BuildTime: buildTime}, diag)
