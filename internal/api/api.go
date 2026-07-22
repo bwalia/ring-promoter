@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -357,6 +358,14 @@ func (s *Server) handleAutoPromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app, ringName := r.PathValue("app"), r.PathValue("ring")
+	// A config-declared ring is refused before anything else, so the caller is
+	// told the setting is managed rather than being sent to fetch a password
+	// that would not have helped.
+	if s.prom.AutoPromoteOwnedByConfig(app, ringName) {
+		writeError(w, http.StatusConflict,
+			fmt.Errorf("%w: auto-promote for %s/%s is declared in config — change it there", promoter.ErrAutoPromoteConfigOwned, app, ringName))
+		return
+	}
 	// Enabling the hands-free path INTO production needs the password too —
 	// otherwise auto-promote would be a way around it. Disabling is always
 	// allowed (it only makes things safer).
@@ -563,7 +572,7 @@ func statusForErr(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, promoter.ErrNothingToPromote), errors.Is(err, promoter.ErrNothingToRollback),
 		errors.Is(err, promoter.ErrMaintenanceWindowClosed), errors.Is(err, promoter.ErrSignoffRequired),
-		errors.Is(err, promoter.ErrSignoffNoGo):
+		errors.Is(err, promoter.ErrSignoffNoGo), errors.Is(err, promoter.ErrAutoPromoteConfigOwned):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

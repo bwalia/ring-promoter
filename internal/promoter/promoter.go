@@ -36,6 +36,10 @@ var (
 	ErrAppNotFound       = errors.New("application not found")
 	ErrRingNotConfigured = errors.New("ring not configured for application")
 	ErrNoNextRing        = errors.New("no next ring: already at the last ring")
+	// ErrAutoPromoteConfigOwned rejects an API toggle for a ring whose
+	// auto-promote is declared in config: config is authoritative there, so the
+	// write would only be undone by the next reconcile.
+	ErrAutoPromoteConfigOwned = errors.New("auto-promote is managed by config")
 	ErrEmptyVersion      = errors.New("version must not be empty")
 	ErrNothingToPromote  = errors.New("source ring has no version to promote")
 	ErrNothingToRollback = errors.New("ring has no previous version to roll back to")
@@ -69,6 +73,10 @@ type RingView struct {
 	LiveHealthy     bool      `json:"live_healthy"` // fresh check at read time
 	LiveHealthError string    `json:"live_health_error,omitempty"`
 	AutoPromote     bool      `json:"auto_promote"` // continue onward automatically
+	// AutoPromoteManaged reports that config owns this ring's auto-promote
+	// switch, so the API toggle returns 409 and the UI must render its control
+	// disabled rather than offer one that cannot work.
+	AutoPromoteManaged bool `json:"auto_promote_managed"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	CanPromoteFrom  bool      `json:"can_promote_from"`
 	// Gates describes the promotion-policy gates that guard entering THIS ring,
@@ -223,7 +231,7 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 
 	for i, r := range all {
 		rc, configured := ac.Rings[r.Name]
-		v := RingView{Ring: r, Configured: configured}
+		v := RingView{Ring: r, Configured: configured, AutoPromoteManaged: rc.AutoPromoteOwnedByConfig()}
 		if st, err := p.store.GetRingState(ctx, app, r.Name); err == nil {
 			v.CurrentVersion = st.CurrentVersion
 			v.PreviousVersion = st.PreviousVersion
@@ -413,11 +421,67 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (out
 	return res, nil
 }
 
+// AutoPromoteOwnedByConfig reports whether config declares this ring's
+// auto-promote setting. When it does, config is authoritative: the value is
+// reconciled at start-up and the API toggle is refused.
+func (p *Promoter) AutoPromoteOwnedByConfig(app, ringName string) bool {
+	rc, err := p.ringConfig(app, ringName)
+	if err != nil {
+		return false
+	}
+	return rc.AutoPromoteOwnedByConfig()
+}
+
+// ReconcileAutoPromote applies every config-declared auto-promote value onto
+// stored state. Rings whose config omits the field are left untouched — their
+// setting stays runtime-only, exactly as before this field existed.
+//
+// It runs at start-up (and would run again on a config reload), not only when a
+// ring row is first created: a ring switched on out-of-band must be switched
+// back, and that correction logged. Unchanged values write nothing and log
+// nothing, so a restart with unchanged config is silent.
+func (p *Promoter) ReconcileAutoPromote(ctx context.Context) error {
+	for _, a := range p.cfg.Apps {
+		for rname, rc := range a.Rings {
+			if !rc.AutoPromoteOwnedByConfig() {
+				continue
+			}
+			want := *rc.AutoPromote
+			// No stored row yet (a ring never deployed) means auto-promote is
+			// off, so only `want == true` has anything to do — SetAutoPromote
+			// creates the row. Anything else is a real read error.
+			have := false
+			switch st, err := p.store.GetRingState(ctx, a.Name, rname); {
+			case err == nil:
+				have = st.AutoPromote
+			case errors.Is(err, store.ErrNotFound):
+			default:
+				return fmt.Errorf("reconcile auto-promote %s/%s: %w", a.Name, rname, err)
+			}
+			if have == want {
+				continue
+			}
+			if err := p.store.SetAutoPromote(ctx, a.Name, rname, want); err != nil {
+				return fmt.Errorf("reconcile auto-promote %s/%s: %w", a.Name, rname, err)
+			}
+			p.log.Info("auto-promote reconciled from config",
+				"app", a.Name, "ring", rname, "was", have, "now", want)
+		}
+	}
+	return nil
+}
+
 // SetAutoPromote stores the auto-promote setting for one ring of an app.
 // Enabling requires a next ring (configured for this app) to promote into.
+// It refuses a ring whose auto-promote is declared in config — there, config is
+// the owner and an API write would just be undone by the next reconcile.
 func (p *Promoter) SetAutoPromote(ctx context.Context, app, ringName string, enabled bool) error {
-	if _, err := p.ringConfig(app, ringName); err != nil {
+	rc, err := p.ringConfig(app, ringName)
+	if err != nil {
 		return err
+	}
+	if rc.AutoPromoteOwnedByConfig() {
+		return fmt.Errorf("%w: auto-promote for %s/%s is declared in config (auto_promote: %t) — change it there", ErrAutoPromoteConfigOwned, app, ringName, *rc.AutoPromote)
 	}
 	if enabled {
 		next, ok := ring.Next(ringName)

@@ -41,6 +41,8 @@ export interface RingView {
   live_healthy: boolean;
   live_health_error?: string;
   auto_promote: boolean;
+  /** Config owns this ring's auto-promote switch, so the API toggle returns 409. */
+  auto_promote_managed: boolean;
   updated_at: string;
   can_promote_from: boolean;
   gates: RingGates;

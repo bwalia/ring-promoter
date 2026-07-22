@@ -489,13 +489,25 @@ function RingDetailsSheet({
                 <Switch
                   checked={view.auto_promote}
                   onCheckedChange={toggleAutoPromote}
+                  disabled={view.auto_promote_managed}
                   aria-label={`Auto-promote ${ring.name}`}
                 />
               </label>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                When a version lands here and is healthy, promote it to{" "}
-                {next!.ring.label} automatically. Turn off to stop a promotion
-                chain at this ring.
+                {view.auto_promote_managed ? (
+                  <>
+                    Managed by config: this ring declares{" "}
+                    <code>auto_promote: {String(view.auto_promote)}</code>, which
+                    is reapplied on every restart. Change it in the app&apos;s
+                    config rather than here.
+                  </>
+                ) : (
+                  <>
+                    When a version lands here and is healthy, promote it to{" "}
+                    {next!.ring.label} automatically. Turn off to stop a
+                    promotion chain at this ring.
+                  </>
+                )}
               </p>
             </section>
           )}

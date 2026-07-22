@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -334,5 +335,96 @@ apps:
 	app, _ := cfg.App("myapp")
 	if got := app.K8sJob.ResolvedRetries(); got != 0 {
 		t.Fatalf("retries = %d, want 0", got)
+	}
+}
+
+// ---- declarative auto-promote ----
+
+// A ring's auto_promote parses into three distinguishable states: absent (config
+// does not own it), explicit true, explicit false. The absent/false distinction
+// is what keeps configs written before this field behaving unchanged.
+func TestAutoPromote_AbsentTrueFalse(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	cfg, err := Load(writeConfig(t, `
+apps:
+  - name: web
+    rings:
+      int:  { namespace: r0, deployment: web, container: web, image: repo/web, health_url: "http://x/h" }
+      test: { namespace: r1, deployment: web, container: web, image: repo/web, health_url: "http://x/h", auto_promote: true }
+      acc:  { namespace: r2, deployment: web, container: web, image: repo/web, health_url: "http://x/h", auto_promote: false }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rings := cfg.Apps[0].Rings
+	if rings["int"].AutoPromote != nil {
+		t.Fatal("int omits auto_promote: want nil (config does not own it)")
+	}
+	if rings["int"].AutoPromoteOwnedByConfig() {
+		t.Fatal("int must not report as config-owned")
+	}
+	if v := rings["test"].AutoPromote; v == nil || !*v {
+		t.Fatalf("test: want explicit true, got %v", v)
+	}
+	if v := rings["acc"].AutoPromote; v == nil || *v {
+		t.Fatalf("acc: want explicit false, got %v", v)
+	}
+	if !rings["acc"].AutoPromoteOwnedByConfig() {
+		t.Fatal("explicit false must still be config-owned")
+	}
+}
+
+// The production guard: config must not be able to open the hands-free path
+// into the prod ring, because that path is password-protected at the API and a
+// config-declared value never passes through that check.
+func TestAutoPromote_RejectsAutoPromoteIntoProd(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	_, err := Load(writeConfig(t, `
+apps:
+  - name: web
+    rings:
+      acc:  { namespace: r2, deployment: web, container: web, image: repo/web, health_url: "http://x/h", auto_promote: true }
+      prod: { namespace: r3, deployment: web, container: web, image: repo/web, health_url: "http://x/h" }
+`))
+	if err == nil {
+		t.Fatal("config enabling auto-promote into prod must be rejected")
+	}
+	if !strings.Contains(err.Error(), "production password") {
+		t.Fatalf("error should explain the bypass, got: %v", err)
+	}
+	// Explicit false into prod is fine — it only ever makes things safer.
+	if _, err := Load(writeConfig(t, `
+apps:
+  - name: web
+    rings:
+      acc:  { namespace: r2, deployment: web, container: web, image: repo/web, health_url: "http://x/h", auto_promote: false }
+      prod: { namespace: r3, deployment: web, container: web, image: repo/web, health_url: "http://x/h" }
+`)); err != nil {
+		t.Fatalf("auto_promote: false into prod must be allowed: %v", err)
+	}
+}
+
+// auto_promote: true needs somewhere to go: not the last ring, and not a next
+// ring this app does not configure.
+func TestAutoPromote_RequiresConfiguredNextRing(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	// prod is last: nothing to promote into.
+	if _, err := Load(writeConfig(t, `
+apps:
+  - name: web
+    rings:
+      prod: { namespace: r3, deployment: web, container: web, image: repo/web, health_url: "http://x/h", auto_promote: true }
+`)); err == nil {
+		t.Fatal("auto_promote on the last ring must be rejected")
+	}
+	// int's next ring (test) is not configured for this app.
+	if _, err := Load(writeConfig(t, `
+apps:
+  - name: web
+    rings:
+      int: { namespace: r0, deployment: web, container: web, image: repo/web, health_url: "http://x/h", auto_promote: true }
+      acc: { namespace: r2, deployment: web, container: web, image: repo/web, health_url: "http://x/h" }
+`)); err == nil {
+		t.Fatal("auto_promote with an unconfigured next ring must be rejected")
 	}
 }

@@ -220,7 +220,7 @@ are unauthenticated.
 | `POST /api/apps/{app}/seed`      | `{"ring","version","cr_code?"}`  | Set an initial version for a ring.        |
 | `POST /api/apps/{app}/promote`   | `{"from_ring","cr_code?"}`       | Promote to the next ring.                 |
 | `POST /api/apps/{app}/rollback`  | `{"ring"}`            | Roll a ring back to its previous version. |
-| `PUT  /api/apps/{app}/rings/{ring}/auto-promote` | `{"enabled"}` | Toggle auto-promote for a ring (see below). |
+| `PUT  /api/apps/{app}/rings/{ring}/auto-promote` | `{"enabled"}` | Toggle auto-promote for a ring (see below). `409` if the ring declares `auto_promote` in config. |
 | `GET  /api/apps/{app}/maintenance-windows` | –           | Maintenance view: recurring + ad-hoc windows, guarded rings, open status. |
 | `POST /api/apps/{app}/maintenance-windows` | `{"ring?","starts_at","ends_at","reason?","created_by?"}` | Open an ad-hoc maintenance window (RFC3339 times; empty ring = all guarded rings). |
 | `DELETE /api/apps/{app}/maintenance-windows/{id}` | –    | Close (delete) an ad-hoc window. |
@@ -257,6 +257,41 @@ in the matching dialogs.
 > on `RP_PROD_PASSWORD` on a system where auto-promote into production was
 > already enabled, review those switches — they remain in effect until turned
 > off.
+
+**Auto-promote in config (`auto_promote`).** By default a ring's auto-promote
+switch is runtime state: off until someone turns it on through the API or UI,
+and invisible in git. A ring may instead **declare** it, which makes config the
+owner:
+
+```yaml
+rings:
+  int:  { namespace: int,  ... }                     # unset: operator-controlled
+  test: { namespace: test, ..., auto_promote: true }  # config-owned: on
+  acc:  { namespace: acc,  ..., auto_promote: false } # config-owned: off
+```
+
+Absent, `true` and `false` are three different things. **Absent** keeps the
+historical behaviour exactly — the API toggle works and config never interferes
+— so configs written before this field are unaffected. Either explicit value
+makes the ring config-owned:
+
+* the value is applied at start-up, and re-applied on every restart, so a ring
+  switched on out-of-band is switched back (logged as
+  `auto-promote reconciled from config`);
+* `PUT /api/apps/{app}/rings/{ring}/auto-promote` returns **409** for that ring,
+  and the UI shows its switch disabled with "managed by config".
+
+Config may **not** set `auto_promote: true` on the ring before production — that
+is refused at start-up. Enabling the hands-free path into production requires
+`RP_PROD_PASSWORD` at the API, and a config-declared value never passes through
+that check; allowing it would make config a way around the password. Declare
+`false` freely (it only ever makes things safer), and turn production
+auto-promote on through the API if you really want it.
+
+*Migrating an existing ring:* set the field to the value the ring already has,
+deploy, and confirm the restart logs no reconcile line — a logged change means
+config and reality disagreed, which is exactly what you want to find out before
+it matters.
 
 **Promotion gates (`promotion_policy`).** An app can require extra checks before
 a version enters a sensitive ring (default target rings: `acc` + `prod`). Each

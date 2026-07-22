@@ -78,6 +78,14 @@ func run(configPath string, logger *slog.Logger) error {
 	}
 	prom := promoter.New(cfg, st, deployers, defaultDeployer, buildChecker(cfg), logger)
 
+	// Apply config-declared auto-promote settings before anything can act on
+	// stale stored state. Rings that do not declare the field keep whatever the
+	// API last set. Failing here is deliberate: starting up with a ring
+	// auto-promoting against config is worse than not starting.
+	if err := prom.ReconcileAutoPromote(ctx); err != nil {
+		return err
+	}
+
 	// Change-request validators for apps whose promotion policy gates rings
 	// behind a valid CR code (validated against JIRA or another business
 	// system). Built up-front so a missing token fails fast at start-up.

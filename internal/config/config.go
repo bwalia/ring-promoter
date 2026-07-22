@@ -380,7 +380,26 @@ type RingConfig struct {
 	// Only meaningful for branch/CI-based deployers (github); leave empty
 	// otherwise (the kubectl deployer treats the version as an image tag).
 	Ref string `yaml:"ref"`
+	// AutoPromote, when set, makes config the OWNER of this ring's auto-promote
+	// switch: the value is reconciled onto stored state at start-up, and the
+	// API's toggle refuses to change it (409). Leave it UNSET to keep the
+	// historical behaviour — auto-promote is then runtime-only state, off by
+	// default, flipped through the API/UI and never touched by config.
+	//
+	// Absent, true and false are three distinct states, hence the pointer: a
+	// plain bool would make every existing config silently claim ownership of
+	// every ring and switch auto-promote off wherever an operator had turned it
+	// on.
+	//
+	// Enabling auto-promote INTO the production ring is refused here (see
+	// Validate) — that path is guarded by RP_PROD_PASSWORD at the API, and
+	// config must not become a way around it.
+	AutoPromote *bool `yaml:"auto_promote"`
 }
+
+// AutoPromoteOwnedByConfig reports whether config declares this ring's
+// auto-promote setting, making it authoritative over stored state.
+func (r RingConfig) AutoPromoteOwnedByConfig() bool { return r.AutoPromote != nil }
 
 // Duration is a time.Duration that unmarshals from a YAML string like "5s".
 type Duration time.Duration
@@ -575,6 +594,9 @@ func (c *Config) Validate() error {
 			if rc.HealthVersionField != "" && rc.HealthVersionHeader != "" {
 				return fmt.Errorf("application %q ring %q sets both health_version_field and health_version_header (choose one)", a.Name, rname)
 			}
+			if err := validateAutoPromote(a, rname, rc); err != nil {
+				return err
+			}
 		}
 		if err := c.validateAppDeployer(a); err != nil {
 			return err
@@ -582,6 +604,39 @@ func (c *Config) Validate() error {
 		if err := validatePromotionPolicy(a); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ProdRingName is the last ring in the pipeline — the one deploys into which
+// are guarded by the production password.
+func ProdRingName() string {
+	all := ring.All()
+	return all[len(all)-1].Name
+}
+
+// validateAutoPromote checks a ring's config-declared auto-promote setting.
+// Only `true` is constrained: it needs somewhere to promote INTO, and it must
+// not be the hands-free path into production.
+func validateAutoPromote(a AppConfig, rname string, rc RingConfig) error {
+	if rc.AutoPromote == nil || !*rc.AutoPromote {
+		return nil
+	}
+	next, ok := ring.Next(rname)
+	if !ok {
+		return fmt.Errorf("application %q ring %q sets auto_promote: true but %q is the last ring — there is nothing to promote into", a.Name, rname, rname)
+	}
+	if _, ok := a.Rings[next.Name]; !ok {
+		return fmt.Errorf("application %q ring %q sets auto_promote: true but its next ring %q is not configured for this app", a.Name, rname, next.Name)
+	}
+	// The production guard. Enabling auto-promote into the last ring requires
+	// RP_PROD_PASSWORD at the API (see api.handleAutoPromote), precisely so
+	// auto-promote cannot be used to sidestep that password. A config-declared
+	// value never passes through that handler, so config is not allowed to open
+	// that path at all — turn it on through the API, where the password is
+	// checked.
+	if next.Name == ProdRingName() {
+		return fmt.Errorf("application %q ring %q sets auto_promote: true, which would promote into the production ring %q automatically; config must not enable that (it bypasses the production password) — enable it via PUT /api/apps/%s/rings/%s/auto-promote instead", a.Name, rname, next.Name, a.Name, rname)
 	}
 	return nil
 }
