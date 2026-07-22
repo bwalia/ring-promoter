@@ -17,11 +17,15 @@ func gatedHarness(t *testing.T, now time.Time, policy *config.PromotionPolicy) (
 	t.Helper()
 	dep := newFakeDeployer()
 	chk := newScriptedChecker(dep)
-	st := store.NewMemory()
+	clock := func() time.Time { return now }
+	// The store shares the promoter's fake clock: it prunes/expires records
+	// against its own "now", so leaving it on time.Now makes these tests depend
+	// on the real date.
+	st := store.NewMemoryWithClock(clock)
 	cfg := testConfig(1)
 	cfg.Apps[0].PromotionPolicy = policy
 	p := New(cfg, st, nil, dep, chk, nil)
-	p.now = func() time.Time { return now }
+	p.now = clock
 	return p, dep, st
 }
 

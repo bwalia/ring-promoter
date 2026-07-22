@@ -24,13 +24,23 @@ type Memory struct {
 
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
+	return NewMemoryWithClock(time.Now)
+}
+
+// NewMemoryWithClock returns an empty in-memory store that reads the current
+// time from clock. Tests that drive the promoter with a fake clock should build
+// their store this way, so the two agree on "now" — a store left on time.Now
+// prunes or expires records against the real date and turns such a test into a
+// time bomb (a window created around a fixed fake date is pruned for good once
+// the real date passes it by pruneWindowAfter).
+func NewMemoryWithClock(clock func() time.Time) *Memory {
 	return &Memory{
 		states:   make(map[string]RingState),
 		groups:   make(map[string]Group),
 		windows:  make(map[string]MaintenanceWindow),
 		signoffs: make(map[string]Signoff),
 		nextID:   1,
-		now:      time.Now,
+		now:      clock,
 		locks:    make(map[string]*sync.Mutex),
 	}
 }
