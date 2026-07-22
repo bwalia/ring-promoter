@@ -55,6 +55,19 @@ Do this once by hand; CI takes over afterwards.
      ```
      (Its server must be `https://k3s1api.diytaxreturn.co.uk:6443`, reachable from
      the runner.)
+   - `DIYTAX_DISPATCH_PAT` — a token with **Contents: write** on
+     `bwalia/diy-tax-return-uk`. After building an image, this workflow fires a
+     `repository_dispatch` (`ring-promoter-image`) at that repo so the
+     **ring-system** instance rolls onto the exact `sha-<short>` tag just built,
+     rather than drifting on `:latest`. Without it the build and the workstation
+     deploy still succeed, but the run ends red on the dispatch step and
+     ring-system must be rolled by hand:
+     ```bash
+     gh workflow run deploy-ring-promoter.yml --repo bwalia/diy-tax-return-uk \
+       -f image_tag=sha-<short>
+     ```
+     Note this token has a second consumer: if it is rotated, update the secret
+     or the auto-roll silently stops at that step.
 
 4. **Docker Hub** — create the repo `bwalia/ring-promoter` and mark it **public**
    (so k3s1 pulls anonymously; no imagePullSecret needed).
