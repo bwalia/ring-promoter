@@ -41,12 +41,10 @@ existing column or the API contract without saying so explicitly.
 
 ---
 
-# The design decision you must make first
+# The design — decided, not open
 
-Two coherent models. **Pick one, state it in the PR description, and implement it
-consistently.** Do not build a hybrid that leaves it ambiguous which side wins.
-
-### Option A — config is authoritative (recommended)
+**Config is authoritative.** This is settled; do not re-open it or offer
+alternatives.
 
 `auto_promote` in config declares desired state and is reconciled onto the store
 at startup and on every config reload. For a ring whose config sets the field,
@@ -57,17 +55,19 @@ Rings that omit the field keep today's behaviour exactly — runtime-only, defau
 false, API-toggleable. That keeps the change backward compatible: an existing
 deployment that adds nothing to its config behaves identically.
 
-Recommended because it makes the git repo the answer to "why is this ring
-auto-promoting?", which is the whole point of the request.
+The point is that the git repo becomes the answer to "why is this ring
+auto-promoting?". A seed-only model — where config sets the value once and the
+API may diverge from it forever after — was considered and **rejected**: it
+reintroduces exactly the invisible drift this work exists to remove.
 
-### Option B — config seeds the initial value only
+Two consequences to hold onto while implementing:
 
-Config sets the value when the `ring_state` row is first created; the API
-remains free to change it afterwards, and config never re-asserts.
-
-Weaker: after the first deploy, config and reality can disagree indefinitely and
-nothing surfaces it. If you choose this, you must at minimum log a warning at
-startup whenever stored state diverges from config.
+* Reconciliation runs on **every** startup and reload, not only on first
+  creation. A ring switched on via the API out-of-band must be switched back by
+  the next reconcile, and that correction must be logged.
+* "Config-owned" is a property of the ring, derived from whether the field is
+  present. It has to be knowable at the API and UI layers, not just inside the
+  reconciler — see the API and UI requirements below.
 
 ---
 
@@ -122,18 +122,18 @@ interacts with the guard. Acceptable approaches:
   production is a deliberate, greppable, review-visible act — plus a WARN log on
   every startup where it is active.
 
-Whichever you choose, add a test asserting that a config which enables
-auto-promote into prod without the opt-in does **not** result in a stored
-`auto_promote = true`.
+This one is still yours to choose — but choose deliberately, document it, and
+add a test asserting that a config which enables auto-promote into prod without
+the opt-in does **not** result in a stored `auto_promote = true`.
 
 ## API behaviour
 
-* Option A: `PUT .../auto-promote` on a config-owned ring returns `409` with a
-  message naming the config file as the owner. Rings not declared in config keep
+* `PUT .../auto-promote` on a config-owned ring returns `409 Conflict` with a
+  message naming the config as the owner. Rings not declared in config keep
   working exactly as now.
-* Either option: `GET` paths that expose ring state should make it discoverable
-  whether the value is config-owned or runtime-set, so the UI can disable the
-  toggle rather than offer a control that will fail.
+* `GET` paths that expose ring state must make it discoverable whether the value
+  is config-owned or runtime-set, so the UI can disable the toggle rather than
+  offer a control that will fail.
 
 ## UI
 
@@ -150,8 +150,11 @@ use returns 409.
 * Validation rejects the prod-ring case per the guard decision above.
 * Reconciliation sets, clears, and leaves-alone the right rings; second run is a
   no-op.
-* API returns 409 for a config-owned ring (Option A) and still works for a ring
-  config does not declare.
+* API returns 409 for a config-owned ring, and still works for a ring config
+  does not declare.
+* Reconciliation corrects an out-of-band API toggle: set the column true behind
+  the reconciler's back for a ring config declares false, reload, assert it is
+  false again and that the correction was logged.
 * A promotion cycle honours a config-declared value end to end — this is the
   behaviour that actually matters, so assert on the promotion outcome, not just
   the stored column.
