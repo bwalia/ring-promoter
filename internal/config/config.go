@@ -242,6 +242,12 @@ type K8sJobConfig struct {
 	TTLAfterFinished *Duration          `yaml:"ttl_after_finished"`
 	NodeSelector     map[string]string  `yaml:"node_selector"`
 	Tolerations      []K8sJobToleration `yaml:"tolerations"`
+	// SecurityContext, when set, is applied to the Job container. Leave it unset
+	// for ordinary deploy scripts (kubectl/helm) — they need no elevation. Set
+	// `privileged: true` only for a runner that builds container images
+	// in-cluster (e.g. BuildKit): the daemon needs it. Scope such a runner to a
+	// single app and a dedicated ServiceAccount.
+	SecurityContext *K8sJobSecurityContext `yaml:"security_context"`
 	// Affinity is a raw Kubernetes affinity object passed through verbatim.
 	Affinity    map[string]any    `yaml:"affinity"`
 	Labels      map[string]string `yaml:"labels"`
@@ -265,6 +271,17 @@ type K8sJobToleration struct {
 	Operator string `yaml:"operator"`
 	Value    string `yaml:"value"`
 	Effect   string `yaml:"effect"`
+}
+
+// K8sJobSecurityContext is the subset of a container securityContext an app may
+// request for its deploy Job. Pointer fields keep an explicit false/0 distinct
+// from unset. Only image-building runners should need `privileged`.
+type K8sJobSecurityContext struct {
+	Privileged             *bool  `yaml:"privileged"`
+	RunAsUser              *int64 `yaml:"run_as_user"`
+	RunAsGroup             *int64 `yaml:"run_as_group"`
+	RunAsNonRoot           *bool  `yaml:"run_as_non_root"`
+	ReadOnlyRootFilesystem *bool  `yaml:"read_only_root_filesystem"`
 }
 
 // Defaults applied to an unset k8sjob field.

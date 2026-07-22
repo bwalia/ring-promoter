@@ -76,13 +76,25 @@ type toleration struct {
 }
 
 type container struct {
-	Name      string          `json:"name"`
-	Image     string          `json:"image"`
-	Command   []string        `json:"command,omitempty"`
-	Args      []string        `json:"args,omitempty"`
-	Env       []envVar        `json:"env,omitempty"`
-	EnvFrom   []envFromSource `json:"envFrom,omitempty"`
-	Resources *resources      `json:"resources,omitempty"`
+	Name            string           `json:"name"`
+	Image           string           `json:"image"`
+	Command         []string         `json:"command,omitempty"`
+	Args            []string         `json:"args,omitempty"`
+	Env             []envVar         `json:"env,omitempty"`
+	EnvFrom         []envFromSource  `json:"envFrom,omitempty"`
+	Resources       *resources       `json:"resources,omitempty"`
+	SecurityContext *securityContext `json:"securityContext,omitempty"`
+}
+
+// securityContext mirrors the container securityContext fields the executor
+// exposes. Pointer fields serialize an explicit false/0 while staying omitted
+// when unset.
+type securityContext struct {
+	Privileged             *bool  `json:"privileged,omitempty"`
+	RunAsUser              *int64 `json:"runAsUser,omitempty"`
+	RunAsGroup             *int64 `json:"runAsGroup,omitempty"`
+	RunAsNonRoot           *bool  `json:"runAsNonRoot,omitempty"`
+	ReadOnlyRootFilesystem *bool  `json:"readOnlyRootFilesystem,omitempty"`
 }
 
 type envVar struct {
@@ -143,13 +155,14 @@ func buildManifest(spec executor.Spec, name, id string) jobManifest {
 				NodeSelector:       spec.NodeSelector,
 				Affinity:           spec.Affinity,
 				Containers: []container{{
-					Name:      containerName,
-					Image:     spec.Image,
-					Command:   spec.Command,
-					Args:      spec.Args,
-					Env:       envList(spec.Env, id),
-					EnvFrom:   envFromList(spec.EnvFromSecrets, spec.EnvFromConfigMaps),
-					Resources: resourceList(spec.Resources),
+					Name:            containerName,
+					Image:           spec.Image,
+					Command:         spec.Command,
+					Args:            spec.Args,
+					Env:             envList(spec.Env, id),
+					EnvFrom:         envFromList(spec.EnvFromSecrets, spec.EnvFromConfigMaps),
+					Resources:       resourceList(spec.Resources),
+					SecurityContext: securityContextOf(spec.SecurityContext),
 				}},
 			},
 		},
@@ -214,6 +227,21 @@ func envFromList(secrets, configMaps []string) []envFromSource {
 		out = append(out, envFromSource{ConfigMapRef: &nameRef{Name: c}})
 	}
 	return out
+}
+
+// securityContextOf maps the executor's SecurityContext onto the manifest type,
+// or returns nil when unset so the field is omitted entirely.
+func securityContextOf(sc *executor.SecurityContext) *securityContext {
+	if sc == nil {
+		return nil
+	}
+	return &securityContext{
+		Privileged:             sc.Privileged,
+		RunAsUser:              sc.RunAsUser,
+		RunAsGroup:             sc.RunAsGroup,
+		RunAsNonRoot:           sc.RunAsNonRoot,
+		ReadOnlyRootFilesystem: sc.ReadOnlyRootFilesystem,
+	}
 }
 
 func resourceList(r executor.Resources) *resources {

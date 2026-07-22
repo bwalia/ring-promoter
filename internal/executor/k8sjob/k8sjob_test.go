@@ -191,6 +191,38 @@ func TestStart_BuildsManifest(t *testing.T) {
 	}
 }
 
+func TestStart_SecurityContext(t *testing.T) {
+	// Unset: the field must be omitted entirely (ordinary tasks stay hardened).
+	f := &fakeRunner{}
+	if _, err := testExecutor(f).Start(context.Background(), minimalSpec()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if strings.Contains(string(f.created[0]), "securityContext") {
+		t.Fatalf("securityContext must be omitted when unset: %s", f.created[0])
+	}
+
+	// Set: a privileged runner (image builder) serializes the context verbatim.
+	priv := true
+	var uid int64 = 1000
+	spec := minimalSpec()
+	spec.SecurityContext = &executor.SecurityContext{Privileged: &priv, RunAsUser: &uid}
+	f2 := &fakeRunner{}
+	if _, err := testExecutor(f2).Start(context.Background(), spec); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	var m jobManifest
+	if err := json.Unmarshal(f2.created[0], &m); err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+	sc := m.Spec.Template.Spec.Containers[0].SecurityContext
+	if sc == nil || sc.Privileged == nil || !*sc.Privileged {
+		t.Fatalf("privileged not set: %+v", sc)
+	}
+	if sc.RunAsUser == nil || *sc.RunAsUser != 1000 {
+		t.Fatalf("runAsUser = %v", sc.RunAsUser)
+	}
+}
+
 func TestStart_RequiresImageAndNamespace(t *testing.T) {
 	e := testExecutor(&fakeRunner{})
 	if _, err := e.Start(context.Background(), executor.Spec{App: "a", Namespace: "ns"}); err == nil || !strings.Contains(err.Error(), "image") {
