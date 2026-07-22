@@ -249,6 +249,7 @@ func buildK8sJobDeployer(app config.AppConfig, logger *slog.Logger, ex *k8sjob.E
 			NodeSelector:      j.NodeSelector,
 			Tolerations:       tolerations,
 			Affinity:          j.Affinity,
+			SecurityContext:   securityContextOf(j.SecurityContext),
 			Timeout:           j.ResolvedTimeout(),
 			Retries:           j.ResolvedRetries(),
 			TTLAfterFinish:    j.ResolvedTTL(),
@@ -258,6 +259,21 @@ func buildK8sJobDeployer(app config.AppConfig, logger *slog.Logger, ex *k8sjob.E
 	}
 
 	return deployer.FromExecutor(logger, ex, specFor, j.ResolvedPollInterval())
+}
+
+// securityContextOf maps an app's optional k8sjob security_context config onto
+// the executor Spec, or returns nil when the app requested none.
+func securityContextOf(sc *config.K8sJobSecurityContext) *executor.SecurityContext {
+	if sc == nil {
+		return nil
+	}
+	return &executor.SecurityContext{
+		Privileged:             sc.Privileged,
+		RunAsUser:              sc.RunAsUser,
+		RunAsGroup:             sc.RunAsGroup,
+		RunAsNonRoot:           sc.RunAsNonRoot,
+		ReadOnlyRootFilesystem: sc.ReadOnlyRootFilesystem,
+	}
 }
 
 func buildGitHubDeployer(app config.AppConfig, logger *slog.Logger) (deployer.Deployer, error) {

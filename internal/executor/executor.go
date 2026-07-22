@@ -59,6 +59,11 @@ type Spec struct {
 	Resources      Resources
 	NodeSelector   map[string]string
 	Tolerations    []Toleration
+	// SecurityContext, when set, is applied to the task container. Most
+	// deployment tasks need none (the default hardened context is fine), but a
+	// task that builds container images in-cluster (e.g. a BuildKit-based deploy
+	// runner) needs elevated privileges. Nil = the backend's default.
+	SecurityContext *SecurityContext
 	// Affinity is an optional raw Kubernetes affinity object (as parsed from
 	// YAML config), passed through to the pod spec verbatim.
 	Affinity map[string]any
@@ -155,4 +160,16 @@ type Toleration struct {
 	Operator string
 	Value    string
 	Effect   string
+}
+
+// SecurityContext is the subset of a Kubernetes container securityContext the
+// executor exposes. Pointer fields distinguish "unset" (omitted) from an
+// explicit false/zero. It exists so an image-building deploy runner can request
+// the privileges BuildKit needs; ordinary tasks leave it nil.
+type SecurityContext struct {
+	Privileged             *bool
+	RunAsUser              *int64
+	RunAsGroup             *int64
+	RunAsNonRoot           *bool
+	ReadOnlyRootFilesystem *bool
 }
