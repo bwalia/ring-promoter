@@ -141,7 +141,7 @@ apps:
   # Listed BEFORE the web app it backs, mirroring the production ordering:
   # opsapi is a dependency, so it is deployed first and read first in the UI.
   - name: diytaxreturn-opsapi
-    display_name: "OpsAPI"
+    display_name: "diytaxreturn OpsAPI"
     rings:
       int:  { target_env: int,  health_url: "https://int-api.diytaxreturn.co.uk/opsapi/health?detailed=true" }
       test: { target_env: test, health_url: "https://test-api.diytaxreturn.co.uk/opsapi/health?detailed=true" }
