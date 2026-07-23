@@ -129,6 +129,24 @@ apps:
       acc:  { target_env: acc,  health_url: "https://prod-our-v1.wslproxy.com/healthz" }  # pop0
       prod: { target_env: prod, health_url: "https://pop1.diytaxreturn.co.uk/healthz" }   # pop1
 
+  # diytaxreturn-opsapi — the opsapi (Lua Lapis) API behind /opsapi and /auth.
+  # Its code is in the bwalia/opsapi repo, its Helm chart in diy-tax-return-uk,
+  # and the version promoted through the rings is an IMMUTABLE opsapi image tag
+  # (`<git-describe>-<run_number>`). In PRODUCTION it deploys via the "github"
+  # deployer against diy-tax-return-uk's deploy-lapis.yml, which pins that tag
+  # with --set image.tag — see the copy in deploy/k8s/configmap.yaml. Here
+  # (local dev) it has NO per-app deployer, so it uses the global `deployer:
+  # log` and runs offline.
+  #
+  # Listed BEFORE the web app it backs, mirroring the production ordering:
+  # opsapi is a dependency, so it is deployed first and read first in the UI.
+  - name: diytaxreturn-opsapi
+    display_name: "OpsAPI"
+    rings:
+      int:  { target_env: int,  health_url: "https://int-api.diytaxreturn.co.uk/opsapi/health?detailed=true" }
+      test: { target_env: test, health_url: "https://test-api.diytaxreturn.co.uk/opsapi/health?detailed=true" }
+      acc:  { target_env: acc,  health_url: "https://acc-api.diytaxreturn.co.uk/opsapi/health?detailed=true" }
+
   # spectoncr — in-cluster container registry. In PRODUCTION it deploys via its
   # Helm-chart GitHub Actions workflow (deploy-spectoncr.yml in diy-tax-return-uk)
   # using the per-app "github" deployer — see the copy in deploy/k8s/configmap.yaml.
