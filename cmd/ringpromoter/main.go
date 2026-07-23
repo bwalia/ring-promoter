@@ -310,7 +310,13 @@ func buildGitHubDeployer(app config.AppConfig, logger *slog.Logger) (deployer.De
 	if g.RunLookupTimeout != nil {
 		cfg.RunLookupTimeout = g.RunLookupTimeout.Std()
 	}
-	return deployer.NewGitHubActionsDeployer(logger, cfg, nil), nil
+	d := deployer.NewGitHubActionsDeployer(logger, cfg, nil)
+	if !g.VerifiesVersion() {
+		// The promoted version is not a ref of Owner/Repo, so validating it
+		// there would reject every deploy. See GitHubDeployConfig.VerifyVersion.
+		return deployer.WithoutVersionSource(d), nil
+	}
+	return d, nil
 }
 
 // buildChangeRequestValidators constructs one change-request validator per app

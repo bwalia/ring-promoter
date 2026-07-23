@@ -69,3 +69,22 @@ type VersionSource interface {
 	// any other error when the source could not be consulted.
 	ValidateVersion(ctx context.Context, version string) error
 }
+
+// WithoutVersionSource returns a Deployer that deploys exactly like d but does
+// not advertise the VersionSource capability, so callers skip both the version
+// dropdown and the pre-deploy "does this version exist?" check.
+//
+// For an app whose promoted version is NOT a ref of the deployer's repository,
+// that check is not a safety net — it is a guaranteed false negative that
+// rejects every legitimate deploy. diytaxreturn-opsapi is the case: its
+// workflow lives in diy-tax-return-uk while its version is a docker image tag
+// built from bwalia/opsapi, so validating against the workflow's repo failed
+// 100% of the time.
+//
+// The wrapper embeds the Deployer INTERFACE rather than the concrete type, so
+// every optional capability is hidden, not just VersionSource. That is correct
+// for GitHubActionsDeployer, which implements no other. Re-check this if a
+// wrapped deployer ever gains one (e.g. LiveVersioner).
+func WithoutVersionSource(d Deployer) Deployer { return versionOpaque{d} }
+
+type versionOpaque struct{ Deployer }

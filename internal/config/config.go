@@ -198,6 +198,32 @@ type GitHubDeployConfig struct {
 	// RunLookupTimeout bounds how long to wait for the dispatched run to appear.
 	// Default 60s.
 	RunLookupTimeout *Duration `yaml:"run_lookup_timeout"`
+	// VerifyVersion controls whether the promoted version is validated as a git
+	// ref of Owner/Repo before anything is dispatched. Default true.
+	//
+	// Set false when the version is NOT a ref of the workflow's repository —
+	// the workflow deploys an artifact identified some other way. The
+	// diytaxreturn-opsapi app is the case this exists for: its workflow
+	// (deploy-lapis.yml) lives in diy-tax-return-uk, but the version promoted
+	// through its rings is a docker image tag built from the SEPARATE
+	// bwalia/opsapi repo. Validating it against diy-tax-return-uk rejected
+	// every seed with "version not found in source repository".
+	//
+	// Disabling this also stops the version DROPDOWN from offering that repo's
+	// branches and tags — which for such an app were never deployable anyway —
+	// so the UI falls back to free-form input. It does not weaken the deploy:
+	// the workflow still has to find the artifact, and deploy-lapis.yml checks
+	// the tag exists on Docker Hub before it touches helm.
+	VerifyVersion *bool `yaml:"verify_version"`
+}
+
+// VerifiesVersion reports whether the promoted version should be validated as a
+// git ref of the workflow's repository. Defaults to true when unset.
+func (g *GitHubDeployConfig) VerifiesVersion() bool {
+	if g == nil || g.VerifyVersion == nil {
+		return true
+	}
+	return *g.VerifyVersion
 }
 
 // K8sJobConfig configures the "k8sjob" deployer for one application: each
