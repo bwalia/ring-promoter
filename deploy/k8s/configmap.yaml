@@ -15,8 +15,8 @@ metadata:
 data:
   config.yaml: |
     listen_addr: ":8080"
-    deployer: log         # nothing is deployed for real yet — every app is inert
-    health: always        # no real health endpoints to probe yet
+    deployer: log         # global default; jobshout overrides to k8sjob below
+    health: http          # real HTTP health checks against each ring's health_url
     database:
       driver: postgres    # DSN comes from RP_DB_DSN (Secret)
     retry:
@@ -24,14 +24,43 @@ data:
       delay: 5s
     operation_timeout: 60m
     apps:
-      # PLACEHOLDER — replace this with the real workstation applications.
-      #
-      # It exists only so the pod can boot: config validation rejects an empty
-      # apps list ("no applications configured" in internal/config/config.go)
-      # and every app must have at least one ring, so an instance with no apps
-      # would crash-loop. With `deployer: log` and `health: always` this app is
-      # completely inert — seeding or promoting it only writes a log line.
-      - name: sample
-        display_name: "Sample (placeholder)"
+      # jobshout — deployed via the K8SJOB deployer: each seed/promote/rollback
+      # runs as a short-lived Kubernetes Job in ring-exec (SA ring-deploy-job)
+      # that helm-installs the jobshout chart into the ring's namespace. The
+      # chart lives in the PUBLIC bwalia/jobshout repo, so the Job git-clones it
+      # at the promoted SHA. RP injects RP_TARGET_ENV (int|test|acc|prod) and
+      # RP_VERSION (the image tag). Requires the ring-exec RBAC in rbac.yaml and
+      # the images pushed by jobshout's deploy-k3s.yml workflow.
+      - name: jobshout
+        display_name: "JobShout"
+        deployer: k8sjob
+        k8sjob:
+          namespace: ring-exec
+          image: docker.io/dtzar/helm-kubectl:3.15.4
+          service_account: ring-deploy-job
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              ns="${RP_TARGET_ENV}"
+              echo "deploy jobshout ${RP_VERSION} -> ns ${ns}"
+              rm -rf /src
+              git clone --depth 1 https://github.com/bwalia/jobshout /src
+              # No --create-namespace: int/test/acc/prod are shared platform
+              # namespaces that pre-exist (RBAC here is namespaced to them). The
+              # ring-deploy-job SA has no cluster-scoped namespace rights.
+              helm upgrade --install jobshout /src/deploy/helm/jobshout \
+                --namespace "${ns}" \
+                -f "/src/deploy/helm/jobshout/values-${ns}.yaml" \
+                --set image.tag="${RP_VERSION}" \
+                --wait --timeout 5m
+              echo "jobshout ${RP_VERSION} live in ${ns}"
+          resources: { cpu_request: 100m, memory_limit: 512Mi }
+          timeout: 15m
+          retries: 0
+          ttl_after_finished: 1h
         rings:
-          int: {}
+          int:  { target_env: int,  health_url: "http://jobshout-api.int.svc.cluster.local:8080/health" }
+          test: { target_env: test, health_url: "http://jobshout-api.test.svc.cluster.local:8080/health" }
+          acc:  { target_env: acc,  health_url: "http://jobshout-api.acc.svc.cluster.local:8080/health" }
+          prod: { target_env: prod, health_url: "http://jobshout-api.prod.svc.cluster.local:8080/health" }

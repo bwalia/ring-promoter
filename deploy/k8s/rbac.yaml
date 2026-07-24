@@ -1,0 +1,140 @@
+# RBAC for the k8sjob deployer used by the `jobshout` app (deploy/k8s/configmap.yaml).
+#
+# Two identities are involved:
+#
+#   1. ring-promoter (control plane) — the workstation Ring Promoter pod. Its
+#      k8sjob deployer shells out to kubectl to CREATE/GET/DELETE the deploy Jobs
+#      and read their pod logs, all inside the ring-exec namespace.
+#
+#   2. ring-deploy-job (runner) — the ServiceAccount each deploy Job pod runs as.
+#      The Job helm-installs the jobshout chart into a ring namespace
+#      (int/test/acc/prod), so it needs write access to exactly the resource
+#      kinds that chart manages, in those namespaces only.
+#
+# Prerequisites (NOT created here — shared platform resources owned elsewhere):
+#   * namespaces int, test, acc, prod must already exist (helm installs into
+#     them without --create-namespace; the RoleBindings below also require them).
+#   * the jobshout chart's ExternalSecret/Vault wiring and the jobshout-registry
+#     pull secret must be provisioned per namespace by ops (see the chart's
+#     values.yaml externalSecret + image.pullSecret).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ring-exec
+  labels:
+    app.kubernetes.io/part-of: ring-promoter
+    app.kubernetes.io/managed-by: workstation-ring-promoter
+---
+# --- 1. Control-plane identity: create/manage deploy Jobs in ring-exec --------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ring-promoter
+  namespace: workstation-ring-promoter
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ring-promoter-jobexec
+  namespace: ring-exec
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+rules:
+  # The k8sjob executor: kubectl create/get/list/delete job, and read pod logs.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ring-promoter-jobexec
+  namespace: ring-exec
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+subjects:
+  - kind: ServiceAccount
+    name: ring-promoter
+    namespace: workstation-ring-promoter
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: ring-promoter-jobexec }
+---
+# --- 2. Runner identity: the Job pods' ServiceAccount -------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ring-deploy-job
+  namespace: ring-exec
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+---
+# Helm-deploy rights the runner needs inside each ring namespace. Scoped to the
+# resource kinds the jobshout chart manages (+ Helm release Secrets, which are
+# ordinary Secrets in the target namespace).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rp-deploy-jobshout
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+rules:
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets", "serviceaccounts", "pods", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # The chart's Vault integration (values.externalSecret.enabled=true).
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-jobshout
+  namespace: int
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-jobshout }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-jobshout
+  namespace: test
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-jobshout }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-jobshout
+  namespace: acc
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-jobshout }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-jobshout
+  namespace: prod
+subjects:
+  - kind: ServiceAccount
+    name: ring-deploy-job
+    namespace: ring-exec
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-jobshout }

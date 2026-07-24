@@ -118,14 +118,15 @@ jobs:
       - name: Apply manifests (GitOps; never secret.yaml)
         run: |
           set -euo pipefail
-          # No rbac.yaml: the ServiceAccount and the cluster-scoped ClusterRole
-          # ring-promoter-deployer are shared cluster-wide and are owned by the
-          # diy-tax-return-uk repo. Applying a copy from here would let the two
-          # repos overwrite each other. This instance runs `deployer: log` and
-          # needs no Kubernetes API access; workstation gets its own RBAC when
-          # it has real applications to deploy.
+          # rbac.yaml holds workstation-OWNED RBAC for jobshout's k8sjob deployer
+          # (the ring-exec namespace, the ring-promoter control-plane SA scoped
+          # to ring-exec, and the ring-deploy-job runner SA + per-ring bindings).
+          # It is distinct from the cluster-shared ring-promoter-deployer
+          # ClusterRole owned by diy-tax-return-uk, so the two repos do not
+          # overwrite each other.
           kubectl apply \
             -f deploy/k8s/namespace.yaml \
+            -f deploy/k8s/rbac.yaml \
             -f deploy/k8s/configmap.yaml \
             -f deploy/k8s/service.yaml \
             -f kubernetes/ingress/ring-promoter.yaml
