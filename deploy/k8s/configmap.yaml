@@ -38,6 +38,12 @@ data:
           namespace: ring-exec
           image: docker.io/dtzar/helm-kubectl:3.15.4
           service_account: ring-deploy-job
+          # SpectonCR registry creds (REGISTRY_USERNAME/REGISTRY_PASSWORD),
+          # injected as env for the helm --set below. Create the secret once:
+          #   kubectl -n ring-exec create secret generic jobshout-registry-creds \
+          #     --from-literal=REGISTRY_USERNAME=<user> \
+          #     --from-literal=REGISTRY_PASSWORD=<pass>
+          env_from_secrets: [jobshout-registry-creds]
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -49,10 +55,18 @@ data:
               # No --create-namespace: int/test/acc/prod are shared platform
               # namespaces that pre-exist (RBAC here is namespaced to them). The
               # ring-deploy-job SA has no cluster-scoped namespace rights.
+              #
+              # k3s1 has no External Secrets Operator, so use the chart's
+              # plaintext fallback (externalSecret.enabled=false) and pass the
+              # registry creds injected from jobshout-registry-creds so the
+              # pull secret is valid.
               helm upgrade --install jobshout /src/deploy/helm/jobshout \
                 --namespace "${ns}" \
                 -f "/src/deploy/helm/jobshout/values-${ns}.yaml" \
                 --set image.tag="${RP_VERSION}" \
+                --set externalSecret.enabled=false \
+                --set-string secrets.registryUsername="${REGISTRY_USERNAME}" \
+                --set-string secrets.registryPassword="${REGISTRY_PASSWORD}" \
                 --wait --timeout 5m
               echo "jobshout ${RP_VERSION} live in ${ns}"
           resources: { cpu_request: 100m, memory_limit: 512Mi }
