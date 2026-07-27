@@ -11,6 +11,10 @@ func TestMemory_MaintenanceWindowCRUD(t *testing.T) {
 	m := NewMemory()
 	ctx := context.Background()
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	// The store must agree with the fixture date. Left on time.Now, the second
+	// create below prunes w1 the moment the real clock is pruneWindowAfter past
+	// `now` — which it has been since 2026-07-25.
+	m.now = func() time.Time { return now }
 
 	w := MaintenanceWindow{
 		ID: "w1", App: "web", Ring: "prod",
