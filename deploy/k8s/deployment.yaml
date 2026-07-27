@@ -14,8 +14,23 @@ metadata:
     app: ring-promoter
 spec:
   replicas: 1
+  # RollingUpdate, not Recreate. Recreate must delete EVERY old pod before it
+  # creates the new one, so a pod stuck Terminating on an unreachable node
+  # (kubelet gone → the deletion is never confirmed) blocks every future deploy
+  # indefinitely — the rollout just waits, then CI's `rollout status` times out.
+  # That is exactly what wedged this service on 2026-07-27 after node debian006
+  # went NotReady. RollingUpdate instead brings the new pod up on a healthy node
+  # first and only then removes the old one, so a dead node holding a ghost pod
+  # can no longer stall a deploy. maxUnavailable: 0 keeps the single replica
+  # serving throughout (zero downtime); maxSurge: 1 permits the brief two-pod
+  # overlap during a roll — safe here for the same reason a scale-up is (see the
+  # replicas note above): promotions are serialized by a Postgres session
+  # advisory lock regardless of how many pods are running.
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: ring-promoter
