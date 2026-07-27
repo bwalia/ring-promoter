@@ -129,7 +129,6 @@ export function Pipeline({
               app={app}
               open={detailsOpen}
               view={rings[detailsIndex]}
-              prev={detailsIndex > 0 ? rings[detailsIndex - 1] : undefined}
               next={
                 detailsIndex < rings.length - 1
                   ? rings[detailsIndex + 1]
@@ -312,7 +311,6 @@ function RingDetailsSheet({
   app,
   open,
   view,
-  prev,
   next,
   busy,
   onOpenChange,
@@ -320,7 +318,6 @@ function RingDetailsSheet({
   app: string;
   open: boolean;
   view: RingView;
-  prev?: RingView;
   next?: RingView;
   busy: boolean;
   onOpenChange: (open: boolean) => void;
@@ -332,7 +329,12 @@ function RingDetailsSheet({
   const health = ringHealth(view);
   const { ring } = view;
 
-  const showAutoPromote = view.configured && !!prev && !!next;
+  // Every configured ring with a configured next ring gets the switch — the
+  // FIRST ring included, so a seed into int can carry on to test hands-free
+  // (the server chains from a seed exactly as it does from a promotion). The
+  // next ring must be configured for THIS app: an app that stops at acc has no
+  // prod hop to offer, and toggling one on would only earn an API error.
+  const showAutoPromote = view.configured && !!next?.configured;
   const drift =
     view.live_version &&
     view.current_version &&
