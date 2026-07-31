@@ -41,12 +41,15 @@ result — the Go binary embeds whatever is in that directory at build time.
 
 ## How it works
 
-- **Live updates, no refreshes.** TanStack Query polls: ring state every 10s,
-  history every 30s, and a running seed/promote/rollback job every second.
-  Seed/promote/rollback POST with `?async=1`; the returned `job_id` is polled
-  and rendered as a step-by-step live progress panel (statuses, logs,
-  durations). On completion, rings + history are refetched immediately and a
-  toast reports the outcome. The pause button in the top bar stops polling.
+- **Live updates, no refreshes.** Job progress is pushed over a single SSE
+  connection (`GET /api/events`, see `src/lib/job-stream.ts`): the server sends
+  a full jobs snapshot on every change and nothing while idle. If the stream
+  drops, TanStack Query's 2s jobs poll takes over until the automatic
+  reconnect. Ring state still polls every 10s and history every 30s.
+  Seed/promote/rollback POST with `?async=1`; the returned job is rendered as
+  a step-by-step live progress panel (statuses, logs, durations). On
+  completion, rings + history are refetched immediately and a toast reports
+  the outcome. The pause button in the top bar stops polling.
 - **Auth.** The API token is entered once (validated against `GET /api/apps`),
   kept in localStorage and attached as a `Bearer` header. Any 401 signs out
   back to the token gate.
