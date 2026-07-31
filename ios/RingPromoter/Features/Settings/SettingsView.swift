@@ -8,7 +8,6 @@ struct SettingsView: View {
     @State private var editingInstance: Instance?
     @State private var pendingRemoval: Instance?
     @State private var showingForgetEverything = false
-    @State private var showingGroups = false
 
     var body: some View {
         @Bindable var settings = session.settings
@@ -52,16 +51,6 @@ struct SettingsView: View {
                             ? "Demo mode is active. Nothing you do here reaches a real server."
                             : "Tokens are stored in the Keychain, on this device only."
                     )
-                }
-
-                if !session.isDemo, session.activeInstance != nil {
-                    Section("Groups") {
-                        Button {
-                            showingGroups = true
-                        } label: {
-                            Label("Application groups", systemImage: "square.stack.3d.down.right")
-                        }
-                    }
                 }
 
                 Section {
@@ -162,7 +151,6 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .sheet(isPresented: $isAddingInstance) { AddInstanceView() }
             .sheet(item: $editingInstance) { AddInstanceView(editing: $0) }
-            .sheet(isPresented: $showingGroups) { GroupsView() }
             .task { await loadVersion() }
             .confirmationDialog(
                 "Remove this control plane?",

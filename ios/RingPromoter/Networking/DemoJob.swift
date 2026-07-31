@@ -25,8 +25,9 @@ struct DemoJob: Sendable {
     var diagnosis: String?
 
     /// How long each step takes. Slow enough to watch, short enough that a demo
-    /// does not stall.
-    private static let stepDuration: TimeInterval = 2.2
+    /// does not stall. The ambient job the demo world opens with runs slower, so
+    /// the in-flight animation is on screen long enough to actually be seen.
+    var stepDuration: TimeInterval = 2.2
 
     private struct Plan: Sendable {
         let id: String
@@ -110,12 +111,12 @@ struct DemoJob: Sendable {
     func snapshot(at instant: Date) -> Job {
         let plan = plan
         let elapsed = max(0, instant.timeIntervalSince(startedAt))
-        let completedCount = min(plan.count, Int(elapsed / Self.stepDuration))
+        let completedCount = min(plan.count, Int(elapsed / stepDuration))
         let isFinished = completedCount >= plan.count
 
         var steps: [JobStep] = []
         for (index, item) in plan.enumerated() where index <= completedCount {
-            let stepStart = startedAt.addingTimeInterval(Double(index) * Self.stepDuration)
+            let stepStart = startedAt.addingTimeInterval(Double(index) * stepDuration)
             let done = index < completedCount
             steps.append(
                 JobStep(
@@ -125,13 +126,13 @@ struct DemoJob: Sendable {
                     logs: done ? item.logs : revealedLogs(item, at: instant, stepStart: stepStart),
                     startedAt: stepStart,
                     finishedAt: done
-                        ? stepStart.addingTimeInterval(Self.stepDuration) : nil
+                        ? stepStart.addingTimeInterval(stepDuration) : nil
                 )
             )
         }
 
         let finishedAt = isFinished
-            ? startedAt.addingTimeInterval(Double(plan.count) * Self.stepDuration) : nil
+            ? startedAt.addingTimeInterval(Double(plan.count) * stepDuration) : nil
 
         return Job(
             id: id, app: app, action: action.rawValue,
@@ -149,7 +150,7 @@ struct DemoJob: Sendable {
 
     private func revealedLogs(_ item: Plan, at instant: Date, stepStart: Date) -> [String] {
         guard !item.logs.isEmpty else { return [] }
-        let progress = instant.timeIntervalSince(stepStart) / Self.stepDuration
+        let progress = instant.timeIntervalSince(stepStart) / stepDuration
         let shown = max(1, min(item.logs.count, Int(progress * Double(item.logs.count)) + 1))
         return Array(item.logs.prefix(shown))
     }
@@ -178,7 +179,7 @@ struct DemoJob: Sendable {
                 currentVersion: fails ? previousVersion : version,
                 previousVersion: fails ? version : previousVersion,
                 healthy: !fails, autoPromote: false,
-                updatedAt: startedAt.addingTimeInterval(Double(plan.count) * Self.stepDuration)
+                updatedAt: startedAt.addingTimeInterval(Double(plan.count) * stepDuration)
             )
         )
     }

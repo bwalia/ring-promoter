@@ -60,15 +60,18 @@ final class CriticalPathUITests: XCTestCase {
         // Every ring in the pipeline is present, configured or not. The list is
         // lazy, so the later rings need scrolling into existence.
         for ring in ["int", "test", "acc", "prod"] {
-            let header = app.staticTexts["ring-\(ring)"]
-            if !header.exists { app.swipeUp() }
+            let row = app.buttons["ring-\(ring)"]
+            if !row.exists { app.swipeUp() }
             XCTAssertTrue(
-                header.waitForExistence(timeout: 5), "the \(ring) ring should be on screen"
+                row.waitForExistence(timeout: 5), "the \(ring) ring should be on screen"
             )
         }
-        // The gated rings advertise what guards them.
-        XCTAssertTrue(app.staticTexts["QA sign-off"].firstMatch.exists)
         attachScreenshot(named: "02-app-detail")
+
+        // The gates a ring carries are named on the ring's own screen.
+        XCTAssertTrue(openRing("acc"))
+        XCTAssertTrue(app.staticTexts["QA sign-off"].firstMatch.waitForExistence(timeout: 5))
+        attachScreenshot(named: "02b-ring-detail")
     }
 
     func testUnhealthyRingIsCalledOutAtTheTop() {
@@ -76,7 +79,7 @@ final class CriticalPathUITests: XCTestCase {
         openApp(named: "Payments API")
 
         XCTAssertTrue(
-            app.staticTexts["Test is unhealthy"].waitForExistence(timeout: 5),
+            app.staticTexts["unhealthy: status 503"].waitForExistence(timeout: 5),
             "an unhealthy ring should be called out above the pipeline"
         )
     }
@@ -87,6 +90,7 @@ final class CriticalPathUITests: XCTestCase {
 
         // `prod` holds nothing, so there is nothing to promote out of it — and
         // it is the last ring besides.
+        XCTAssertTrue(openRing("prod"))
         let promoteFromProd = button("promote-prod")
         XCTAssertTrue(promoteFromProd.waitForExistence(timeout: 5))
         XCTAssertFalse(promoteFromProd.isEnabled, "an empty last ring must not offer Promote")
@@ -100,6 +104,7 @@ final class CriticalPathUITests: XCTestCase {
 
         // int → test is the one legal promotion on this app: int is healthy and
         // holds a version, while test is unhealthy.
+        XCTAssertTrue(openRing("int"))
         let promote = button("promote-int")
         XCTAssertTrue(promote.waitForExistence(timeout: 5))
         XCTAssertTrue(promote.isEnabled)
@@ -115,6 +120,7 @@ final class CriticalPathUITests: XCTestCase {
         openApp(named: "Web Frontend")
 
         // acc → prod is the promotion that enters the protected last ring.
+        XCTAssertTrue(openRing("acc"))
         let promote = button("promote-acc")
         XCTAssertTrue(promote.waitForExistence(timeout: 5))
         XCTAssertTrue(promote.isEnabled, "acc holds a healthy version in the demo world")
@@ -144,6 +150,7 @@ final class CriticalPathUITests: XCTestCase {
         app.launch()
         openApp(named: "Web Frontend")
 
+        XCTAssertTrue(openRing("int"))
         let seed = button("seed-int")
         XCTAssertTrue(seed.waitForExistence(timeout: 5))
         seed.tap()
@@ -180,6 +187,7 @@ final class CriticalPathUITests: XCTestCase {
 
         // The demo world's `test` ring was rolled back once already, so it has a
         // previous version to return to.
+        XCTAssertTrue(openRing("test"))
         let rollback = button("rollback-test")
         XCTAssertTrue(rollback.waitForExistence(timeout: 5))
         XCTAssertTrue(rollback.isEnabled, "a ring with a previous version can roll back")
@@ -251,8 +259,8 @@ final class CriticalPathUITests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Find a button by identifier, scrolling the (lazy) pipeline list until it
-    /// exists and is on screen.
+    /// Find a button by identifier, scrolling the (lazy) list until it exists
+    /// and is on screen.
     private func button(_ identifier: String, scrolls: Int = 6) -> XCUIElement {
         let element = app.buttons[identifier]
         for _ in 0..<scrolls {
@@ -260,6 +268,15 @@ final class CriticalPathUITests: XCTestCase {
             app.swipeUp()
         }
         return element
+    }
+
+    /// Open one ring's screen, where its actions live.
+    @discardableResult
+    private func openRing(_ name: String) -> Bool {
+        let row = button("ring-\(name)")
+        guard row.waitForExistence(timeout: 5) else { return false }
+        row.tap()
+        return true
     }
 
     /// Poll a condition until it holds or the timeout elapses.

@@ -21,10 +21,17 @@ struct RingChip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
-                Image(systemName: presentation.systemImage)
-                    .font(.system(size: iconSize, weight: .semibold))
-                    .foregroundStyle(presentation.tint)
-                    .symbolEffect(.pulse, isActive: isBusy)
+                // The in-flight ring gets a turning glyph; everything else gets
+                // its static state icon.
+                Group {
+                    if isBusy {
+                        SpinningGlyph()
+                    } else {
+                        Image(systemName: presentation.systemImage)
+                    }
+                }
+                .font(.system(size: iconSize, weight: .semibold))
+                .foregroundStyle(presentation.tint)
                 // The ring name is four characters at most and is the chip's
                 // whole identity, so it never truncates — the version below is
                 // what gives way when space is tight.
@@ -54,9 +61,12 @@ struct RingChip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(presentation.background, in: .rect(cornerRadius: 8))
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(presentation.tint.opacity(ring.needsAttention ? 0.55 : 0.18))
+            if !isBusy {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(presentation.tint.opacity(ring.needsAttention ? 0.55 : 0.18))
+            }
         }
+        .inFlight(isBusy, cornerRadius: 8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }

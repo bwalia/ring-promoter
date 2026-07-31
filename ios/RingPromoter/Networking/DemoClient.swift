@@ -24,6 +24,43 @@ actor DemoClient: RingPromoterAPI {
 
     init(world: DemoWorld = .load()) {
         self.world = world
+        if let ambient = Self.deployInFlight(in: world, id: "job-1") {
+            jobs[ambient.id] = ambient
+            jobSequence = 1
+        }
+    }
+
+    /// Start the demo with one promotion already running.
+    ///
+    /// Without this, nothing on the Overview moves until you press something,
+    /// and a real deploy takes minutes while a simulated one takes seconds — so
+    /// the in-flight animation would be gone before anyone looked at it. The
+    /// job is placed on an application inside a **multi-application group**, so
+    /// what you see is one ring working inside a group of several apps, which
+    /// is what the pipeline looks like in real life.
+    private static func deployInFlight(in world: DemoWorld, id: String) -> DemoJob? {
+        // Pick an app that shares a group with at least one other, so the
+        // animation is seen in context rather than on a lone row.
+        let candidates = world.groups.filter { $0.apps.count > 1 }.flatMap(\.apps)
+        guard
+            let app = candidates.first(where: {
+                world.ring(app: $0, ring: "int")?.isEmpty == false
+            }),
+            let source = world.ring(app: app, ring: "int"),
+            let target = world.pipeline.next(after: "int")
+        else { return nil }
+
+        return DemoJob(
+            id: id, app: app, action: .promote,
+            targetRing: target.name, sourceRing: "int", version: source.currentVersion,
+            previousVersion: world.ring(app: app, ring: target.name)?.currentVersion ?? "",
+            // Started a moment ago, and paced so it stays visibly in flight for
+            // about a minute rather than the few seconds an operator-triggered
+            // demo job takes.
+            startedAt: Date().addingTimeInterval(-4),
+            fails: false,
+            stepDuration: 20
+        )
     }
 
     // MARK: - Unauthenticated

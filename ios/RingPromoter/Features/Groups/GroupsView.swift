@@ -3,6 +3,11 @@ import SwiftUI
 /// Server-side application groups, shared by every operator of this control
 /// plane — so renaming one here renames it for the whole team.
 struct GroupsView: View {
+    /// The Overview's already-loaded ring data, so a group can be drawn as what
+    /// it actually is — its applications and their pipelines — without a second
+    /// round of requests.
+    var summaries: [AppSummary] = []
+
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -25,18 +30,28 @@ struct GroupsView: View {
                     Section { ErrorRow(error: error) { Task { await load() } } }
                 }
                 ForEach(groups) { group in
-                    Button {
-                        editing = EditRequest(group: group)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(group.name).font(.body.weight(.medium))
-                            Text(memberSummary(group))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
+                    Section {
+                        let members = summaries.filter { group.contains($0.name) }
+                        if members.isEmpty {
+                            Text(
+                                group.apps.isEmpty
+                                    ? "No applications yet." : memberSummary(group)
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                        ForEach(members) { summary in
+                            GroupMemberRow(summary: summary, pipeline: session.pipeline)
+                        }
+                    } header: {
+                        HStack {
+                            Text(group.name)
+                            Spacer()
+                            Button("Edit") { editing = EditRequest(group: group) }
+                                .font(.caption.weight(.semibold))
+                                .textCase(nil)
                         }
                     }
-                    .buttonStyle(.plain)
                     .swipeActions {
                         Button("Delete", role: .destructive) { pendingDeletion = group }
                     }
@@ -45,8 +60,8 @@ struct GroupsView: View {
                     Section {
                         CalmEmptyState(
                             title: "No groups yet",
-                            message: "Group related applications so the Overview can be filtered "
-                                + "down to the ones you own.",
+                            message: "Group related applications and the Overview organises "
+                                + "itself around the ones you own.",
                             systemImage: "square.stack.3d.down.right",
                             tint: .rpNeutral
                         )
@@ -118,6 +133,35 @@ struct GroupsView: View {
             self.error = error
             session.note(error)
         }
+    }
+}
+
+/// One application inside a group: its name and its live ring pipeline, with
+/// the in-flight ring animating exactly as it does on the Overview.
+private struct GroupMemberRow: View {
+    let summary: AppSummary
+    let pipeline: RingPipeline
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(summary.title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                if summary.busyAction != nil {
+                    SpinningGlyph()
+                        .font(.caption2)
+                        .foregroundStyle(Color.rpInFlight)
+                        .accessibilityLabel("Deploy running")
+                }
+                Spacer(minLength: 0)
+            }
+            PipelineStrip(
+                rings: summary.rings, pipeline: pipeline,
+                busyRing: summary.busyRing, isCompact: true
+            )
+        }
+        .padding(.vertical, 4)
     }
 }
 

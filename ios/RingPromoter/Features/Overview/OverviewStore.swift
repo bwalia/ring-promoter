@@ -21,14 +21,34 @@ struct AppSummary: Identifiable, Hashable, Sendable {
     }
 
     /// An action is in flight for this application right now.
-    ///
-    /// Which *ring* it is deploying into cannot be shown: a running job carries
-    /// no `result`, and therefore no target ring, until it finishes. The row
-    /// says "promoting" for the whole application instead of guessing at a ring
-    /// and animating the wrong one. See `docs/API-GAPS.md`.
     var isBusy: Bool {
         guard let job = latestJob else { return false }
         return !job.isFinished
+    }
+
+    /// Best-effort: which ring the running job is currently working on, so that
+    /// ring animates.
+    ///
+    /// The API does not say. A running job carries no `result`, and therefore no
+    /// target ring, until it finishes (see `docs/API-GAPS.md`). The step titles
+    /// do name it — "Deploy v9.1.0 to **test**", "Health check **test**" — so
+    /// this matches the app's own ring names against the newest step's words.
+    ///
+    /// Deliberately used for **animation only**. Matching on prose is not a
+    /// contract: a wrong guess costs a pulse on the wrong chip, never a wrong
+    /// action, and no match simply means nothing animates. Nothing in
+    /// `PromotionLegality` is allowed to consult this.
+    var busyRing: String? {
+        guard let job = latestJob, !job.isFinished else { return nil }
+        guard let title = job.steps.last?.title else { return nil }
+        // Whole words only, so a ring called "int" is not found inside "point"
+        // and "acc" is not found inside "Acceptance".
+        let words = Set(
+            title.lowercased()
+                .split { !$0.isLetter && !$0.isNumber }
+                .map(String.init)
+        )
+        return rings.map(\.ring.name).first { words.contains($0.lowercased()) }
     }
 
     /// The action currently running, for the badge on the row.
@@ -98,6 +118,46 @@ final class OverviewStore {
 
     var troubled: [AppSummary] { orderedSummaries.filter(\.isInTrouble) }
     var calm: [AppSummary] { orderedSummaries.filter { !$0.isInTrouble } }
+
+    /// One section of the Overview.
+    struct Section: Identifiable, Hashable, Sendable {
+        let id: String
+        let title: String
+        let apps: [AppSummary]
+    }
+
+    /// The healthy applications, organised by their server-side group.
+    ///
+    /// Groups are what teams actually own, so they are the natural shape for
+    /// this list — better than hiding them behind a filter menu that has to be
+    /// discovered. An app in more than one group appears in each; an app in none
+    /// falls into "Ungrouped", which is omitted entirely when every app is
+    /// grouped.
+    ///
+    /// A broken application appears **both** in the pinned attention section and
+    /// in its own group. That is deliberate: the pinned copy is the shortcut an
+    /// operator needs at 2am, and the copy in the group is what stops a team
+    /// scanning their own section from concluding everything is fine.
+    var groupedSections: [Section] {
+        let all = orderedSummaries
+        guard !groups.isEmpty else {
+            return all.isEmpty ? [] : [Section(id: "all", title: "Applications", apps: all)]
+        }
+
+        var sections: [Section] = []
+        var grouped: Set<String> = []
+        for group in groups.sorted(by: { $0.name < $1.name }) {
+            let members = all.filter { group.contains($0.name) }
+            grouped.formUnion(group.apps)
+            guard !members.isEmpty else { continue }
+            sections.append(Section(id: group.id, title: group.name, apps: members))
+        }
+        let ungrouped = all.filter { !grouped.contains($0.name) }
+        if !ungrouped.isEmpty {
+            sections.append(Section(id: "ungrouped", title: "Ungrouped", apps: ungrouped))
+        }
+        return sections
+    }
 
     var selectedGroup: AppGroup? {
         guard let selectedGroupID else { return nil }

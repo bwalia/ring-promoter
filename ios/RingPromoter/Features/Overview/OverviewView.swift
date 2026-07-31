@@ -6,6 +6,7 @@ struct OverviewView: View {
     @Environment(Router.self) private var router
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: OverviewStore?
+    @State private var showingGroups = false
 
     var body: some View {
         @Bindable var router = router
@@ -31,9 +32,20 @@ struct OverviewView: View {
                         GroupFilterMenu(store: store)
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingGroups = true
+                    } label: {
+                        Label("Groups", systemImage: "square.stack.3d.down.right")
+                    }
+                }
             }
             .navigationDestination(for: Route.self) { route in
                 destination(for: route)
+            }
+            .sheet(isPresented: $showingGroups) {
+                GroupsView(summaries: store?.orderedSummaries ?? [])
+                    .onDisappear { Task { await store?.refresh() } }
             }
         }
         .task {
@@ -102,7 +114,7 @@ private struct OverviewList: View {
             if !store.troubled.isEmpty {
                 Section {
                     ForEach(store.troubled) { summary in
-                        AppRow(summary: summary)
+                        TroubleRow(summary: summary)
                     }
                 } header: {
                     Label("Needs attention", systemImage: "exclamationmark.triangle.fill")
@@ -120,9 +132,10 @@ private struct OverviewList: View {
                 }
             }
 
-            if !store.calm.isEmpty {
-                Section(store.troubled.isEmpty ? "Applications" : "Everything else") {
-                    ForEach(store.calm) { summary in
+            // The rest, organised by the group that owns them.
+            ForEach(store.groupedSections) { section in
+                Section(section.title) {
+                    ForEach(section.apps) { summary in
                         AppRow(summary: summary)
                     }
                 }
@@ -156,6 +169,41 @@ private struct OverviewList: View {
     }
 }
 
+/// A broken application, as a single line.
+///
+/// Deliberately not the full card: the same application appears in its own
+/// group below with its whole pipeline, and repeating that here would double
+/// the list's height for no extra information. This row exists to answer one
+/// question — *what is broken and where do I tap* — and nothing else.
+private struct TroubleRow: View {
+    let summary: AppSummary
+
+    var body: some View {
+        NavigationLink(value: Route.app(summary.name)) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.rpUnhealthy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(summary.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if let trouble = summary.troubleSummary {
+                        Text(trouble)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 2)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens \(summary.title)")
+    }
+}
+
 /// One application: title, pipeline strip, and its trouble line if it has one.
 private struct AppRow: View {
     let summary: AppSummary
@@ -164,21 +212,26 @@ private struct AppRow: View {
     var body: some View {
         NavigationLink(value: Route.app(summary.name)) {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Text(summary.title)
                         .font(.headline)
                         .lineLimit(1)
-                    Spacer(minLength: 4)
                     if let action = summary.busyAction {
-                        StatusBadge(
-                            text: action, systemImage: "arrow.triangle.2.circlepath",
-                            tint: .rpInFlight
-                        )
+                        // The animated ring in the strip already says *where*;
+                        // this only needs to say *what*.
+                        SpinningGlyph()
+                            .font(.caption)
+                            .foregroundStyle(Color.rpInFlight)
+                            .accessibilityLabel("\(action) running")
                     }
+                    Spacer(minLength: 4)
                 }
-                PipelineStrip(rings: summary.rings, pipeline: session.pipeline)
+                PipelineStrip(
+                    rings: summary.rings, pipeline: session.pipeline,
+                    busyRing: summary.busyRing
+                )
                 if let trouble = summary.troubleSummary {
-                    Label(trouble, systemImage: "exclamationmark.circle.fill")
+                    Text(trouble)
                         .font(.caption)
                         .foregroundStyle(Color.rpUnhealthy)
                         .lineLimit(2)

@@ -194,6 +194,49 @@ struct NavigationAndStoreTests {
         #expect(summary.unhealthyRings.isEmpty)
     }
 
+    // MARK: - The in-flight ring
+
+    @Test("a running job's current ring is derived from its newest step")
+    func busyRingFromStepTitle() {
+        let summary = AppSummary(
+            name: "payments-api", title: "Payments API", rings: PreviewData.healthyRings,
+            latestJob: PreviewData.runningJob, loadError: nil
+        )
+        // The newest step of the running fixture is "Deploy v9.1.0 to test".
+        #expect(summary.busyRing == "test")
+    }
+
+    @Test("a finished job animates nothing")
+    func finishedJobHasNoBusyRing() {
+        let summary = AppSummary(
+            name: "payments-api", title: "Payments API", rings: PreviewData.healthyRings,
+            latestJob: PreviewData.rolledBackJob, loadError: nil
+        )
+        #expect(summary.busyRing == nil)
+        #expect(!summary.isBusy)
+    }
+
+    @Test("ring names are matched as whole words, never as substrings")
+    func busyRingMatchesWholeWordsOnly() {
+        // "Acceptance" contains "acc", and "point" contains "int" — matching on
+        // substrings would light up the wrong chip.
+        let job = Job(
+            id: "j", app: "a", action: "promote", status: .running,
+            steps: [
+                JobStep(
+                    id: "s", title: "Waiting at the Acceptance checkpoint",
+                    status: .running, logs: [], startedAt: .now
+                )
+            ],
+            startedAt: .now
+        )
+        let summary = AppSummary(
+            name: "a", title: "A", rings: PreviewData.healthyRings, latestJob: job,
+            loadError: nil
+        )
+        #expect(summary.busyRing == nil)
+    }
+
     // MARK: - Widget snapshot
 
     @Test("the widget snapshot carries no secrets")
