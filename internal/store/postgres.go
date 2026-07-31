@@ -341,6 +341,64 @@ func (p *Postgres) ListSignoffs(ctx context.Context, app string) ([]Signoff, err
 	return out, rows.Err()
 }
 
+// CreatePendingOp implements Store.
+func (p *Postgres) CreatePendingOp(ctx context.Context, op PendingOp) (int64, error) {
+	const q = `
+		INSERT INTO pending_op (app, ring, action, from_ring, version, prev_version)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+	var id int64
+	if err := p.db.QueryRowContext(ctx, q, op.App, op.Ring, op.Action, op.FromRing, op.Version, op.PrevVersion).Scan(&id); err != nil {
+		return 0, fmt.Errorf("create pending op: %w", err)
+	}
+	return id, nil
+}
+
+// GetPendingOp implements Store.
+func (p *Postgres) GetPendingOp(ctx context.Context, id int64) (PendingOp, error) {
+	const q = `
+		SELECT id, app, ring, action, from_ring, version, prev_version, started_at
+		FROM pending_op WHERE id = $1`
+	var op PendingOp
+	err := p.db.QueryRowContext(ctx, q, id).Scan(
+		&op.ID, &op.App, &op.Ring, &op.Action, &op.FromRing, &op.Version, &op.PrevVersion, &op.StartedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PendingOp{}, ErrNotFound
+	}
+	if err != nil {
+		return PendingOp{}, fmt.Errorf("get pending op: %w", err)
+	}
+	return op, nil
+}
+
+// DeletePendingOp implements Store (idempotent).
+func (p *Postgres) DeletePendingOp(ctx context.Context, id int64) error {
+	if _, err := p.db.ExecContext(ctx, `DELETE FROM pending_op WHERE id = $1`, id); err != nil {
+		return fmt.Errorf("delete pending op: %w", err)
+	}
+	return nil
+}
+
+// ListPendingOps implements Store, oldest first.
+func (p *Postgres) ListPendingOps(ctx context.Context) ([]PendingOp, error) {
+	const q = `
+		SELECT id, app, ring, action, from_ring, version, prev_version, started_at
+		FROM pending_op ORDER BY id`
+	rows, err := p.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list pending ops: %w", err)
+	}
+	defer rows.Close()
+	var out []PendingOp
+	for rows.Next() {
+		var op PendingOp
+		if err := rows.Scan(&op.ID, &op.App, &op.Ring, &op.Action, &op.FromRing, &op.Version, &op.PrevVersion, &op.StartedAt); err != nil {
+			return nil, fmt.Errorf("scan pending op: %w", err)
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
 // Lock implements Store using a PostgreSQL session-level advisory lock, held on
 // a dedicated connection. This serializes operations for a key across ALL
 // service replicas — not just within one process — so an accidental scale-up

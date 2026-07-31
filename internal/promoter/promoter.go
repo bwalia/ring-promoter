@@ -143,6 +143,9 @@ type Promoter struct {
 	// now returns the current time; overridable in tests so maintenance-window
 	// gates are deterministic.
 	now func() time.Time
+	// recoveryPoll is how often ResumePendingOp re-probes a ring while waiting
+	// for an interrupted deploy to land; overridable in tests.
+	recoveryPoll time.Duration
 }
 
 // New constructs a Promoter. deployers maps an application name to its deployer;
@@ -161,6 +164,7 @@ func New(cfg *config.Config, st store.Store, deployers map[string]deployer.Deplo
 		retryCount:      cfg.Retry.RetryCount(),
 		retryDelay:      cfg.Retry.RetryDelay(),
 		now:             time.Now,
+		recoveryPoll:    15 * time.Second,
 	}
 }
 
@@ -379,6 +383,14 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (out
 	prev := p.currentVersion(ctx, app, ringName)
 	res := Result{App: app, Action: store.ActionSeed, Ring: ringName, Version: version}
 
+	// Write-ahead journal: if this process dies mid-deploy (e.g. the service is
+	// redeployed while a seed is in flight), the next start-up finds this record
+	// and recovers the outcome instead of silently losing it.
+	opID := p.journalStart(ctx, store.PendingOp{
+		App: app, Ring: ringName, Action: store.ActionSeed, Version: version, PrevVersion: prev,
+	})
+	defer p.journalEnd(opID)
+
 	rep.StartStep("deploy", fmt.Sprintf("Deploy %s to %s", version, ringName))
 	if err := p.deployerFor(app).Deploy(ctx, tgt, version); err != nil {
 		// The deploy never happened, so leave the stored state untouched.
@@ -412,6 +424,10 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (out
 	if healthy {
 		res.Message = fmt.Sprintf("seeded %s and healthy", version)
 		p.record(ctx, app, ringName, store.ActionSeed, prev, version, store.ResultSuccess, res.Message)
+		// The seed's outcome is recorded: clear its journal entry now so a crash
+		// during the auto-promote chain below cannot replay the seed (each hop of
+		// the chain journals itself).
+		p.journalEnd(opID)
 		// The seeded ring may have auto-promote enabled: continue onward.
 		return p.autoChain(ctx, app, res)
 	}
@@ -623,6 +639,14 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 	dstTgt := p.target(app, nextRing.Name, dstRC)
 	dstPrev := p.currentVersion(ctx, app, nextRing.Name)
 
+	// Write-ahead journal (see Seed): lets a restart mid-promotion be recovered
+	// instead of silently losing the hop's outcome.
+	opID := p.journalStart(ctx, store.PendingOp{
+		App: app, Ring: nextRing.Name, Action: store.ActionPromote,
+		FromRing: fromRing, Version: version, PrevVersion: dstPrev,
+	})
+	defer p.journalEnd(opID)
+
 	// Deploy to the target ring.
 	rep.StartStep("deploy", fmt.Sprintf("Deploy %s to %s", version, nextRing.Name))
 	if err := p.deployerFor(app).Deploy(ctx, dstTgt, version); err != nil {
@@ -715,6 +739,13 @@ func (p *Promoter) Rollback(ctx context.Context, app, ringName string) (outcome 
 	}
 	from, to := st.CurrentVersion, st.PreviousVersion
 	tgt := p.target(app, ringName, rc)
+
+	// Write-ahead journal (see Seed): lets a restart mid-rollback be recovered
+	// instead of silently losing the outcome.
+	opID := p.journalStart(ctx, store.PendingOp{
+		App: app, Ring: ringName, Action: store.ActionRollback, Version: to, PrevVersion: from,
+	})
+	defer p.journalEnd(opID)
 
 	rep := reporterFrom(ctx)
 	res := Result{App: app, Action: store.ActionRollback, Ring: ringName, Version: to}

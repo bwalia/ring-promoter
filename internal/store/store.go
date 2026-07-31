@@ -129,6 +129,28 @@ type Signoff struct {
 // IsGo reports whether the decision authorizes promotion.
 func (s Signoff) IsGo() bool { return s.Decision == DecisionGo }
 
+// PendingOp is the write-ahead record of a deploy operation in flight: created
+// just before the deploy starts and deleted once the operation records its
+// outcome. A row still present at start-up therefore means a previous process
+// died mid-operation — its outcome was never written to ring state or history —
+// and must be recovered (see promoter.ResumePendingOp). Without this journal, a
+// restart during a deploy silently loses the result: the deploy itself (running
+// out-of-process, e.g. a Kubernetes Job) may well land, but nothing records it.
+type PendingOp struct {
+	ID     int64  `json:"id"`
+	App    string `json:"app"`
+	Ring   string `json:"ring"`   // target ring being deployed to
+	Action string `json:"action"` // ActionSeed | ActionPromote | ActionRollback
+	// FromRing is the promotion's source ring ("" for seed/rollback).
+	FromRing string `json:"from_ring"`
+	// Version is the effective version being deployed to Ring.
+	Version string `json:"version"`
+	// PrevVersion is Ring's version before this operation, recorded so recovery
+	// can write the same state transition the operation would have.
+	PrevVersion string    `json:"prev_version"`
+	StartedAt   time.Time `json:"started_at"`
+}
+
 // Store is the persistence interface. Implementations must be safe for
 // concurrent use.
 type Store interface {
@@ -182,6 +204,18 @@ type Store interface {
 	GetSignoff(ctx context.Context, app, ring, version string) (Signoff, error)
 	// ListSignoffs returns an app's sign-offs, newest first.
 	ListSignoffs(ctx context.Context, app string) ([]Signoff, error)
+	// CreatePendingOp journals a deploy operation about to start and returns
+	// its assigned ID.
+	CreatePendingOp(ctx context.Context, op PendingOp) (int64, error)
+	// GetPendingOp returns one journaled operation. It returns ErrNotFound when
+	// the row no longer exists (its owner finished and cleared it).
+	GetPendingOp(ctx context.Context, id int64) (PendingOp, error)
+	// DeletePendingOp clears a journaled operation once its outcome is
+	// recorded. Deleting an already-cleared row is not an error.
+	DeletePendingOp(ctx context.Context, id int64) error
+	// ListPendingOps returns every journaled operation, oldest first. At
+	// start-up these are the operations a previous process left unfinished.
+	ListPendingOps(ctx context.Context) ([]PendingOp, error)
 	// Lock acquires an exclusive lock for key, blocking until it is held or ctx
 	// is done. The returned function releases it. This serializes mutating
 	// operations for one application. The Postgres implementation uses a session

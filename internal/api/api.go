@@ -57,6 +57,26 @@ func NewServer(prom *promoter.Promoter, token, prodPass string, ui http.Handler,
 		histDiag: historyDiagnoses{state: make(map[int64]historyDiagState)}}
 }
 
+// ResumePendingOps resolves the operations a previous process left in flight
+// (it was stopped mid-deploy, e.g. by a redeploy of this service). Each one is
+// resumed as a regular async job, so the recovery is visible in the UI exactly
+// like the operation it completes. Called once at start-up, before the server
+// begins listening.
+func (s *Server) ResumePendingOps(ctx context.Context) {
+	ops, err := s.prom.PendingOps(ctx)
+	if err != nil {
+		s.log.Error("list pending operations failed; deploys interrupted by the previous restart will not be recovered", "err", err)
+		return
+	}
+	for _, op := range ops {
+		s.log.Info("recovering operation interrupted by a restart",
+			"app", op.App, "ring", op.Ring, "action", op.Action, "version", op.Version, "started_at", op.StartedAt)
+		s.jobs.run(ctx, s.opTimeout, op.App, op.Action, func(ctx context.Context) (promoter.Result, error) {
+			return s.prom.ResumePendingOp(ctx, op)
+		})
+	}
+}
+
 // prodRing is the pipeline's last ring — the one the production password
 // protects.
 func prodRing() string {
