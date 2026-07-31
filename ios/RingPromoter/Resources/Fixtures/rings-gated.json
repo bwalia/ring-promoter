@@ -1,0 +1,94 @@
+{
+    "rings": [
+        {
+            "ring": {
+                "name": "int",
+                "label": "Integration"
+            },
+            "configured": true,
+            "current_version": "v4.2.0",
+            "previous_version": "",
+            "live_version": "v5.0.0",
+            "healthy": true,
+            "live_healthy": true,
+            "auto_promote": false,
+            "auto_promote_managed": false,
+            "updated_at": "2026-07-29T10:38:48.137761Z",
+            "can_promote_from": true,
+            "gates": {
+                "maintenance_window": false,
+                "qa_signoff": false,
+                "change_request": false,
+                "maintenance_window_open": false
+            }
+        },
+        {
+            "ring": {
+                "name": "test",
+                "label": "Test"
+            },
+            "configured": true,
+            "current_version": "v5.0.0",
+            "previous_version": "v4.2.0",
+            "live_version": "v5.0.0",
+            "healthy": true,
+            "live_healthy": true,
+            "auto_promote": false,
+            "auto_promote_managed": false,
+            "updated_at": "2026-07-29T10:41:08.809477Z",
+            "can_promote_from": true,
+            "gates": {
+                "maintenance_window": false,
+                "qa_signoff": false,
+                "change_request": false,
+                "maintenance_window_open": false
+            }
+        },
+        {
+            "ring": {
+                "name": "acc",
+                "label": "Acceptance"
+            },
+            "configured": true,
+            "current_version": "v5.0.0",
+            "previous_version": "v5.0.0",
+            "live_version": "v5.0.0",
+            "healthy": true,
+            "live_healthy": true,
+            "auto_promote": false,
+            "auto_promote_managed": false,
+            "updated_at": "2026-07-29T10:41:42.714541Z",
+            "can_promote_from": true,
+            "gates": {
+                "maintenance_window": false,
+                "qa_signoff": true,
+                "change_request": true,
+                "change_request_provider": "test",
+                "maintenance_window_open": false
+            }
+        },
+        {
+            "ring": {
+                "name": "prod",
+                "label": "Production"
+            },
+            "configured": true,
+            "current_version": "",
+            "previous_version": "",
+            "live_version": "v5.0.0",
+            "healthy": false,
+            "live_healthy": true,
+            "auto_promote": false,
+            "auto_promote_managed": false,
+            "updated_at": "0001-01-01T00:00:00Z",
+            "can_promote_from": false,
+            "gates": {
+                "maintenance_window": true,
+                "qa_signoff": true,
+                "change_request": true,
+                "change_request_provider": "test",
+                "maintenance_window_open": false
+            }
+        }
+    ]
+}

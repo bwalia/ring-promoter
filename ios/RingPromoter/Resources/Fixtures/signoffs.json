@@ -1,0 +1,42 @@
+{
+    "signoffs": [
+        {
+            "app": "payments-api",
+            "ring": "prod",
+            "version": "v5.0.0",
+            "decision": "go",
+            "engineer": "j.rivera",
+            "qa_status": "passed",
+            "updated_at": "2026-07-29T10:41:42.722361Z"
+        },
+        {
+            "app": "payments-api",
+            "ring": "acc",
+            "version": "v5.0.0",
+            "decision": "go",
+            "engineer": "j.rivera",
+            "qa_status": "passed",
+            "updated_at": "2026-07-29T10:41:42.704666Z"
+        },
+        {
+            "app": "payments-api",
+            "ring": "prod",
+            "version": "v4.1.0",
+            "decision": "no_go",
+            "engineer": "j.rivera",
+            "qa_status": "failed",
+            "note": "Checkout latency regression",
+            "updated_at": "2026-07-29T10:38:53.355434Z"
+        },
+        {
+            "app": "payments-api",
+            "ring": "acc",
+            "version": "v4.2.0",
+            "decision": "go",
+            "engineer": "j.rivera",
+            "qa_status": "passed",
+            "note": "Regression suite green",
+            "updated_at": "2026-07-29T10:38:53.190666Z"
+        }
+    ]
+}

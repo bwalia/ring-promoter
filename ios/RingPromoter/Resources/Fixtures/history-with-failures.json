@@ -1,0 +1,48 @@
+{
+    "history": [
+        {
+            "id": 4,
+            "app": "payments-api",
+            "ring": "test",
+            "action": "rollback",
+            "from_version": "v9.1.0",
+            "to_version": "v9.0.0",
+            "result": "failure",
+            "message": "rolled back to v9.0.0 but it is unhealthy",
+            "created_at": "2026-07-29T10:40:36.800467Z"
+        },
+        {
+            "id": 3,
+            "app": "payments-api",
+            "ring": "test",
+            "action": "promote",
+            "from_version": "v9.0.0",
+            "to_version": "v9.1.0",
+            "result": "failure",
+            "message": "health check failed after retries: unhealthy: status 503",
+            "created_at": "2026-07-29T10:40:34.792031Z"
+        },
+        {
+            "id": 2,
+            "app": "payments-api",
+            "ring": "int",
+            "action": "seed",
+            "from_version": "",
+            "to_version": "v9.1.0",
+            "result": "success",
+            "message": "seeded v9.1.0 and healthy",
+            "created_at": "2026-07-29T10:40:32.668262Z"
+        },
+        {
+            "id": 1,
+            "app": "payments-api",
+            "ring": "test",
+            "action": "seed",
+            "from_version": "",
+            "to_version": "v9.0.0",
+            "result": "success",
+            "message": "seeded v9.0.0 and healthy",
+            "created_at": "2026-07-29T10:40:32.534929Z"
+        }
+    ]
+}

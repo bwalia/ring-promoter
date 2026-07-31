@@ -1,0 +1,32 @@
+{
+    "ai_enabled": false,
+    "apps": [
+        "web-frontend",
+        "payments-api",
+        "batch-worker"
+    ],
+    "prod_protected": true,
+    "rings": [
+        {
+            "name": "int",
+            "label": "Integration"
+        },
+        {
+            "name": "test",
+            "label": "Test"
+        },
+        {
+            "name": "acc",
+            "label": "Acceptance"
+        },
+        {
+            "name": "prod",
+            "label": "Production"
+        }
+    ],
+    "titles": {
+        "batch-worker": "batch-worker",
+        "payments-api": "Payments API",
+        "web-frontend": "Web Frontend"
+    }
+}
