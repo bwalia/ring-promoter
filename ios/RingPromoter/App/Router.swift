@@ -4,6 +4,8 @@ import SwiftUI
 /// Everything that can be pushed onto the Overview's navigation stack.
 enum Route: Hashable, Sendable {
     case app(String)
+    /// A group's own page: the deployment ring plus its members.
+    case group(String)
     case job(app: String, id: String)
     case history(app: String)
     case maintenance(app: String)
@@ -77,6 +79,11 @@ final class Router {
     func show(app: String) {
         tab = .overview
         overviewPath = [.app(app)]
+    }
+
+    func show(group id: String) {
+        tab = .overview
+        overviewPath = [.group(id)]
     }
 
     func showJob(app: String, id: String) {

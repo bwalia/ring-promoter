@@ -7,6 +7,8 @@ struct GroupsView: View {
     /// it actually is — its applications and their pipelines — without a second
     /// round of requests.
     var summaries: [AppSummary] = []
+    /// Called with a group id when the operator asks for its ring page.
+    var onOpenRing: ((String) -> Void)?
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -39,6 +41,13 @@ struct GroupsView: View {
                             )
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        }
+                        Button {
+                            onOpenRing?(group.id)
+                            dismiss()
+                        } label: {
+                            Label("Open the deployment ring", systemImage: "circle.hexagonpath")
+                                .font(.subheadline)
                         }
                         ForEach(members) { summary in
                             GroupMemberRow(summary: summary, pipeline: session.pipeline)

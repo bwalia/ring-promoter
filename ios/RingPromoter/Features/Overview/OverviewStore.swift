@@ -124,6 +124,9 @@ final class OverviewStore {
         let id: String
         let title: String
         let apps: [AppSummary]
+        /// A real server-side group, so it has a ring page of its own. False for
+        /// the synthetic "Ungrouped" and "Applications" sections.
+        var isRealGroup = false
     }
 
     /// The healthy applications, organised by their server-side group.
@@ -150,7 +153,9 @@ final class OverviewStore {
             let members = all.filter { group.contains($0.name) }
             grouped.formUnion(group.apps)
             guard !members.isEmpty else { continue }
-            sections.append(Section(id: group.id, title: group.name, apps: members))
+            sections.append(
+                Section(id: group.id, title: group.name, apps: members, isRealGroup: true)
+            )
         }
         let ungrouped = all.filter { !grouped.contains($0.name) }
         if !ungrouped.isEmpty {

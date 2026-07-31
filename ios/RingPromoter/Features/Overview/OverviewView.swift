@@ -44,8 +44,11 @@ struct OverviewView: View {
                 destination(for: route)
             }
             .sheet(isPresented: $showingGroups) {
-                GroupsView(summaries: store?.orderedSummaries ?? [])
-                    .onDisappear { Task { await store?.refresh() } }
+                GroupsView(
+                    summaries: store?.orderedSummaries ?? [],
+                    onOpenRing: { router.show(group: $0) }
+                )
+                .onDisappear { Task { await store?.refresh() } }
             }
         }
         .task {
@@ -79,6 +82,8 @@ struct OverviewView: View {
         switch route {
         case .app(let name):
             AppDetailView(app: name)
+        case .group(let id):
+            GroupPageView(groupID: id)
         case .job(let app, let id):
             JobView(app: app, jobID: id)
         case .history(let app):
@@ -134,9 +139,23 @@ private struct OverviewList: View {
 
             // The rest, organised by the group that owns them.
             ForEach(store.groupedSections) { section in
-                Section(section.title) {
+                Section {
                     ForEach(section.apps) { summary in
                         AppRow(summary: summary)
+                    }
+                } header: {
+                    if section.isRealGroup {
+                        NavigationLink(value: Route.group(section.id)) {
+                            HStack(spacing: 4) {
+                                Text(section.title)
+                                Image(systemName: "circle.hexagonpath")
+                                    .font(.caption2)
+                                Spacer()
+                            }
+                        }
+                        .accessibilityHint("Opens the deployment ring for \(section.title)")
+                    } else {
+                        Text(section.title)
                     }
                 }
             }

@@ -60,6 +60,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             case .app(let name): Self.router?.show(app: name)
             case .job(let app, let id): Self.router?.showJob(app: app, id: id)
             case .history(let app), .maintenance(let app): Self.router?.show(app: app)
+            case .group(let id): Self.router?.show(group: id)
             }
         }
     }

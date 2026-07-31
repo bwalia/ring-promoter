@@ -14,7 +14,10 @@ It is an **operator tool**, built for a release engineer on a phone, on call, at
 2am. That shapes every decision in it:
 
 - **Situational awareness first.** The Overview pins whatever is broken above
-  whatever is fine, and a healthy system looks calm rather than empty.
+  whatever is fine, organises the rest by the group that owns it, and a healthy
+  system looks calm rather than empty. Each group has a **deployment ring** —
+  the same orbital stage as the web UI, built to the same geometry and status
+  colours — answering "is my group healthy?" in one glance.
 - **Safe action.** Nothing illegal is ever offered. A production deploy needs
   the password, a typed confirmation *and* Face ID. A rollback needs one tap.
 - **Live feedback.** Every action runs asynchronously and pushes a live job
