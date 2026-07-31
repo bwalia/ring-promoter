@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { useJobStreamConnected } from "@/lib/job-stream";
 import { useNow } from "@/lib/use-now";
 import { useAuthStore, useJobsStore, usePrefsStore } from "@/lib/stores";
 import type { HistoryEntry, Job, RingView } from "@/lib/types";
@@ -137,11 +138,14 @@ export function useGroupRings(apps: string[]): GroupAppRings[] {
  */
 export function useJobs() {
   const token = useAuthStore((s) => s.token);
+  // The SSE stream (see job-stream.ts) pushes snapshots straight into this
+  // query's cache; polling is only the fallback while the stream is down.
+  const streaming = useJobStreamConnected();
   return useQuery({
     queryKey: ["jobs"],
     queryFn: api.jobs,
     enabled: !!token,
-    refetchInterval: JOBS_INTERVAL,
+    refetchInterval: streaming ? false : JOBS_INTERVAL,
     select: (data) => data.jobs ?? [],
   });
 }

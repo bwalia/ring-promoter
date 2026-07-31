@@ -136,6 +136,9 @@ func (s *Server) Handler() http.Handler {
 	// Newest job per app — shared by every user, so one person's promotion is
 	// visible on everyone's screen.
 	api.HandleFunc("GET /api/jobs", s.handleListJobs)
+	// Same view as a push stream (SSE): browsers subscribe here instead of
+	// polling /api/jobs; the poll remains as a fallback.
+	api.HandleFunc("GET /api/events", s.handleEvents)
 	api.HandleFunc("POST /api/apps/{app}/seed", s.handleSeed)
 	api.HandleFunc("POST /api/apps/{app}/promote", s.handlePromote)
 	api.HandleFunc("POST /api/apps/{app}/rollback", s.handleRollback)
@@ -186,6 +189,10 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
 }
+
+// Unwrap lets http.ResponseController reach the underlying writer, keeping the
+// recorder transparent to the streaming /api/events handler (Flush).
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 func (s *Server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

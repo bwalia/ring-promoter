@@ -29,13 +29,13 @@ type stepView struct {
 
 // jobState is the JSON view of a job (no mutex, safe to marshal).
 type jobState struct {
-	ID         string           `json:"id"`
-	App        string           `json:"app"`
-	Action     string           `json:"action"`
-	Status     string           `json:"status"`
-	Steps      []stepView       `json:"steps"`
-	Result     *promoter.Result `json:"result,omitempty"`
-	Error      string           `json:"error,omitempty"`
+	ID     string           `json:"id"`
+	App    string           `json:"app"`
+	Action string           `json:"action"`
+	Status string           `json:"status"`
+	Steps  []stepView       `json:"steps"`
+	Result *promoter.Result `json:"result,omitempty"`
+	Error  string           `json:"error,omitempty"`
 	// AI diagnosis of a failed job (see handleDiagnoseJob). The generation
 	// runs detached from the request, so the UI polls the job for these:
 	// DiagnosisStatus moves "" → running → done|failed, and Diagnosis carries
@@ -59,6 +59,17 @@ const (
 type Job struct {
 	mu sync.Mutex
 	st jobState
+	// notify wakes the event streams after a mutation (nil in tests that build
+	// a Job directly).
+	notify func()
+}
+
+// changed reports a mutation to the event hub. Called with j.mu held; safe
+// because the hub never takes a job lock.
+func (j *Job) changed() {
+	if j.notify != nil {
+		j.notify()
+	}
 }
 
 func (j *Job) id() string {
@@ -75,6 +86,7 @@ func (j *Job) StartStep(id, title string) {
 		ID: id, Title: title, Status: promoter.StepRunning,
 		StartedAt: time.Now().UTC(), Logs: []string{},
 	})
+	j.changed()
 }
 
 // Log implements promoter.Reporter (appends to the current step).
@@ -83,6 +95,7 @@ func (j *Job) Log(line string) {
 	defer j.mu.Unlock()
 	if n := len(j.st.Steps); n > 0 {
 		j.st.Steps[n-1].Logs = append(j.st.Steps[n-1].Logs, line)
+		j.changed()
 	}
 }
 
@@ -98,6 +111,7 @@ func (j *Job) FinishStep(status, message string) {
 		}
 		t := time.Now().UTC()
 		s.FinishedAt = &t
+		j.changed()
 	}
 }
 
@@ -122,6 +136,7 @@ func (j *Job) startDiagnosis() bool {
 	}
 	j.st.DiagnosisStatus = diagRunning
 	j.st.DiagnosisError = ""
+	j.changed()
 	return true
 }
 
@@ -132,16 +147,19 @@ func (j *Job) finishDiagnosis(text string, err error) {
 	if err != nil {
 		j.st.DiagnosisStatus = diagFailed
 		j.st.DiagnosisError = err.Error()
+		j.changed()
 		return
 	}
 	j.st.DiagnosisStatus = diagDone
 	j.st.Diagnosis = text
+	j.changed()
 }
 
 func (j *Job) markRunning() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.st.Status = jobRunning
+	j.changed()
 }
 
 // finish records the terminal outcome.
@@ -159,6 +177,7 @@ func (j *Job) finish(res promoter.Result, err error) {
 	if err != nil {
 		j.st.Status = jobFailed
 		j.st.Error = err.Error()
+		j.changed()
 		return
 	}
 	j.st.Result = &res
@@ -167,6 +186,7 @@ func (j *Job) finish(res promoter.Result, err error) {
 	} else {
 		j.st.Status = jobFailed
 	}
+	j.changed()
 }
 
 // snapshot returns a deep copy safe to marshal without holding the lock.
@@ -201,11 +221,12 @@ type JobManager struct {
 	order []string
 	seq   int64
 	max   int
+	hub   *eventHub
 }
 
 // NewJobManager returns a JobManager retaining the most recent jobs.
 func NewJobManager() *JobManager {
-	return &JobManager{jobs: make(map[string]*Job), max: 200}
+	return &JobManager{jobs: make(map[string]*Job), max: 200, hub: newEventHub()}
 }
 
 func (m *JobManager) create(app, action string) *Job {
@@ -216,13 +237,14 @@ func (m *JobManager) create(app, action string) *Job {
 	j := &Job{st: jobState{
 		ID: id, App: app, Action: action, Status: jobPending,
 		Steps: []stepView{}, StartedAt: time.Now().UTC(),
-	}}
+	}, notify: m.hub.wake}
 	m.jobs[id] = j
 	m.order = append(m.order, id)
 	for len(m.order) > m.max {
 		delete(m.jobs, m.order[0])
 		m.order = m.order[1:]
 	}
+	m.hub.wake()
 	return j
 }
 
