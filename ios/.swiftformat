@@ -1,0 +1,27 @@
+# SwiftFormat configuration for the Ring Promoter iOS app.
+# Run with `swiftformat .` (brew install swiftformat).
+
+--swiftversion 6.0
+--exclude RingPromoter/Resources
+
+# Layout
+--indent 4
+--maxwidth 100
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections preserve
+--closingparen balanced
+--trimwhitespace always
+
+# Style
+--self remove
+--importgrouping testable-bottom
+--commas always
+--semicolons never
+--stripunusedargs closure-only
+--patternlet inline
+
+# SwiftUI-friendly: don't collapse view modifier chains onto one line.
+--redundanttype inferred
+
+--disable wrapMultilineStatementBraces

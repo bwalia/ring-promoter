@@ -1,0 +1,18 @@
+{
+    "app": "web-frontend",
+    "action": "rollback",
+    "ring": "int",
+    "version": "2.7.1",
+    "success": true,
+    "rolled_back": true,
+    "message": "rolled back int from 2.7.2 to 2.7.1",
+    "state": {
+        "app": "web-frontend",
+        "ring": "int",
+        "current_version": "2.7.1",
+        "previous_version": "2.7.2",
+        "healthy": true,
+        "auto_promote": false,
+        "updated_at": "2026-07-29T10:38:47.905913Z"
+    }
+}

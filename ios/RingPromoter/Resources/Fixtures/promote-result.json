@@ -1,0 +1,18 @@
+{
+    "app": "web-frontend",
+    "action": "promote",
+    "ring": "acc",
+    "from_ring": "test",
+    "version": "2.7.1",
+    "success": true,
+    "message": "promoted 2.7.1 from test to acc and healthy",
+    "state": {
+        "app": "web-frontend",
+        "ring": "acc",
+        "current_version": "2.7.1",
+        "previous_version": "",
+        "healthy": true,
+        "auto_promote": false,
+        "updated_at": "2026-07-29T10:38:47.502763Z"
+    }
+}

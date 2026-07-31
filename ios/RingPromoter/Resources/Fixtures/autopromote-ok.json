@@ -1,0 +1,5 @@
+{
+    "app": "web-frontend",
+    "auto_promote": true,
+    "ring": "int"
+}
