@@ -79,3 +79,18 @@ CREATE TABLE IF NOT EXISTS signoff (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (app, ring, version)
 );
+
+-- Write-ahead journal of deploy operations in flight. A row is created just
+-- before a deploy starts and deleted when the operation records its outcome;
+-- a row present at start-up means a previous process died mid-operation, and
+-- its outcome (ring state + history) is recovered from this record.
+CREATE TABLE IF NOT EXISTS pending_op (
+    id           BIGSERIAL   PRIMARY KEY,
+    app          TEXT        NOT NULL,
+    ring         TEXT        NOT NULL,
+    action       TEXT        NOT NULL,
+    from_ring    TEXT        NOT NULL DEFAULT '',
+    version      TEXT        NOT NULL DEFAULT '',
+    prev_version TEXT        NOT NULL DEFAULT '',
+    started_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);

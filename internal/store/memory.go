@@ -15,7 +15,9 @@ type Memory struct {
 	groups   map[string]Group
 	windows  map[string]MaintenanceWindow // key: id
 	signoffs map[string]Signoff           // key: app + "\x00" + ring + "\x00" + version
+	pending  map[int64]PendingOp
 	nextID   int64
+	nextOpID int64
 	now      func() time.Time
 
 	lockMu sync.Mutex
@@ -39,7 +41,9 @@ func NewMemoryWithClock(clock func() time.Time) *Memory {
 		groups:   make(map[string]Group),
 		windows:  make(map[string]MaintenanceWindow),
 		signoffs: make(map[string]Signoff),
+		pending:  make(map[int64]PendingOp),
 		nextID:   1,
+		nextOpID: 1,
 		now:      clock,
 		locks:    make(map[string]*sync.Mutex),
 	}
@@ -312,6 +316,50 @@ func (m *Memory) ListSignoffs(_ context.Context, app string) ([]Signoff, error) 
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, nil
+}
+
+// CreatePendingOp implements Store.
+func (m *Memory) CreatePendingOp(_ context.Context, op PendingOp) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	op.ID = m.nextOpID
+	m.nextOpID++
+	if op.StartedAt.IsZero() {
+		op.StartedAt = m.now().UTC()
+	}
+	m.pending[op.ID] = op
+	return op.ID, nil
+}
+
+// GetPendingOp implements Store.
+func (m *Memory) GetPendingOp(_ context.Context, id int64) (PendingOp, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	op, ok := m.pending[id]
+	if !ok {
+		return PendingOp{}, ErrNotFound
+	}
+	return op, nil
+}
+
+// DeletePendingOp implements Store (idempotent).
+func (m *Memory) DeletePendingOp(_ context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.pending, id)
+	return nil
+}
+
+// ListPendingOps implements Store, oldest first.
+func (m *Memory) ListPendingOps(_ context.Context) ([]PendingOp, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]PendingOp, 0, len(m.pending))
+	for _, op := range m.pending {
+		out = append(out, op)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
 }
 
