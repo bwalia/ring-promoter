@@ -32,7 +32,7 @@ export function latencyToRadius(ms: number | null): number {
 }
 
 function snapToTrack(r: number): number {
-  let best = ORBIT_TRACKS[0];
+  let best: number = ORBIT_TRACKS[0];
   let bestD = Math.abs(r - best);
   for (const track of ORBIT_TRACKS) {
     const d = Math.abs(r - track);
