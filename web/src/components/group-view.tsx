@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronRight, Pencil } from "lucide-react";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { GroupDialog } from "@/components/group-dialog";
@@ -70,9 +70,15 @@ export function GroupView({ group }: { group: AppGroup }) {
   const { data } = useApps();
   const known = data?.apps ?? [];
   const members = group.apps.filter((a) => known.includes(a));
+  const memberSet = useMemo(() => new Set(members), [members]);
   const results = useGroupRings(members);
   const deploying = useDeployingApps(members);
-  const { data: edges = [] } = useTopology();
+  const { data: allEdges = [] } = useTopology();
+  const edges = useMemo(
+    () =>
+      allEdges.filter((e) => memberSet.has(e.from) && memberSet.has(e.to)),
+    [allEdges, memberSet],
+  );
   const addEdge = useAddTopologyEdge();
   const removeEdge = useRemoveTopologyEdge();
   const selectApp = usePrefsStore((s) => s.selectApp);
@@ -99,7 +105,8 @@ export function GroupView({ group }: { group: AppGroup }) {
         <div>
           <h2 className="text-lg font-semibold">{group.name}</h2>
           <p className="text-sm text-muted-foreground">
-            {members.length} application{members.length === 1 ? "" : "s"}
+            {members.length} application{members.length === 1 ? "" : "s"} in
+            this ring
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>

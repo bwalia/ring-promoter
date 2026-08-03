@@ -203,8 +203,20 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
         <main className="flex-1 overflow-y-auto">
-          {activeGroup ? (
-            <GroupView key={activeGroup.id} group={activeGroup} />
+          {selectedGroup ? (
+            activeGroup ? (
+              <GroupView key={activeGroup.id} group={activeGroup} />
+            ) : (
+              // Do not fall through to FleetView while the group is loading —
+              // that briefly showed every app on a /?group= URL.
+              <div className="flex min-h-[50vh] items-center justify-center p-6">
+                <CircleDot
+                  aria-hidden
+                  className="size-8 animate-pulse text-muted-foreground"
+                />
+                <span className="sr-only">Loading group</span>
+              </div>
+            )
           ) : selectedApp ? (
             <Dashboard app={selectedApp} />
           ) : (
