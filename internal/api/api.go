@@ -151,6 +151,12 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/groups", s.handleCreateGroup)
 	api.HandleFunc("PUT /api/groups/{id}", s.handleUpdateGroup)
 	api.HandleFunc("DELETE /api/groups/{id}", s.handleDeleteGroup)
+	// Dashboard topology — config-owned dependencies plus operator-defined
+	// edges, with config edges optionally suppressed at runtime.
+	api.HandleFunc("GET /api/topology", s.handleTopology)
+	api.HandleFunc("POST /api/topology/edges", s.handleAddTopologyEdge)
+	api.HandleFunc("DELETE /api/topology/edges", s.handleDeleteTopologyEdge)
+	api.HandleFunc("POST /api/topology/edges/restore", s.handleRestoreTopologyEdge)
 	mux.Handle("/api/", s.authenticate(api))
 
 	// Web UI (single-page app) — served at the root.
@@ -458,6 +464,59 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+// ---- dashboard topology ----
+
+func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
+	view, err := s.prom.Topology(r.Context())
+	if err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	if view.Edges == nil {
+		view.Edges = []promoter.TopologyEdgeView{}
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+func (s *Server) handleAddTopologyEdge(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := s.prom.AddTopologyEdge(r.Context(), body.From, body.To); err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"from": body.From, "to": body.To})
+}
+
+func (s *Server) handleDeleteTopologyEdge(w http.ResponseWriter, r *http.Request) {
+	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
+	if err := s.prom.RemoveTopologyEdge(r.Context(), from, to); err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) handleRestoreTopologyEdge(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := s.prom.RestoreTopologyEdge(r.Context(), body.From, body.To); err != nil {
+		writeError(w, statusForErr(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "restored"})
+}
+
 // ---- promotion-policy gates: maintenance windows ----
 
 // handleListWindows returns an app's maintenance view: config-recurring
@@ -582,11 +641,12 @@ func statusForErr(err error) int {
 	case errors.Is(err, promoter.ErrAppNotFound), errors.Is(err, promoter.ErrRingNotConfigured):
 		return http.StatusNotFound
 	case errors.Is(err, promoter.ErrGroupNotFound), errors.Is(err, store.ErrNotFound),
-		errors.Is(err, promoter.ErrWindowNotFound):
+		errors.Is(err, promoter.ErrWindowNotFound), errors.Is(err, promoter.ErrEdgeNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, promoter.ErrNoNextRing), errors.Is(err, promoter.ErrEmptyVersion),
 		errors.Is(err, promoter.ErrVersionNotFound), errors.Is(err, promoter.ErrEmptyGroupName),
 		errors.Is(err, promoter.ErrUnknownApp),
+		errors.Is(err, promoter.ErrSelfDependency), errors.Is(err, promoter.ErrEmptyEdge),
 		errors.Is(err, promoter.ErrChangeRequestRequired), errors.Is(err, promoter.ErrChangeRequestInvalid),
 		errors.Is(err, promoter.ErrInvalidWindow), errors.Is(err, promoter.ErrInvalidSignoff):
 		return http.StatusBadRequest

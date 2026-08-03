@@ -40,12 +40,25 @@ export interface RingView {
   healthy: boolean;
   live_healthy: boolean;
   live_health_error?: string;
+  /** Live health-check RTT in milliseconds, when measured. */
+  latency_ms?: number;
   auto_promote: boolean;
   /** Config owns this ring's auto-promote switch, so the API toggle returns 409. */
   auto_promote_managed: boolean;
   updated_at: string;
   can_promote_from: boolean;
   gates: RingGates;
+}
+
+/** One effective dependency edge in the fleet topology. */
+export interface TopologyEdge {
+  from: string;
+  to: string;
+  source: "config" | "user";
+}
+
+export interface TopologyResponse {
+  edges: TopologyEdge[];
 }
 
 /** A QA/release Go-No-Go sign-off for one exact (ring, version). */

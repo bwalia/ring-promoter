@@ -55,6 +55,12 @@ type Group struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// TopologyEdge is a directed relationship between two managed applications.
+type TopologyEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
 // HistoryEntry is one recorded seed / promote / rollback event.
 type HistoryEntry struct {
 	ID          int64  `json:"id"`
@@ -186,6 +192,20 @@ type Store interface {
 	UpdateGroup(ctx context.Context, g Group) error
 	// DeleteGroup removes a group. It returns ErrNotFound when absent.
 	DeleteGroup(ctx context.Context, id string) error
+	// ListTopologyEdges returns user-defined topology edges.
+	ListTopologyEdges(ctx context.Context) ([]TopologyEdge, error)
+	// AddTopologyEdge creates a user-defined topology edge. Duplicate additions
+	// are idempotent.
+	AddTopologyEdge(ctx context.Context, from, to string) error
+	// DeleteTopologyEdge removes a user-defined topology edge.
+	DeleteTopologyEdge(ctx context.Context, from, to string) error
+	// ListTopologySuppressions returns configuration topology edges hidden by an
+	// operator.
+	ListTopologySuppressions(ctx context.Context) ([]TopologyEdge, error)
+	// AddTopologySuppression hides a configuration topology edge.
+	AddTopologySuppression(ctx context.Context, from, to string) error
+	// DeleteTopologySuppression restores a configuration topology edge.
+	DeleteTopologySuppression(ctx context.Context, from, to string) error
 	// CreateMaintenanceWindow stores an operator-created ad-hoc window (the
 	// caller assigns a unique ID). Implementations may prune windows that ended
 	// well in the past.

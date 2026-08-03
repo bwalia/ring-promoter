@@ -10,6 +10,7 @@ import type {
   MaintenanceWindow,
   RingView,
   Signoff,
+  TopologyResponse,
   VersionsResponse,
 } from "@/lib/types";
 
@@ -101,6 +102,27 @@ export const api = {
   deleteGroup: (id: string) =>
     request<{ status: string }>(`/api/groups/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    }),
+
+  // Fleet dependency topology (config depends_on ∪ user edges − suppressions).
+  topology: () => request<TopologyResponse>("/api/topology"),
+
+  addTopologyEdge: (from: string, to: string) =>
+    request<{ status: string }>("/api/topology/edges", {
+      method: "POST",
+      body: JSON.stringify({ from, to }),
+    }),
+
+  removeTopologyEdge: (from: string, to: string) =>
+    request<{ status: string }>(
+      `/api/topology/edges?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      { method: "DELETE" },
+    ),
+
+  restoreTopologyEdge: (from: string, to: string) =>
+    request<{ status: string }>("/api/topology/edges/restore", {
+      method: "POST",
+      body: JSON.stringify({ from, to }),
     }),
 
   job: (name: string, id: string) =>

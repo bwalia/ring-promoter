@@ -237,6 +237,67 @@ func (p *Postgres) DeleteGroup(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListTopologyEdges implements Store.
+func (p *Postgres) ListTopologyEdges(ctx context.Context) ([]TopologyEdge, error) {
+	return p.listTopologyEdges(ctx, `SELECT from_app, to_app FROM topology_edge ORDER BY from_app, to_app`)
+}
+
+// AddTopologyEdge implements Store.
+func (p *Postgres) AddTopologyEdge(ctx context.Context, from, to string) error {
+	const q = `INSERT INTO topology_edge (from_app, to_app) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+	if _, err := p.db.ExecContext(ctx, q, from, to); err != nil {
+		return fmt.Errorf("add topology edge: %w", err)
+	}
+	return nil
+}
+
+// DeleteTopologyEdge implements Store.
+func (p *Postgres) DeleteTopologyEdge(ctx context.Context, from, to string) error {
+	if _, err := p.db.ExecContext(ctx, `DELETE FROM topology_edge WHERE from_app = $1 AND to_app = $2`, from, to); err != nil {
+		return fmt.Errorf("delete topology edge: %w", err)
+	}
+	return nil
+}
+
+// ListTopologySuppressions implements Store.
+func (p *Postgres) ListTopologySuppressions(ctx context.Context) ([]TopologyEdge, error) {
+	return p.listTopologyEdges(ctx, `SELECT from_app, to_app FROM topology_suppression ORDER BY from_app, to_app`)
+}
+
+// AddTopologySuppression implements Store.
+func (p *Postgres) AddTopologySuppression(ctx context.Context, from, to string) error {
+	const q = `INSERT INTO topology_suppression (from_app, to_app) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+	if _, err := p.db.ExecContext(ctx, q, from, to); err != nil {
+		return fmt.Errorf("add topology suppression: %w", err)
+	}
+	return nil
+}
+
+// DeleteTopologySuppression implements Store.
+func (p *Postgres) DeleteTopologySuppression(ctx context.Context, from, to string) error {
+	if _, err := p.db.ExecContext(ctx, `DELETE FROM topology_suppression WHERE from_app = $1 AND to_app = $2`, from, to); err != nil {
+		return fmt.Errorf("delete topology suppression: %w", err)
+	}
+	return nil
+}
+
+func (p *Postgres) listTopologyEdges(ctx context.Context, query string) ([]TopologyEdge, error) {
+	rows, err := p.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list topology edges: %w", err)
+	}
+	defer rows.Close()
+	var out []TopologyEdge
+	for rows.Next() {
+		var edge TopologyEdge
+		if err := rows.Scan(&edge.From, &edge.To); err != nil {
+			return nil, fmt.Errorf("scan topology edge: %w", err)
+		}
+		out = append(out, edge)
+	}
+	return out, rows.Err()
+}
+
 // CreateMaintenanceWindow implements Store. It prunes windows that ended more
 // than pruneWindowAfter ago in the same statement batch.
 func (p *Postgres) CreateMaintenanceWindow(ctx context.Context, w MaintenanceWindow) error {

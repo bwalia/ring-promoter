@@ -46,6 +46,22 @@ func TestHTTPChecker_AnyTwoXX(t *testing.T) {
 	}
 }
 
+func TestHTTPChecker_CheckTimedMeasuresLatency(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	latency, err := NewHTTPChecker(time.Second).CheckTimed(context.Background(), Probe{URL: srv.URL})
+	if err != nil {
+		t.Fatalf("CheckTimed: %v", err)
+	}
+	if latency <= 0 {
+		t.Fatalf("latency = %v, want > 0", latency)
+	}
+}
+
 // TestHTTPChecker_ExpectExactStatus covers the spectoncr case: a healthy
 // registry answers /v2/ with 401, so only that exact code is healthy and a
 // 2xx (or anything else) is treated as unhealthy.

@@ -40,9 +40,9 @@ var (
 	// auto-promote is declared in config: config is authoritative there, so the
 	// write would only be undone by the next reconcile.
 	ErrAutoPromoteConfigOwned = errors.New("auto-promote is managed by config")
-	ErrEmptyVersion      = errors.New("version must not be empty")
-	ErrNothingToPromote  = errors.New("source ring has no version to promote")
-	ErrNothingToRollback = errors.New("ring has no previous version to roll back to")
+	ErrEmptyVersion           = errors.New("version must not be empty")
+	ErrNothingToPromote       = errors.New("source ring has no version to promote")
+	ErrNothingToRollback      = errors.New("ring has no previous version to roll back to")
 	// ErrVersionNotFound rejects a seed whose version does not exist in the
 	// application's source repository (only checked for deployers that can
 	// verify it — see deployer.VersionSource).
@@ -72,13 +72,14 @@ type RingView struct {
 	Healthy         bool      `json:"healthy"`      // last stored health
 	LiveHealthy     bool      `json:"live_healthy"` // fresh check at read time
 	LiveHealthError string    `json:"live_health_error,omitempty"`
+	LatencyMs       *int64    `json:"latency_ms,omitempty"`
 	AutoPromote     bool      `json:"auto_promote"` // continue onward automatically
 	// AutoPromoteManaged reports that config owns this ring's auto-promote
 	// switch, so the API toggle returns 409 and the UI must render its control
 	// disabled rather than offer one that cannot work.
-	AutoPromoteManaged bool `json:"auto_promote_managed"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	CanPromoteFrom  bool      `json:"can_promote_from"`
+	AutoPromoteManaged bool      `json:"auto_promote_managed"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	CanPromoteFrom     bool      `json:"can_promote_from"`
 	// Gates describes the promotion-policy gates that guard entering THIS ring,
 	// so the UI can prompt for a change-request code / show window & sign-off
 	// status before a promotion. Empty when the app has no policy.
@@ -267,10 +268,18 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			// the stored deploy outcome speak.
 			if rc.HealthURL == "" {
 				views[idx].LiveHealthy = true
-			} else if err := p.checker.Check(cctx, probe(rc, "")); err != nil {
+			} else if latency, err := health.CheckTimed(p.checker, cctx, probe(rc, "")); err != nil {
+				if latency > 0 {
+					ms := latency.Milliseconds()
+					views[idx].LatencyMs = &ms
+				}
 				views[idx].LiveHealthy = false
 				views[idx].LiveHealthError = err.Error()
 			} else {
+				if latency > 0 {
+					ms := latency.Milliseconds()
+					views[idx].LatencyMs = &ms
+				}
 				views[idx].LiveHealthy = true
 			}
 			if lv, ok := p.deployerFor(app).(deployer.LiveVersioner); ok {

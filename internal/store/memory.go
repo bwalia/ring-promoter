@@ -9,16 +9,18 @@ import (
 
 // Memory is an in-memory Store for local development and tests.
 type Memory struct {
-	mu       sync.RWMutex
-	states   map[string]RingState // key: app + "\x00" + ring
-	history  []HistoryEntry
-	groups   map[string]Group
-	windows  map[string]MaintenanceWindow // key: id
-	signoffs map[string]Signoff           // key: app + "\x00" + ring + "\x00" + version
-	pending  map[int64]PendingOp
-	nextID   int64
-	nextOpID int64
-	now      func() time.Time
+	mu                   sync.RWMutex
+	states               map[string]RingState // key: app + "\x00" + ring
+	history              []HistoryEntry
+	groups               map[string]Group
+	topologyEdges        map[string]TopologyEdge
+	topologySuppressions map[string]TopologyEdge
+	windows              map[string]MaintenanceWindow // key: id
+	signoffs             map[string]Signoff           // key: app + "\x00" + ring + "\x00" + version
+	pending              map[int64]PendingOp
+	nextID               int64
+	nextOpID             int64
+	now                  func() time.Time
 
 	lockMu sync.Mutex
 	locks  map[string]*sync.Mutex
@@ -37,15 +39,17 @@ func NewMemory() *Memory {
 // the real date passes it by pruneWindowAfter).
 func NewMemoryWithClock(clock func() time.Time) *Memory {
 	return &Memory{
-		states:   make(map[string]RingState),
-		groups:   make(map[string]Group),
-		windows:  make(map[string]MaintenanceWindow),
-		signoffs: make(map[string]Signoff),
-		pending:  make(map[int64]PendingOp),
-		nextID:   1,
-		nextOpID: 1,
-		now:      clock,
-		locks:    make(map[string]*sync.Mutex),
+		states:               make(map[string]RingState),
+		groups:               make(map[string]Group),
+		topologyEdges:        make(map[string]TopologyEdge),
+		topologySuppressions: make(map[string]TopologyEdge),
+		windows:              make(map[string]MaintenanceWindow),
+		signoffs:             make(map[string]Signoff),
+		pending:              make(map[int64]PendingOp),
+		nextID:               1,
+		nextOpID:             1,
+		now:                  clock,
+		locks:                make(map[string]*sync.Mutex),
 	}
 }
 
@@ -226,6 +230,68 @@ func (m *Memory) DeleteGroup(_ context.Context, id string) error {
 	}
 	delete(m.groups, id)
 	return nil
+}
+
+func topologyKey(from, to string) string { return from + "\x00" + to }
+
+// ListTopologyEdges implements Store.
+func (m *Memory) ListTopologyEdges(_ context.Context) ([]TopologyEdge, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return topologyEdgesSorted(m.topologyEdges), nil
+}
+
+// AddTopologyEdge implements Store.
+func (m *Memory) AddTopologyEdge(_ context.Context, from, to string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.topologyEdges[topologyKey(from, to)] = TopologyEdge{From: from, To: to}
+	return nil
+}
+
+// DeleteTopologyEdge implements Store.
+func (m *Memory) DeleteTopologyEdge(_ context.Context, from, to string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.topologyEdges, topologyKey(from, to))
+	return nil
+}
+
+// ListTopologySuppressions implements Store.
+func (m *Memory) ListTopologySuppressions(_ context.Context) ([]TopologyEdge, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return topologyEdgesSorted(m.topologySuppressions), nil
+}
+
+// AddTopologySuppression implements Store.
+func (m *Memory) AddTopologySuppression(_ context.Context, from, to string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.topologySuppressions[topologyKey(from, to)] = TopologyEdge{From: from, To: to}
+	return nil
+}
+
+// DeleteTopologySuppression implements Store.
+func (m *Memory) DeleteTopologySuppression(_ context.Context, from, to string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.topologySuppressions, topologyKey(from, to))
+	return nil
+}
+
+func topologyEdgesSorted(edges map[string]TopologyEdge) []TopologyEdge {
+	out := make([]TopologyEdge, 0, len(edges))
+	for _, edge := range edges {
+		out = append(out, edge)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].From != out[j].From {
+			return out[i].From < out[j].From
+		}
+		return out[i].To < out[j].To
+	})
+	return out
 }
 
 // pruneWindow is how long an ended maintenance window is retained before a

@@ -26,6 +26,19 @@ CREATE TABLE IF NOT EXISTS app_group (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- User-defined dashboard topology edges and configuration-edge suppressions.
+CREATE TABLE IF NOT EXISTS topology_edge (
+    from_app TEXT NOT NULL,
+    to_app   TEXT NOT NULL,
+    PRIMARY KEY (from_app, to_app)
+);
+
+CREATE TABLE IF NOT EXISTS topology_suppression (
+    from_app TEXT NOT NULL,
+    to_app   TEXT NOT NULL,
+    PRIMARY KEY (from_app, to_app)
+);
+
 -- Append-only record of every seed / promote / rollback.
 CREATE TABLE IF NOT EXISTS history (
     id           BIGSERIAL   PRIMARY KEY,

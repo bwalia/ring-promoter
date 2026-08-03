@@ -131,6 +131,9 @@ type DatabaseConfig struct {
 // each ring.
 type AppConfig struct {
 	Name string `yaml:"name"`
+	// DependsOn lists applications this app depends on. It supplies the
+	// configuration-owned edges in the dashboard topology.
+	DependsOn []string `yaml:"depends_on"`
 	// DisplayName is the human-friendly title the UI shows for this app (e.g.
 	// "diytaxreturn proxy"). Optional; empty means "show the name". Only a
 	// label: API paths, stored ring state and history keep using Name, so
@@ -629,6 +632,19 @@ func (c *Config) Validate() error {
 		}
 		if err := validatePromotionPolicy(a); err != nil {
 			return err
+		}
+	}
+	for _, a := range c.Apps {
+		for _, dependency := range a.DependsOn {
+			if dependency == "" {
+				return fmt.Errorf("application %q has an empty depends_on entry", a.Name)
+			}
+			if dependency == a.Name {
+				return fmt.Errorf("application %q must not depend on itself", a.Name)
+			}
+			if !seen[dependency] {
+				return fmt.Errorf("application %q depends on unknown application %q", a.Name, dependency)
+			}
 		}
 	}
 	return nil

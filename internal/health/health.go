@@ -53,6 +53,23 @@ type Checker interface {
 	Check(ctx context.Context, p Probe) error
 }
 
+// TimedChecker is an optional Checker capability that reports how long the
+// underlying health request took. A duration is returned even when the
+// endpoint responds unhealthy.
+type TimedChecker interface {
+	CheckTimed(ctx context.Context, p Probe) (latency time.Duration, err error)
+}
+
+// CheckTimed runs a health check and returns its latency when the checker can
+// measure one. Checkers that do not implement TimedChecker retain their
+// existing behavior and report zero latency.
+func CheckTimed(c Checker, ctx context.Context, p Probe) (time.Duration, error) {
+	if timed, ok := c.(TimedChecker); ok {
+		return timed.CheckTimed(ctx, p)
+	}
+	return 0, c.Check(ctx, p)
+}
+
 // VersionReporter is an optional Checker capability: fetching the version the
 // health endpoint reports itself to be running. Used for ref-pinned rings,
 // where the concrete deployed version is only knowable AFTER the deploy (the
@@ -69,6 +86,9 @@ type AlwaysHealthy struct{}
 
 // Check implements Checker.
 func (AlwaysHealthy) Check(context.Context, Probe) error { return nil }
+
+// CheckTimed implements TimedChecker.
+func (AlwaysHealthy) CheckTimed(context.Context, Probe) (time.Duration, error) { return 0, nil }
 
 // HTTPChecker performs an HTTP GET and treats the response as healthy when it
 // matches the expected status (any 2xx by default) and — when the probe asks
@@ -87,23 +107,33 @@ func NewHTTPChecker(timeout time.Duration) *HTTPChecker {
 
 // Check implements Checker.
 func (c *HTTPChecker) Check(ctx context.Context, p Probe) error {
+	_, err := c.CheckTimed(ctx, p)
+	return err
+}
+
+// CheckTimed implements TimedChecker, measuring the HTTP request through the
+// point a response or transport error is received. This means unhealthy status
+// responses still have useful RTT data.
+func (c *HTTPChecker) CheckTimed(ctx context.Context, p Probe) (time.Duration, error) {
+	start := time.Now()
 	resp, err := c.fetch(ctx, p)
+	latency := time.Since(start)
 	if err != nil {
-		return err
+		return latency, err
 	}
 	defer resp.Body.Close()
 	if !p.wantsVersion() {
-		return nil
+		return latency, nil
 	}
 
 	got, err := reportedVersion(resp, p)
 	if err != nil {
-		return fmt.Errorf("verify running version: %w", err)
+		return latency, fmt.Errorf("verify running version: %w", err)
 	}
 	if got != p.WantVersion {
-		return fmt.Errorf("wrong version live: endpoint reports %q, want %q", got, p.WantVersion)
+		return latency, fmt.Errorf("wrong version live: endpoint reports %q, want %q", got, p.WantVersion)
 	}
-	return nil
+	return latency, nil
 }
 
 // ReportedVersion implements VersionReporter: a healthy-status GET whose

@@ -88,6 +88,38 @@ func TestNegativeRetryCountRejected(t *testing.T) {
 	}
 }
 
+func TestDependsOnValidation(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	base := `
+apps:
+  - name: api
+    rings:
+      int: { health_url: "http://api/health" }
+  - name: web
+    depends_on: [api]
+    rings:
+      int: { health_url: "http://web/health" }
+`
+	cfg, err := Load(writeConfig(t, base))
+	if err != nil {
+		t.Fatalf("valid depends_on should load: %v", err)
+	}
+	if got := cfg.Apps[1].DependsOn; len(got) != 1 || got[0] != "api" {
+		t.Fatalf("DependsOn = %#v, want [api]", got)
+	}
+
+	for name, body := range map[string]string{
+		"unknown": strings.Replace(base, "depends_on: [api]", "depends_on: [missing]", 1),
+		"self":    strings.Replace(base, "depends_on: [api]", "depends_on: [web]", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Load(writeConfig(t, body)); err == nil {
+				t.Fatal("expected invalid depends_on to be rejected")
+			}
+		})
+	}
+}
+
 // A ring may pin an exact healthy status code (e.g. spectoncr's 401 on /v2/).
 func TestHealthExpectStatusValid(t *testing.T) {
 	t.Setenv("RP_API_TOKEN", "tok")

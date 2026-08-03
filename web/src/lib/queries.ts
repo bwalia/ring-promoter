@@ -380,6 +380,43 @@ export function useDeleteGroup() {
   });
 }
 
+const TOPOLOGY_INTERVAL = 30_000;
+
+/** Effective fleet dependency edges (config ∪ user − suppressions). */
+export function useTopology() {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["topology"],
+    queryFn: api.topology,
+    enabled: !!token,
+    refetchInterval: TOPOLOGY_INTERVAL,
+    staleTime: 10_000,
+    select: (data) => data.edges ?? [],
+  });
+}
+
+export function useAddTopologyEdge() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) =>
+      api.addTopologyEdge(from, to),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["topology"] }),
+    onError: (err: Error) =>
+      toast.error("Could not add dependency", { description: err.message }),
+  });
+}
+
+export function useRemoveTopologyEdge() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) =>
+      api.removeTopologyEdge(from, to),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["topology"] }),
+    onError: (err: Error) =>
+      toast.error("Could not remove dependency", { description: err.message }),
+  });
+}
+
 /** Whether prod deploys need a password, and which ring is "prod" (the last). */
 export function useProdProtection() {
   const { data } = useApps();
