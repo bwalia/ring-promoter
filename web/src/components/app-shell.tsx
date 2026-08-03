@@ -130,15 +130,24 @@ export function AppShell() {
     })();
   }, [mounted, token, queryClient]);
 
+  // Mirror navigation state into the address bar. Use selectedGroup (not
+  // activeGroup) so a deep link is preserved while groups are still loading;
+  // bare `/` clears selection in the effect above, so this will not resurrect
+  // a stale ?group= from localStorage.
   useEffect(() => {
     if (!mounted || !prefsReady) return;
-    const url = activeGroup
-      ? `?group=${encodeURIComponent(activeGroup.id)}`
+    const desired = selectedGroup
+      ? `?group=${encodeURIComponent(selectedGroup)}`
       : selectedApp
         ? `?app=${encodeURIComponent(selectedApp)}`
-        : window.location.pathname;
-    window.history.replaceState(null, "", url);
-  }, [mounted, prefsReady, selectedApp, activeGroup]);
+        : "";
+    if (window.location.search === desired) return;
+    window.history.replaceState(
+      null,
+      "",
+      desired || window.location.pathname,
+    );
+  }, [mounted, prefsReady, selectedApp, selectedGroup]);
 
   // Global keyboard shortcuts.
   useEffect(() => {

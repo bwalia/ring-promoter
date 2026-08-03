@@ -1,11 +1,27 @@
 # syntax=docker/dockerfile:1
 
+# ---- build the embedded Next.js UI ----
+# Always rebuild from web/src so internal/web/static cannot ship stale
+# (a prior bug left ?group= redirecting because only Go was rebuilt).
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN NEXT_OUTPUT=export npx next build \
+ && mkdir -p /out \
+ && cp -R out/. /out/
+
 # ---- build the static Go binary ----
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# Replace any committed embed with the fresh UI from the web stage.
+RUN rm -rf internal/web/static && mkdir -p internal/web/static
+COPY --from=web /out/ internal/web/static/
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 # Build metadata, surfaced by the app on /version and in the UI footer.
