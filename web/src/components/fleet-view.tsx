@@ -80,8 +80,8 @@ function groupEdges(
 
 /**
  * Rings of Applications home with two views:
- * - All apps: every application is a planet (no grouping required)
- * - Rings: each group is a planet
+ * - All apps: every service orbits the core business
+ * - Rings: each group orbits as a service cluster
  */
 export function FleetView() {
   const { data } = useApps();
@@ -169,8 +169,8 @@ export function FleetView() {
           <h2 className="text-lg font-semibold">Rings of Applications</h2>
           <p className="text-sm text-muted-foreground">
             {view === "apps"
-              ? "Every application is a planet. Dependencies pull apps together; high health latency pushes them apart."
-              : "Each planet is a ring (group of apps). Switch to All apps to see every application."}
+              ? "Services orbit the core business. Dependencies pull them together; high health latency pushes them apart."
+              : "Each orbiting body is a ring (group of services). Switch to All services to see every service."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -190,7 +190,7 @@ export function FleetView() {
               )}
               data-testid="solar-view-apps"
             >
-              All apps
+              All services
             </button>
             <button
               type="button"
@@ -220,7 +220,7 @@ export function FleetView() {
 
       {known.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
-          <p className="text-sm font-medium">No applications configured</p>
+          <p className="text-sm font-medium">No services configured</p>
           <p className="text-sm text-muted-foreground">
             Add apps under <code>apps:</code> in the server config.
           </p>
@@ -228,7 +228,7 @@ export function FleetView() {
       ) : view === "apps" ? (
         <>
           <SolarSystem
-            sunLabel="Sun"
+            sunLabel="The core business"
             members={known}
             results={appResults}
             statuses={appStatuses}
@@ -248,12 +248,12 @@ export function FleetView() {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
           <p className="text-sm font-medium">No rings yet</p>
           <p className="text-sm text-muted-foreground">
-            Create a group of apps — or switch to All apps to see every
-            application as a planet.
+            Create a group of services — or switch to All services to see every
+            service around the core business.
           </p>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => setView("apps")}>
-              All apps
+              All services
             </Button>
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               Create a ring
@@ -263,7 +263,7 @@ export function FleetView() {
       ) : (
         <>
           <SolarSystem
-            sunLabel="Rings"
+            sunLabel="The core business"
             members={ringIds}
             results={ringResults}
             statuses={ringStatuses}
