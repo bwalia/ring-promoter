@@ -57,13 +57,25 @@ export function AppShell() {
     () => false,
   );
 
+  // Wait for zustand persist rehydration so we never apply URL rules against
+  // default nulls and then get overwritten by a stale selectedGroup from disk.
+  const prefsReady = useSyncExternalStore(
+    (onStoreChange) => {
+      if (usePrefsStore.persist.hasHydrated()) {
+        return () => {};
+      }
+      return usePrefsStore.persist.onFinishHydration(() => onStoreChange());
+    },
+    () => usePrefsStore.persist.hasHydrated(),
+    () => false,
+  );
+
   // Deep link: /?app=<name> or /?group=<id> selects that view on load; keep
   // the URL in sync so the current view is always shareable. Group links are
   // now meaningful across browsers since groups live on the server.
-  // Bare `/` (no query) always lands on the Solar System overview — do not
-  // restore a persisted app/group selection that would hide it.
+  // Bare `/` (no query) always lands on the Solar System overview.
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || !prefsReady) return;
     const params = new URLSearchParams(window.location.search);
     const groupParam = params.get("group");
     const appParam = params.get("app");
@@ -77,7 +89,7 @@ export function AppShell() {
       selectGroup(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted]);
+  }, [mounted, prefsReady]);
 
   // A selected group that no longer exists on the server (deleted elsewhere,
   // or a dead deep link) falls back to the app view instead of a blank page.
@@ -119,14 +131,14 @@ export function AppShell() {
   }, [mounted, token, queryClient]);
 
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || !prefsReady) return;
     const url = activeGroup
       ? `?group=${encodeURIComponent(activeGroup.id)}`
       : selectedApp
         ? `?app=${encodeURIComponent(selectedApp)}`
         : window.location.pathname;
     window.history.replaceState(null, "", url);
-  }, [mounted, selectedApp, activeGroup]);
+  }, [mounted, prefsReady, selectedApp, activeGroup]);
 
   // Global keyboard shortcuts.
   useEffect(() => {

@@ -89,7 +89,29 @@ export const usePrefsStore = create<PrefsState>()(
 
       setAutoRefresh: (on) => set({ autoRefresh: on }),
     }),
-    { name: "rp-prefs" },
+    {
+      name: "rp-prefs",
+      // selectedApp / selectedGroup are navigation (URL is the source of truth).
+      // Persisting them made bare `/` snap back to the last ?group= after
+      // rehydrate and look like an auto-redirect.
+      partialize: (s) => ({
+        favorites: s.favorites,
+        recents: s.recents,
+        groups: s.groups,
+        collapsed: s.collapsed,
+        autoRefresh: s.autoRefresh,
+      }),
+      // Drop any legacy navigation keys still sitting in older localStorage.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<PrefsState>;
+        return {
+          ...current,
+          ...p,
+          selectedApp: null,
+          selectedGroup: null,
+        };
+      },
+    },
   ),
 );
 
