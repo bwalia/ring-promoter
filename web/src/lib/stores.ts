@@ -91,6 +91,9 @@ export const usePrefsStore = create<PrefsState>()(
     }),
     {
       name: "rp-prefs",
+      // Bump when navigation storage shape changes so old localStorage
+      // (which persisted selectedGroup and bounced bare `/` to ?group=) is reset.
+      version: 1,
       // selectedApp / selectedGroup are navigation (URL is the source of truth).
       // Persisting them made bare `/` snap back to the last ?group= after
       // rehydrate and look like an auto-redirect.
@@ -101,6 +104,18 @@ export const usePrefsStore = create<PrefsState>()(
         collapsed: s.collapsed,
         autoRefresh: s.autoRefresh,
       }),
+      migrate: (persisted) => {
+        const p = (persisted ?? {}) as Partial<PrefsState>;
+        return {
+          favorites: p.favorites ?? [],
+          recents: p.recents ?? [],
+          groups: p.groups ?? [],
+          collapsed: p.collapsed ?? {},
+          autoRefresh: p.autoRefresh ?? true,
+          selectedApp: null,
+          selectedGroup: null,
+        };
+      },
       // Drop any legacy navigation keys still sitting in older localStorage.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<PrefsState>;
