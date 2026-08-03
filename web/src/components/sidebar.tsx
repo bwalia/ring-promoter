@@ -80,14 +80,22 @@ export function Sidebar({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2.5 px-4 pb-3 pt-5">
+      <button
+        type="button"
+        onClick={() => {
+          selectGroup(null);
+          onNavigate?.();
+        }}
+        className="flex w-full items-center gap-2.5 px-4 pb-3 pt-5 text-left hover:opacity-90"
+        aria-label="Solar System overview"
+      >
         <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <CircleDot aria-hidden className="size-4" />
         </div>
         <span className="text-sm font-semibold tracking-tight">
           Ring Promoter
         </span>
-      </div>
+      </button>
 
       <div className="px-3 pb-3">
         <div className="relative">
@@ -133,15 +141,11 @@ export function Sidebar({
             </div>
           )}
 
-          {!isPending && !error && apps.length === 0 && (
-            <p className="px-1 pt-2 text-sm text-muted-foreground">
-              No applications configured. Add one under <code>apps:</code> in
-              the server config.
-            </p>
-          )}
-
-          {!isPending && !error && apps.length > 0 && (
-            <div className="space-y-0.5">
+          {!isPending && !error && (
+            <div className="space-y-1">
+              <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Overview
+              </p>
               <button
                 type="button"
                 onClick={() => {
@@ -149,16 +153,24 @@ export function Sidebar({
                   onNavigate?.();
                 }}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                  "flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors",
                   fleetActive
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60",
                 )}
+                data-testid="nav-solar-system"
               >
-                <Orbit aria-hidden className="size-3.5 shrink-0 opacity-70" />
-                <span className="truncate">Fleet</span>
+                <Orbit aria-hidden className="size-4 shrink-0 opacity-80" />
+                <span className="truncate">Solar System</span>
               </button>
             </div>
+          )}
+
+          {!isPending && !error && apps.length === 0 && (
+            <p className="px-1 pt-2 text-sm text-muted-foreground">
+              No applications configured. Add one under <code>apps:</code> in
+              the server config.
+            </p>
           )}
 
           {favApps.length > 0 && (
@@ -172,7 +184,7 @@ export function Sidebar({
           {groups.length > 0 && (
             <Section
               id="groups"
-              label="Groups"
+              label="Rings"
               action={
                 <Button
                   variant="ghost"

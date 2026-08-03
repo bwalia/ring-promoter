@@ -60,6 +60,8 @@ export function AppShell() {
   // Deep link: /?app=<name> or /?group=<id> selects that view on load; keep
   // the URL in sync so the current view is always shareable. Group links are
   // now meaningful across browsers since groups live on the server.
+  // Bare `/` (no query) always lands on the Solar System overview — do not
+  // restore a persisted app/group selection that would hide it.
   useEffect(() => {
     if (!mounted) return;
     const params = new URLSearchParams(window.location.search);
@@ -71,6 +73,8 @@ export function AppShell() {
       // Unconditionally: selectApp also clears a persisted selectedGroup, so
       // an ?app= link always wins over whatever view was open last time.
       selectApp(appParam);
+    } else {
+      selectGroup(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);

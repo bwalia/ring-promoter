@@ -55,20 +55,28 @@ const STARS = Array.from({ length: 46 }, (_, i) => {
 });
 
 export type SolarSystemProps = {
-  /** Center label (group name or "Fleet"). */
+  /** Center label (group name or "Solar System"). */
   sunLabel: string;
   members: string[];
   results: GroupAppRings[];
   statuses: NodeStatus[];
   aggregate: NodeStatus;
   edges: TopologyEdge[];
-  /** When set, apps are pulled into group sectors (fleet home). */
+  /** When set, apps are pulled into group sectors (app-level fleet view). */
   groups?: AppGroup[];
+  /** Override planet labels (defaults to app display titles). */
+  resolveTitle?: (id: string) => string;
+  /** "apps" shows seed + version; "groups" shows member counts and Open group. */
+  mode?: "apps" | "groups";
+  /** Optional per-planet subtitle (e.g. "3 apps"). */
+  subtitles?: Record<string, string>;
+  /** Per-planet latency override (ms); falls back to rings probe latency. */
+  latencyById?: Record<string, number | null>;
   editable?: boolean;
   onAddEdge?: (from: string, to: string) => void;
   onRemoveEdge?: (from: string, to: string) => void;
-  onOpen: (app: string) => void;
-  onSeed: (app: string) => void;
+  onOpen: (id: string) => void;
+  onSeed?: (id: string) => void;
 };
 
 export function SolarSystem({
@@ -79,13 +87,18 @@ export function SolarSystem({
   aggregate,
   edges,
   groups,
+  resolveTitle,
+  mode = "apps",
+  subtitles,
+  latencyById,
   editable = false,
   onAddEdge,
   onRemoveEdge,
   onOpen,
   onSeed,
 }: SolarSystemProps) {
-  const title = useAppTitle();
+  const appTitle = useAppTitle();
+  const title = resolveTitle ?? appTitle;
   const gradId = useId();
   const hex = STATUS_HEX[aggregate];
   const [hovered, setHovered] = useState<string | null>(null);
@@ -99,15 +112,22 @@ export function SolarSystem({
 
   const latencyByApp = useMemo(() => {
     const m = new Map<string, number | null>();
-    members.forEach((app, i) => {
-      m.set(app, appLatencyMs(results[i]?.rings));
+    members.forEach((id, i) => {
+      if (latencyById && id in latencyById) {
+        m.set(id, latencyById[id] ?? null);
+      } else {
+        m.set(id, appLatencyMs(results[i]?.rings));
+      }
     });
     return m;
-  }, [members, results]);
+  }, [members, results, latencyById]);
 
   const sectorByApp = useMemo(
-    () => groupSectorAngles(members, groups ?? []),
-    [members, groups],
+    () =>
+      mode === "apps"
+        ? groupSectorAngles(members, groups ?? [])
+        : new Map<string, number>(),
+    [members, groups, mode],
   );
 
   const visibleEdges = useMemo(
@@ -219,6 +239,8 @@ export function SolarSystem({
     }
     setFocused((f) => (f === app ? null : app));
   };
+
+  const openLabel = mode === "groups" ? "Open ring" : "Open";
 
   const posById = useMemo(() => {
     const m = new Map<string, SimNode>();
@@ -359,8 +381,9 @@ export function SolarSystem({
               className="opacity-40"
             />
 
-            {/* Group sector labels (fleet mode) */}
-            {(groups ?? [])
+            {/* Group sector labels (app-level fleet mode only) */}
+            {mode === "apps" &&
+              (groups ?? [])
               .filter((g) => g.apps.some((a) => members.includes(a)))
               .map((g, i, arr) => {
                 const mid = (i / arr.length) * 2 * Math.PI - Math.PI / 2;
@@ -565,11 +588,15 @@ export function SolarSystem({
                         style={cardPlacement}
                       >
                         <NodeCard
-                          app={app}
+                          id={app}
+                          label={title(app)}
                           status={status}
                           rings={results[i]}
                           latencyMs={lat ?? null}
+                          mode={mode}
+                          subtitle={subtitles?.[app]}
                           pinned={focused === app}
+                          openLabel={openLabel}
                           onClose={() => {
                             setFocused(null);
                             setHovered(null);
@@ -599,6 +626,11 @@ export function SolarSystem({
                     <span className="max-w-28 truncate text-xs font-medium text-neutral-200">
                       {title(app)}
                     </span>
+                    {subtitles?.[app] && (
+                      <span className="hidden max-w-16 truncate text-[9px] text-neutral-500 sm:inline">
+                        {subtitles[app]}
+                      </span>
+                    )}
                     {lat != null && (
                       <span className="font-mono text-[9px] text-neutral-500">
                         {Math.round(lat)}ms
@@ -616,25 +648,32 @@ export function SolarSystem({
 }
 
 function NodeCard({
-  app,
+  id,
+  label,
   status,
   rings,
   latencyMs,
+  mode,
+  subtitle,
   pinned,
+  openLabel,
   onClose,
   onOpen,
   onSeed,
 }: {
-  app: string;
+  id: string;
+  label: string;
   status: NodeStatus;
   rings: GroupAppRings | undefined;
   latencyMs: number | null;
+  mode: "apps" | "groups";
+  subtitle?: string;
   pinned: boolean;
+  openLabel: string;
   onClose: () => void;
-  onOpen: (app: string) => void;
-  onSeed: (app: string) => void;
+  onOpen: (id: string) => void;
+  onSeed?: (id: string) => void;
 }) {
-  const title = useAppTitle();
   const hex = STATUS_HEX[status];
   const { active, healthy, latest, lastDeploy } = summarizeRings(rings?.rings);
 
@@ -649,11 +688,16 @@ function NodeCard({
             className="flex size-6 shrink-0 items-center justify-center rounded-md border bg-gradient-to-b from-white/15 to-white/5 text-[11px] font-semibold text-neutral-100"
             style={{ borderColor: `${hex}55` }}
           >
-            {title(app)[0]?.toUpperCase()}
+            {label[0]?.toUpperCase()}
           </span>
-          <p className="min-w-0 truncate text-sm font-semibold text-neutral-50">
-            {title(app)}
-          </p>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-neutral-50">
+              {label}
+            </p>
+            {subtitle && (
+              <p className="truncate text-[11px] text-neutral-500">{subtitle}</p>
+            )}
+          </div>
         </div>
         {pinned && (
           <button
@@ -689,45 +733,66 @@ function NodeCard({
             <span className="text-neutral-500">—</span>
           )}
         </Row>
-        <Row label="Version">
-          {latest ? (
-            <span className="font-mono text-neutral-100">
-              {latest.current_version}
-              <span className="text-neutral-500"> · {latest.ring.name}</span>
+        {mode === "groups" ? (
+          <Row label="Apps">
+            <span className="text-neutral-100">{subtitle ?? "—"}</span>
+          </Row>
+        ) : (
+          <>
+            <Row label="Version">
+              {latest ? (
+                <span className="font-mono text-neutral-100">
+                  {latest.current_version}
+                  <span className="text-neutral-500"> · {latest.ring.name}</span>
+                </span>
+              ) : (
+                <span className="text-neutral-500">nothing deployed</span>
+              )}
+            </Row>
+            <Row label="Rings">
+              <span className="text-neutral-100">
+                {active.length === 0
+                  ? "—"
+                  : `${healthy}/${active.length} healthy`}
+              </span>
+            </Row>
+            <Row label="Last deploy">
+              {lastDeploy ? (
+                <RelativeTime iso={lastDeploy} className="text-neutral-100" />
+              ) : (
+                <span className="text-neutral-500">never</span>
+              )}
+            </Row>
+          </>
+        )}
+        {mode === "groups" && (
+          <Row label="Health">
+            <span className="text-neutral-100">
+              {active.length === 0
+                ? "nothing deployed"
+                : `${healthy}/${active.length} rings healthy`}
             </span>
-          ) : (
-            <span className="text-neutral-500">nothing deployed</span>
-          )}
-        </Row>
-        <Row label="Rings">
-          <span className="text-neutral-100">
-            {active.length === 0 ? "—" : `${healthy}/${active.length} healthy`}
-          </span>
-        </Row>
-        <Row label="Last deploy">
-          {lastDeploy ? (
-            <RelativeTime iso={lastDeploy} className="text-neutral-100" />
-          ) : (
-            <span className="text-neutral-500">never</span>
-          )}
-        </Row>
+          </Row>
+        )}
       </dl>
 
       <div className="mt-3 flex gap-2">
         <button
           type="button"
-          onClick={() => onOpen(app)}
+          onClick={() => onOpen(id)}
           className="h-7 flex-1 rounded-md bg-white text-xs font-medium text-neutral-900 transition-colors hover:bg-white/85"
         >
-          Open
+          {openLabel}
         </button>
-        <button
-          type="button"
-          onClick={() => onSeed(app)}
-          className="h-7 flex-1 rounded-md border border-white/15 text-xs font-medium text-neutral-100 transition-colors hover:bg-white/10"
-        >
-          Seed
-        </button>
+        {mode === "apps" && onSeed && (
+          <button
+            type="button"
+            onClick={() => onSeed(id)}
+            className="h-7 flex-1 rounded-md border border-white/15 text-xs font-medium text-neutral-100 transition-colors hover:bg-white/10"
+          >
+            Seed
+          </button>
+        )}
       </div>
     </div>
   );
