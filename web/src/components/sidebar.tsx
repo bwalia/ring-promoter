@@ -87,7 +87,7 @@ export function Sidebar({
           onNavigate?.();
         }}
         className="flex w-full items-center gap-2.5 px-4 pb-3 pt-5 text-left hover:opacity-90"
-        aria-label="Solar System overview"
+        aria-label="Rings of Applications overview"
       >
         <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <CircleDot aria-hidden className="size-4" />
@@ -127,8 +127,8 @@ export function Sidebar({
             </div>
           )}
 
-          {/* Always visible — do not wait on the apps query or the Solar
-              System nav disappears while loading / on error. */}
+          {/* Always visible — do not wait on the apps query or the Rings
+              of Applications nav disappears while loading / on error. */}
           <div className="space-y-1">
             <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Overview
@@ -145,10 +145,10 @@ export function Sidebar({
                   ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60",
               )}
-              data-testid="nav-solar-system"
+              data-testid="nav-rings-of-applications"
             >
               <Orbit aria-hidden className="size-4 shrink-0 opacity-80" />
-              <span className="truncate">Solar System</span>
+              <span className="truncate">Rings of Applications</span>
             </button>
           </div>
 

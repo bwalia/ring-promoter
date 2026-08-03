@@ -79,7 +79,7 @@ function groupEdges(
 }
 
 /**
- * Solar System home with two views:
+ * Rings of Applications home with two views:
  * - All apps: every application is a planet (no grouping required)
  * - Rings: each group is a planet
  */
@@ -166,7 +166,7 @@ export function FleetView() {
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Solar System</h2>
+          <h2 className="text-lg font-semibold">Rings of Applications</h2>
           <p className="text-sm text-muted-foreground">
             {view === "apps"
               ? "Every application is a planet. Dependencies pull apps together; high health latency pushes them apart."
@@ -177,7 +177,7 @@ export function FleetView() {
           <div
             className="inline-flex rounded-md border border-border bg-muted/40 p-0.5"
             role="group"
-            aria-label="Solar System view"
+            aria-label="Rings of Applications view"
           >
             <button
               type="button"
