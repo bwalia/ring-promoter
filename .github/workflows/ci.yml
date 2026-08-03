@@ -1,22 +1,17 @@
 name: CI
 
-# Gates every pull request (and push to main) on the Go build, vet, and test
-# suite. Until this existed the only PR check was GitGuardian secret-scanning, so
-# a change that broke the build or a test could merge unnoticed. This workflow is
-# build/test ONLY — it never deploys or pushes images (deploy-k3s1.yml owns that).
+# Gates every pull request on the Go build, vet, and test suite.
+# Build/test ONLY — deploy-k3s1.yml / deploy-training-k3s1.yml own images + rollout.
 #
-# Runs on the self-hosted Mac Studio runner, same as the deploy workflows, so it
-# reuses the module/build cache already warm on that host.
+# Intentionally does NOT run on push to main: the PR already passed this gate,
+# and a second CI job on the single self-hosted mac-studio runner only delays
+# the deploy that actually ships the merge.
 
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
-# Cancel superseded runs on the same ref (e.g. a force-push to a PR branch) so we
-# don't queue stale CI on the self-hosted runner.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -31,13 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pin the toolchain. Never use check-latest on the self-hosted runner —
+      # it phones home to go.dev and has hung for ~10 minutes, blocking every
+      # queued deploy behind this one job.
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
-          check-latest: true
-
-      - name: Download modules
-        run: go mod download
+          go-version: "1.25.0"
+          cache: true
 
       - name: Verify go.mod / go.sum are tidy
         run: |
