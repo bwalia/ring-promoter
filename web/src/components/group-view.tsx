@@ -111,7 +111,7 @@ export function GroupView({ group }: { group: AppGroup }) {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
           <p className="text-sm font-medium">This group is empty</p>
           <p className="text-sm text-muted-foreground">
-            Add applications to see them in the solar system.
+            Add applications to see them in the rings.
           </p>
           <Button size="sm" onClick={() => setEditOpen(true)}>
             Add applications

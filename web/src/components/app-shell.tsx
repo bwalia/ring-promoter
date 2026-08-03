@@ -73,7 +73,7 @@ export function AppShell() {
   // Deep link: /?app=<name> or /?group=<id> selects that view on load; keep
   // the URL in sync so the current view is always shareable. Group links are
   // now meaningful across browsers since groups live on the server.
-  // Bare `/` (no query) always lands on the Solar System overview.
+  // Bare `/` (no query) always lands on the Rings of Applications overview.
   useEffect(() => {
     if (!mounted || !prefsReady) return;
     const params = new URLSearchParams(window.location.search);
