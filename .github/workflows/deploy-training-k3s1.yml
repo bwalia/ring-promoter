@@ -53,19 +53,24 @@ env:
   ZONE: fictionally.org
   CNAME_TARGET: pop0.wslproxy.com
   HEALTH_URL: https://ring-promoter.fictionally.org/healthz
+  BUILDX_CACHE: /var/tmp/ring-promoter-buildx-cache
 
 jobs:
-  test:
-    name: Test
+  # No duplicate Go test suite: PRs already pass ci.yml. This workflow only
+  # validates the training config, then deploys — and reuses the image that
+  # "Deploy to k3s1" already pushed for the same sha whenever possible.
+
+  deploy:
+    name: Build & deploy training instance
     runs-on: [self-hosted, mac-studio]
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.25.0"
           cache: true
-      - run: go vet ./...
-      - run: go test ./...
+
       # Fail fast if the training config no longer validates. Build then run in
       # the background with a PID trap — the self-hosted macOS runner has no GNU
       # `timeout`, and killing the built binary (not `go run`) actually stops it.
@@ -86,13 +91,6 @@ jobs:
           done
           echo "::error::training config did not serve all 7 apps"; exit 1
 
-  deploy:
-    name: Build & deploy training instance
-    needs: test
-    runs-on: [self-hosted, mac-studio]
-    steps:
-      - uses: actions/checkout@v4
-
       - name: Compute build metadata
         run: |
           echo "SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_ENV"
@@ -105,28 +103,53 @@ jobs:
           registry: docker.io
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASSWD }}
-      - name: Image tags
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=sha,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "$TAG" ]; then TAG="sha-${SHORT_SHA}"; fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse image if already on Docker Hub
+        id: image
+        run: |
+          set -euo pipefail
+          # Workstation deploy builds the same docker.io/bwalia/ring-promoter:sha-*
+          # tag. On the single mac-studio runner the two workflows serialize, so
+          # whichever runs second almost always finds the image already pushed.
+          if docker buildx imagetools inspect "${IMAGE}:${TAG}" >/dev/null 2>&1; then
+            echo "Image ${IMAGE}:${TAG} already present — skipping rebuild."
+            echo "skip_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Image ${IMAGE}:${TAG} not found — will build."
+            echo "skip_build=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push
+        if: steps.image.outputs.skip_build != 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: |
+            ${{ env.IMAGE }}:${{ env.TAG }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=local,src=${{ env.BUILDX_CACHE }}
+          cache-to: type=local,dest=${{ env.BUILDX_CACHE }}-new,mode=max
           build-args: |
-            VERSION=sha-${{ env.SHORT_SHA }}
+            VERSION=${{ env.TAG }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_TIME=${{ env.BUILD_TIME }}
+
+      - name: Rotate local buildx cache
+        if: always() && steps.image.outputs.skip_build != 'true'
+        run: |
+          rm -rf "${BUILDX_CACHE}"
+          mv "${BUILDX_CACHE}-new" "${BUILDX_CACHE}" 2>/dev/null || true
 
       - name: Configure kubeconfig (k3s1)
         run: |
@@ -165,9 +188,7 @@ jobs:
       - name: Deploy via Helm chart (beaconpulse-style)
         run: |
           set -euo pipefail
-          TAG="${{ github.event.inputs.image_tag }}"
-          if [ -z "$TAG" ]; then TAG="sha-${SHORT_SHA}"; fi
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          # TAG already resolved earlier (reuses workstation image when present).
           # The ring-exec namespace (for the k8sjob executor RoleBinding) must
           # exist before the chart's RoleBinding applies; --create-namespace only
           # makes the release namespace.
