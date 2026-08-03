@@ -228,7 +228,7 @@ export function FleetView() {
       ) : view === "apps" ? (
         <>
           <SolarSystem
-            sunLabel="Fleet"
+            sunLabel="Sun"
             members={known}
             results={appResults}
             statuses={appStatuses}
