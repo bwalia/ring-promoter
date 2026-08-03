@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ChevronRight, Pencil } from "lucide-react";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { GroupDialog } from "@/components/group-dialog";
-import { GroupRing, type NodeStatus } from "@/components/group-ring";
+import type { NodeStatus } from "@/components/group-ring";
+import { SolarSystem } from "@/components/solar-system";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -15,10 +16,13 @@ import {
 import { ringHealth } from "@/components/status";
 import { summarizeRings } from "@/lib/app-health";
 import {
+  useAddTopologyEdge,
   useApps,
   useAppTitle,
   useDeployingApps,
   useGroupRings,
+  useRemoveTopologyEdge,
+  useTopology,
   type GroupAppRings,
 } from "@/lib/queries";
 import { usePrefsStore } from "@/lib/stores";
@@ -68,6 +72,9 @@ export function GroupView({ group }: { group: AppGroup }) {
   const members = group.apps.filter((a) => known.includes(a));
   const results = useGroupRings(members);
   const deploying = useDeployingApps(members);
+  const { data: edges = [] } = useTopology();
+  const addEdge = useAddTopologyEdge();
+  const removeEdge = useRemoveTopologyEdge();
   const selectApp = usePrefsStore((s) => s.selectApp);
   const setPendingAction = useUiStore((s) => s.setPendingAction);
   const [editOpen, setEditOpen] = useState(false);
@@ -104,7 +111,7 @@ export function GroupView({ group }: { group: AppGroup }) {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
           <p className="text-sm font-medium">This group is empty</p>
           <p className="text-sm text-muted-foreground">
-            Add applications to see them on the group ring.
+            Add applications to see them in the solar system.
           </p>
           <Button size="sm" onClick={() => setEditOpen(true)}>
             Add applications
@@ -112,12 +119,16 @@ export function GroupView({ group }: { group: AppGroup }) {
         </div>
       ) : (
         <>
-          <GroupRing
-            group={group}
+          <SolarSystem
+            sunLabel={group.name}
             members={members}
             results={results}
             statuses={statuses}
             aggregate={aggregate}
+            edges={edges}
+            editable
+            onAddEdge={(from, to) => addEdge.mutate({ from, to })}
+            onRemoveEdge={(from, to) => removeEdge.mutate({ from, to })}
             onOpen={openApp}
             onSeed={seedApp}
           />

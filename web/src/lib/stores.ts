@@ -66,7 +66,12 @@ export const usePrefsStore = create<PrefsState>()(
           recents: [app, ...s.recents.filter((a) => a !== app)].slice(0, 5),
         })),
 
-      selectGroup: (id) => set({ selectedGroup: id }),
+      selectGroup: (id) =>
+        set(
+          id
+            ? { selectedGroup: id, selectedApp: null }
+            : { selectedGroup: null, selectedApp: null },
+        ),
 
       toggleFavorite: (app) =>
         set((s) => ({

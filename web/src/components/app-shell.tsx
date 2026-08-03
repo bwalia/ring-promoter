@@ -6,8 +6,8 @@ import { CircleDot } from "lucide-react";
 import { AppFooter } from "@/components/app-footer";
 import { CommandPalette } from "@/components/command-palette";
 import { Dashboard } from "@/components/dashboard/dashboard";
+import { FleetView } from "@/components/fleet-view";
 import { GroupView } from "@/components/group-view";
-import { NoAppSelected } from "@/components/dashboard/no-app-selected";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
@@ -183,7 +183,7 @@ export function AppShell() {
           ) : selectedApp ? (
             <Dashboard app={selectedApp} />
           ) : (
-            <NoAppSelected />
+            <FleetView />
           )}
         </main>
         <AppFooter />

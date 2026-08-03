@@ -7,6 +7,7 @@ import {
   FolderPlus,
   Layers,
   MoreHorizontal,
+  Orbit,
   Pencil,
   Search,
   Star,
@@ -63,6 +64,10 @@ export function Sidebar({
 
   const favorites = usePrefsStore((s) => s.favorites);
   const groups = useGroups().data ?? [];
+  const selectedApp = usePrefsStore((s) => s.selectedApp);
+  const selectedGroup = usePrefsStore((s) => s.selectedGroup);
+  const selectGroup = usePrefsStore((s) => s.selectGroup);
+  const fleetActive = !selectedApp && !selectedGroup;
 
   const q = filter.trim().toLowerCase();
   const title = useAppTitle();
@@ -133,6 +138,27 @@ export function Sidebar({
               No applications configured. Add one under <code>apps:</code> in
               the server config.
             </p>
+          )}
+
+          {!isPending && !error && apps.length > 0 && (
+            <div className="space-y-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  selectGroup(null);
+                  onNavigate?.();
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                  fleetActive
+                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60",
+                )}
+              >
+                <Orbit aria-hidden className="size-3.5 shrink-0 opacity-70" />
+                <span className="truncate">Fleet</span>
+              </button>
+            </div>
           )}
 
           {favApps.length > 0 && (

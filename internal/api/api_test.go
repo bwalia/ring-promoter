@@ -179,3 +179,43 @@ func TestGroups_CRUDAndValidation(t *testing.T) {
 		t.Fatalf("delete twice: %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestTopology_UserEdgeRoundTrip(t *testing.T) {
+	rings := map[string]config.RingConfig{"int": {HealthURL: "health://"}}
+	cfg := &config.Config{APIToken: "tok", Apps: []config.AppConfig{
+		{Name: "api", Rings: rings},
+		{Name: "web", DependsOn: []string{"api"}, Rings: rings},
+		{Name: "worker", Rings: rings},
+	}}
+	st := store.NewMemory()
+	prom := promoter.New(cfg, st, nil, deployer.NewLogDeployer(nil), health.AlwaysHealthy{}, nil)
+	h := NewServer(prom, "tok", "", http.NotFoundHandler(), time.Minute, nil, BuildInfo{}, nil).Handler()
+
+	if rec := doJSON(t, h, "GET", "/api/topology", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"source":"config"`) {
+		t.Fatalf("initial config topology: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "POST", "/api/topology/edges", `{"from":"web","to":"missing"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown app: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "POST", "/api/topology/edges", `{"from":"web","to":"web"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("self edge: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "POST", "/api/topology/edges", `{"from":"worker","to":"api"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("create edge: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "GET", "/api/topology", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"source":"user"`) {
+		t.Fatalf("list edge: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "DELETE", "/api/topology/edges?from=worker&to=api", ""); rec.Code != http.StatusOK {
+		t.Fatalf("delete edge: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "DELETE", "/api/topology/edges?from=web&to=api", ""); rec.Code != http.StatusOK {
+		t.Fatalf("suppress config edge: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "GET", "/api/topology", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"edges":[]`) {
+		t.Fatalf("topology after suppression: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "POST", "/api/topology/edges/restore", `{"from":"web","to":"api"}`); rec.Code != http.StatusOK {
+		t.Fatalf("restore config edge: %d %s", rec.Code, rec.Body)
+	}
+}
