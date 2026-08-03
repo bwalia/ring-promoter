@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import type { NodeStatus } from "@/components/group-ring";
 import { GroupDialog } from "@/components/group-dialog";
@@ -9,18 +9,23 @@ import { Button } from "@/components/ui/button";
 import { summarizeRings } from "@/lib/app-health";
 import { appLatencyMs } from "@/lib/solar-layout";
 import {
+  useAddTopologyEdge,
   useApps,
   useDeployingApps,
   useGroupRings,
   useGroups,
+  useRemoveTopologyEdge,
   useTopology,
   type GroupAppRings,
 } from "@/lib/queries";
 import { usePrefsStore } from "@/lib/stores";
+import { useUiStore } from "@/lib/ui-store";
 import type { AppGroup, TopologyEdge } from "@/lib/types";
-import { useState } from "react";
+import { cn } from "@/lib/utils";
 
 const UNGROUPED_ID = "__ungrouped__";
+
+type ViewMode = "apps" | "rings";
 
 function baseStatus(r: GroupAppRings): NodeStatus {
   if (r.isPending || !r.rings) return "loading";
@@ -74,18 +79,24 @@ function groupEdges(
 }
 
 /**
- * Solar System home: each planet is a ring/group of apps.
- * Click a planet to open that group; high latency pushes planets apart.
+ * Solar System home with two views:
+ * - All apps: every application is a planet (no grouping required)
+ * - Rings: each group is a planet
  */
 export function FleetView() {
   const { data } = useApps();
   const known = data?.apps ?? [];
   const groups = useGroups().data ?? [];
   const { data: appEdges = [] } = useTopology();
+  const addEdge = useAddTopologyEdge();
+  const removeEdge = useRemoveTopologyEdge();
+  const selectApp = usePrefsStore((s) => s.selectApp);
   const selectGroup = usePrefsStore((s) => s.selectGroup);
+  const setPendingAction = useUiStore((s) => s.setPendingAction);
   const [createOpen, setCreateOpen] = useState(false);
+  const [view, setView] = useState<ViewMode>("apps");
 
-  const planets = useMemo(() => {
+  const ringPlanets = useMemo(() => {
     const listed = groups.map((g) => ({
       id: g.id,
       name: g.name,
@@ -103,31 +114,26 @@ export function FleetView() {
     return listed;
   }, [groups, known]);
 
-  const allMemberApps = useMemo(
-    () => [...new Set(planets.flatMap((p) => p.apps))],
-    [planets],
-  );
-  const appResults = useGroupRings(allMemberApps);
-  const deploying = useDeployingApps(allMemberApps);
+  const appResults = useGroupRings(known);
+  const deploying = useDeployingApps(known);
   const appResultByName = useMemo(() => {
     const m = new Map<string, GroupAppRings>();
     for (const r of appResults) m.set(r.app, r);
     return m;
   }, [appResults]);
 
-  const planetIds = planets.map((p) => p.id);
-  const results: GroupAppRings[] = planets.map((p) => {
+  const appStatuses: NodeStatus[] = appResults.map((r) =>
+    deploying.has(r.app) ? "deploying" : baseStatus(r),
+  );
+  const appAggregate = aggregateStatuses(appStatuses);
+
+  const ringIds = ringPlanets.map((p) => p.id);
+  const ringResults: GroupAppRings[] = ringPlanets.map((p) => {
     const rings = p.apps.flatMap((a) => appResultByName.get(a)?.rings ?? []);
     const pending = p.apps.some((a) => appResultByName.get(a)?.isPending);
-    return {
-      app: p.id,
-      rings,
-      isPending: pending,
-      error: null,
-    };
+    return { app: p.id, rings, isPending: pending, error: null };
   });
-
-  const statuses: NodeStatus[] = planets.map((p) => {
+  const ringStatuses: NodeStatus[] = ringPlanets.map((p) => {
     if (p.apps.some((a) => deploying.has(a))) return "deploying";
     const memberStatuses = p.apps.map((a) => {
       const r = appResultByName.get(a);
@@ -135,26 +141,26 @@ export function FleetView() {
     });
     return aggregateStatuses(memberStatuses);
   });
-
-  const latencyById: Record<string, number | null> = {};
-  const subtitles: Record<string, string> = {};
-  for (const p of planets) {
+  const ringLatency: Record<string, number | null> = {};
+  const ringSubtitles: Record<string, string> = {};
+  for (const p of ringPlanets) {
     const lats = p.apps
       .map((a) => appLatencyMs(appResultByName.get(a)?.rings))
       .filter((n): n is number => n != null);
-    latencyById[p.id] = lats.length ? Math.max(...lats) : null;
-    subtitles[p.id] =
+    ringLatency[p.id] = lats.length ? Math.max(...lats) : null;
+    ringSubtitles[p.id] =
       p.apps.length === 1 ? "1 app" : `${p.apps.length} apps`;
   }
-
-  const edges =
-    groups.length > 0 ? groupEdges(groups, appEdges, known) : [];
-  const aggregate = aggregateStatuses(statuses);
-
-  const titles = useMemo(() => {
-    const m = new Map(planets.map((p) => [p.id, p.name]));
+  const ringTitles = useMemo(() => {
+    const m = new Map(ringPlanets.map((p) => [p.id, p.name]));
     return (id: string) => m.get(id) ?? id;
-  }, [planets]);
+  }, [ringPlanets]);
+
+  const openApp = (app: string) => selectApp(app);
+  const seedApp = (app: string) => {
+    setPendingAction({ type: "seed", app });
+    selectApp(app);
+  };
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -162,13 +168,54 @@ export function FleetView() {
         <div>
           <h2 className="text-lg font-semibold">Solar System</h2>
           <p className="text-sm text-muted-foreground">
-            Each planet is a ring (group of apps). Tight dependencies pull rings
-            together; high health latency pushes them apart.
+            {view === "apps"
+              ? "Every application is a planet. Dependencies pull apps together; high health latency pushes them apart."
+              : "Each planet is a ring (group of apps). Switch to All apps to see every application."}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
-          New ring
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="inline-flex rounded-md border border-border bg-muted/40 p-0.5"
+            role="group"
+            aria-label="Solar System view"
+          >
+            <button
+              type="button"
+              onClick={() => setView("apps")}
+              className={cn(
+                "rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+                view === "apps"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              data-testid="solar-view-apps"
+            >
+              All apps
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("rings")}
+              className={cn(
+                "rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+                view === "rings"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              data-testid="solar-view-rings"
+            >
+              Rings
+            </button>
+          </div>
+          {view === "rings" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCreateOpen(true)}
+            >
+              New ring
+            </Button>
+          )}
+        </div>
       </div>
 
       {known.length === 0 ? (
@@ -178,35 +225,63 @@ export function FleetView() {
             Add apps under <code>apps:</code> in the server config.
           </p>
         </div>
-      ) : planets.length === 0 ? (
+      ) : view === "apps" ? (
+        <>
+          <SolarSystem
+            sunLabel="Fleet"
+            members={known}
+            results={appResults}
+            statuses={appStatuses}
+            aggregate={appAggregate}
+            edges={appEdges}
+            groups={groups}
+            mode="apps"
+            editable
+            onAddEdge={(from, to) => addEdge.mutate({ from, to })}
+            onRemoveEdge={(from, to) => removeEdge.mutate({ from, to })}
+            onOpen={openApp}
+            onSeed={seedApp}
+          />
+          <ActivityFeed apps={known} />
+        </>
+      ) : ringPlanets.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
           <p className="text-sm font-medium">No rings yet</p>
           <p className="text-sm text-muted-foreground">
-            Create a group of apps — each group appears as a planet here.
+            Create a group of apps — or switch to All apps to see every
+            application as a planet.
           </p>
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            Create a ring
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => setView("apps")}>
+              All apps
+            </Button>
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              Create a ring
+            </Button>
+          </div>
         </div>
       ) : (
         <>
           <SolarSystem
             sunLabel="Rings"
-            members={planetIds}
-            results={results}
-            statuses={statuses}
-            aggregate={aggregate}
-            edges={edges}
+            members={ringIds}
+            results={ringResults}
+            statuses={ringStatuses}
+            aggregate={aggregateStatuses(ringStatuses)}
+            edges={groupEdges(groups, appEdges, known)}
             mode="groups"
-            resolveTitle={titles}
-            subtitles={subtitles}
-            latencyById={latencyById}
+            resolveTitle={ringTitles}
+            subtitles={ringSubtitles}
+            latencyById={ringLatency}
             onOpen={(id) => {
-              if (id === UNGROUPED_ID) return;
+              if (id === UNGROUPED_ID) {
+                setView("apps");
+                return;
+              }
               selectGroup(id);
             }}
           />
-          <ActivityFeed apps={allMemberApps} />
+          <ActivityFeed apps={known} />
         </>
       )}
 

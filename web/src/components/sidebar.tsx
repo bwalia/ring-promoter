@@ -127,6 +127,31 @@ export function Sidebar({
             </div>
           )}
 
+          {/* Always visible — do not wait on the apps query or the Solar
+              System nav disappears while loading / on error. */}
+          <div className="space-y-1">
+            <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Overview
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                selectGroup(null);
+                onNavigate?.();
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors",
+                fleetActive
+                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60",
+              )}
+              data-testid="nav-solar-system"
+            >
+              <Orbit aria-hidden className="size-4 shrink-0 opacity-80" />
+              <span className="truncate">Solar System</span>
+            </button>
+          </div>
+
           {error && (
             <div className="px-1 pt-2 text-sm text-muted-foreground">
               <p className="text-status-critical">Failed to load apps.</p>
@@ -138,31 +163,6 @@ export function Sidebar({
               >
                 Retry
               </Button>
-            </div>
-          )}
-
-          {!isPending && !error && (
-            <div className="space-y-1">
-              <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Overview
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  selectGroup(null);
-                  onNavigate?.();
-                }}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors",
-                  fleetActive
-                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60",
-                )}
-                data-testid="nav-solar-system"
-              >
-                <Orbit aria-hidden className="size-4 shrink-0 opacity-80" />
-                <span className="truncate">Solar System</span>
-              </button>
             </div>
           )}
 
