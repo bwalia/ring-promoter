@@ -80,7 +80,7 @@ function groupEdges(
 
 /**
  * Rings of Applications home with two views:
- * - All apps: every service orbits the core business
+ * - All apps: every service orbits the Core
  * - Rings: each group orbits as a service cluster
  */
 export function FleetView() {
@@ -169,7 +169,7 @@ export function FleetView() {
           <h2 className="text-lg font-semibold">Rings of Applications</h2>
           <p className="text-sm text-muted-foreground">
             {view === "apps"
-              ? "Services orbit the core business. Dependencies pull them together; high health latency pushes them apart."
+              ? "Services orbit the Core. Dependencies pull them together; high health latency pushes them apart."
               : "Each orbiting body is a ring (group of services). Switch to All services to see every service."}
           </p>
         </div>
@@ -228,7 +228,7 @@ export function FleetView() {
       ) : view === "apps" ? (
         <>
           <SolarSystem
-            sunLabel="The core business"
+            sunLabel="The Core"
             members={known}
             results={appResults}
             statuses={appStatuses}
@@ -249,7 +249,7 @@ export function FleetView() {
           <p className="text-sm font-medium">No rings yet</p>
           <p className="text-sm text-muted-foreground">
             Create a group of services — or switch to All services to see every
-            service around the core business.
+            service around the Core.
           </p>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => setView("apps")}>
@@ -263,7 +263,7 @@ export function FleetView() {
       ) : (
         <>
           <SolarSystem
-            sunLabel="The core business"
+            sunLabel="The Core"
             members={ringIds}
             results={ringResults}
             statuses={ringStatuses}
