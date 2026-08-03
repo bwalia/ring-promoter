@@ -10,26 +10,17 @@ import {
 } from "motion/react";
 import { Link2, X } from "lucide-react";
 import { RelativeTime } from "@/components/relative-time";
-import {
-  STATUS_HEX,
-  type NodeStatus,
-} from "@/components/group-ring";
+import { STATUS_HEX, type NodeStatus } from "@/components/group-ring";
 import { Button } from "@/components/ui/button";
 import { summarizeRings } from "@/lib/app-health";
-import {
-  useAppTitle,
-  type GroupAppRings,
-} from "@/lib/queries";
+import { useAppTitle, type GroupAppRings } from "@/lib/queries";
 import {
   appLatencyMs,
-  groupSectorAngles,
+  buildOrbitPlanets,
   latencyToRadius,
-  linkRestLength,
-  seedNodes,
+  ORBIT_TRACKS,
+  planetPosition,
   SOLAR_C,
-  stepSimulation,
-  type SimEdge,
-  type SimNode,
 } from "@/lib/solar-layout";
 import type { AppGroup, TopologyEdge } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -43,7 +34,7 @@ const STATUS_WORD: Record<NodeStatus, string> = {
   loading: "Checking…",
 };
 
-const STARS = Array.from({ length: 46 }, (_, i) => {
+const STARS = Array.from({ length: 52 }, (_, i) => {
   const h = (n: number) => (((n * 9301 + 49297) % 233280) / 233280 + 1) % 1;
   return {
     x: h(i * 3 + 1) * 100,
@@ -55,22 +46,16 @@ const STARS = Array.from({ length: 46 }, (_, i) => {
 });
 
 export type SolarSystemProps = {
-  /** Center label (group name or "Solar System"). */
   sunLabel: string;
   members: string[];
   results: GroupAppRings[];
   statuses: NodeStatus[];
   aggregate: NodeStatus;
   edges: TopologyEdge[];
-  /** When set, apps are pulled into group sectors (app-level fleet view). */
   groups?: AppGroup[];
-  /** Override planet labels (defaults to app display titles). */
   resolveTitle?: (id: string) => string;
-  /** "apps" shows seed + version; "groups" shows member counts and Open group. */
   mode?: "apps" | "groups";
-  /** Optional per-planet subtitle (e.g. "3 apps"). */
   subtitles?: Record<string, string>;
-  /** Per-planet latency override (ms); falls back to rings probe latency. */
   latencyById?: Record<string, number | null>;
   editable?: boolean;
   onAddEdge?: (from: string, to: string) => void;
@@ -86,7 +71,6 @@ export function SolarSystem({
   statuses,
   aggregate,
   edges,
-  groups,
   resolveTitle,
   mode = "apps",
   subtitles,
@@ -99,18 +83,22 @@ export function SolarSystem({
 }: SolarSystemProps) {
   const appTitle = useAppTitle();
   const title = resolveTitle ?? appTitle;
-  const gradId = useId();
+  const sunGrad = useId();
+  const orbitGrad = useId();
   const hex = STATUS_HEX[aggregate];
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [linkFrom, setLinkFrom] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stageRect = useRef<DOMRect | null>(null);
+  const startRef = useRef<number | null>(null);
   const active = focused ?? hovered;
   const failing = statuses.filter((s) => s === "failed").length;
+  const openLabel = mode === "groups" ? "Open ring" : "Open";
 
-  const latencyByApp = useMemo(() => {
+  const latencyByMember = useMemo(() => {
     const m = new Map<string, number | null>();
     members.forEach((id, i) => {
       if (latencyById && id in latencyById) {
@@ -122,13 +110,48 @@ export function SolarSystem({
     return m;
   }, [members, results, latencyById]);
 
-  const sectorByApp = useMemo(
+  const statusById = useMemo(() => {
+    const m = new Map<string, NodeStatus>();
+    members.forEach((id, i) => m.set(id, statuses[i] ?? "empty"));
+    return m;
+  }, [members, statuses]);
+
+  const resultById = useMemo(() => {
+    const m = new Map<string, GroupAppRings>();
+    members.forEach((id, i) => {
+      if (results[i]) m.set(id, results[i]);
+    });
+    return m;
+  }, [members, results]);
+
+  const orbits = useMemo(
     () =>
-      mode === "apps"
-        ? groupSectorAngles(members, groups ?? [])
-        : new Map<string, number>(),
-    [members, groups, mode],
+      buildOrbitPlanets(members, (id) =>
+        latencyToRadius(latencyByMember.get(id) ?? null),
+      ),
+    [members, latencyByMember],
   );
+
+  // Slow orbital motion — outer planets drift more slowly.
+  useEffect(() => {
+    let raf = 0;
+    const loop = (t: number) => {
+      if (startRef.current == null) startRef.current = t;
+      const elapsed = (t - startRef.current) / 1000;
+      setTick(elapsed);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const positions = useMemo(() => {
+    const m = new Map<string, { x: number; y: number; angle: number }>();
+    for (const p of orbits) {
+      m.set(p.id, planetPosition(p, tick));
+    }
+    return m;
+  }, [orbits, tick]);
 
   const visibleEdges = useMemo(
     () =>
@@ -138,119 +161,62 @@ export function SolarSystem({
     [edges, members],
   );
 
-  const [nodes, setNodes] = useState<SimNode[]>([]);
-  const nodesRef = useRef<SimNode[]>([]);
-  const memberKey = members.join("\0");
-
-  // Reseed when the member set changes.
-  useEffect(() => {
-    const seeded = seedNodes(
-      members,
-      (app) => latencyToRadius(latencyByApp.get(app) ?? null),
-      (app) => sectorByApp.get(app) ?? null,
-    );
-    nodesRef.current = seeded;
-    setNodes(seeded.map((n) => ({ ...n })));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reseed on membership only; radii update below
-  }, [memberKey]);
-
-  // Keep target radii / sector prefs in sync without resetting positions.
-  useEffect(() => {
-    for (const n of nodesRef.current) {
-      n.targetR = latencyToRadius(latencyByApp.get(n.id) ?? null);
-      n.preferAngle = sectorByApp.get(n.id) ?? null;
-    }
-  }, [latencyByApp, sectorByApp]);
-
-  // Run the force simulation (~20fps React updates).
-  useEffect(() => {
-    if (members.length === 0) return;
-    let raf = 0;
-    let alive = true;
-    let lastPublish = 0;
-    const tick = (t: number) => {
-      if (!alive) return;
-      const simEdges: SimEdge[] = visibleEdges.map((e) => ({
-        from: e.from,
-        to: e.to,
-        rest: linkRestLength(
-          latencyByApp.get(e.from) ?? null,
-          latencyByApp.get(e.to) ?? null,
-        ),
-      }));
-      stepSimulation(nodesRef.current, simEdges);
-      if (t - lastPublish > 50) {
-        lastPublish = t;
-        setNodes(nodesRef.current.map((n) => ({ ...n })));
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => {
-      alive = false;
-      cancelAnimationFrame(raf);
-    };
-  }, [members.length, visibleEdges, latencyByApp]);
+  const occupiedTracks = useMemo(() => {
+    const set = new Set(orbits.map((o) => o.r));
+    return ORBIT_TRACKS.filter((r) => set.has(r));
+  }, [orbits]);
 
   const mx = useMotionValue(0);
   const my = useMotionValue(0);
-  const sceneX = useSpring(useTransform(mx, (v) => v * -8), {
+  const sceneX = useSpring(useTransform(mx, (v) => v * -6), {
     stiffness: 50,
     damping: 18,
   });
-  const sceneY = useSpring(useTransform(my, (v) => v * -8), {
+  const sceneY = useSpring(useTransform(my, (v) => v * -6), {
     stiffness: 50,
     damping: 18,
   });
 
-  const hoverIn = (app: string) => {
+  const hoverIn = (id: string) => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
-    setHovered(app);
+    setHovered(id);
   };
   const hoverOut = () => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
     closeTimer.current = setTimeout(() => setHovered(null), 170);
   };
 
-  const summaryLine: Record<NodeStatus, string> = {
-    healthy: "All systems operational",
-    deploying: "Deployment in progress",
-    degraded: "Partially degraded",
-    failed: `${failing} app${failing === 1 ? "" : "s"} failing`,
-    empty: "Nothing deployed yet",
-    loading: "Checking health…",
-  };
-
-  const onPlanetClick = (app: string) => {
+  const onPlanetClick = (id: string) => {
     if (editMode && editable) {
       if (!linkFrom) {
-        setLinkFrom(app);
-        setFocused(app);
+        setLinkFrom(id);
+        setFocused(id);
         return;
       }
-      if (linkFrom === app) {
+      if (linkFrom === id) {
         setLinkFrom(null);
         return;
       }
-      onAddEdge?.(linkFrom, app);
+      onAddEdge?.(linkFrom, id);
       setLinkFrom(null);
       setFocused(null);
       return;
     }
-    setFocused((f) => (f === app ? null : app));
+    setFocused((f) => (f === id ? null : id));
   };
 
-  const openLabel = mode === "groups" ? "Open ring" : "Open";
-
-  const posById = useMemo(() => {
-    const m = new Map<string, SimNode>();
-    for (const n of nodes) m.set(n.id, n);
-    return m;
-  }, [nodes]);
+  const summaryLine: Record<NodeStatus, string> = {
+    healthy: "All systems operational",
+    deploying: "Deployment in progress",
+    degraded: "Partially degraded",
+    failed: `${failing} planet${failing === 1 ? "" : "s"} failing`,
+    empty: "Nothing deployed yet",
+    loading: "Checking health…",
+  };
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl border border-black/20 bg-[#090909] dark:border-border"
+      className="relative overflow-hidden rounded-2xl border border-black/20 bg-[#07070a] dark:border-border"
       onMouseEnter={(e) => {
         stageRect.current = e.currentTarget.getBoundingClientRect();
       }}
@@ -266,15 +232,6 @@ export function SolarSystem({
         my.set(0);
       }}
     >
-      <div
-        aria-hidden
-        className="absolute inset-0"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
-          backgroundSize: "36px 36px",
-        }}
-      />
       <div aria-hidden className="absolute inset-0">
         {STARS.map((s, i) => (
           <span
@@ -295,24 +252,15 @@ export function SolarSystem({
       </div>
       <div
         aria-hidden
-        className="absolute -left-24 -top-24 size-96 rounded-full opacity-15 blur-3xl [animation:blob-drift_16s_ease-in-out_infinite]"
-        style={{ background: hex }}
-      />
-      <div
-        aria-hidden
-        className="absolute -bottom-28 -right-24 size-96 rounded-full bg-[#3b82f6] opacity-[0.08] blur-3xl [animation:blob-drift_22s_ease-in-out_infinite_reverse]"
-      />
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_52%,rgba(0,0,0,0.65)_100%)]"
+        className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,200,80,0.07)_0%,transparent_42%,rgba(0,0,0,0.72)_100%)]"
       />
 
       {editable && (
         <div className="absolute right-3 top-3 z-40 flex items-center gap-2">
           {editMode && linkFrom && (
             <span className="rounded-md border border-white/15 bg-black/50 px-2 py-1 text-[11px] text-neutral-300 backdrop-blur-md">
-              Link from <span className="text-neutral-100">{title(linkFrom)}</span>
-              … click another app
+              Link from{" "}
+              <span className="text-neutral-100">{title(linkFrom)}</span>…
             </span>
           )}
           <Button
@@ -335,11 +283,15 @@ export function SolarSystem({
       )}
 
       <div
-        className="relative mx-auto aspect-square w-full max-w-[640px] p-4"
+        className="relative mx-auto aspect-square w-full max-w-[720px] p-3 sm:p-5"
         data-testid="solar-system"
         data-status={aggregate}
         onClick={(e) => {
-          if (!(e.target as HTMLElement).closest("button, [data-node-card], [data-edge]")) {
+          if (
+            !(e.target as HTMLElement).closest(
+              "button, [data-node-card], [data-edge]",
+            )
+          ) {
             setFocused(null);
             if (editMode) setLinkFrom(null);
           }
@@ -349,81 +301,56 @@ export function SolarSystem({
           className="absolute inset-0"
           style={{ x: sceneX, y: sceneY }}
         >
-          <svg viewBox="0 0 400 400" className="absolute inset-0 size-full overflow-visible">
+          <svg
+            viewBox="0 0 400 400"
+            className="absolute inset-0 size-full overflow-visible"
+          >
             <defs>
-              <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+              <radialGradient id={sunGrad} cx="50%" cy="45%" r="50%">
+                <stop offset="0%" stopColor="#fff4c2" stopOpacity="1" />
+                <stop offset="35%" stopColor="#f5b942" stopOpacity="0.95" />
+                <stop offset="70%" stopColor="#e07820" stopOpacity="0.55" />
+                <stop offset="100%" stopColor="#e07820" stopOpacity="0" />
+              </radialGradient>
+              <linearGradient id={orbitGrad} x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor={hex} stopOpacity="0.55" />
-                <stop offset="50%" stopColor={hex} stopOpacity="0.08" />
-                <stop offset="100%" stopColor={hex} stopOpacity="0.4" />
+                <stop offset="100%" stopColor="#ffffff" stopOpacity="0.12" />
               </linearGradient>
             </defs>
-            {/* Guide orbits */}
-            {[SOLAR_C * 0.36, SOLAR_C * 0.52, SOLAR_C * 0.68].map((r) => (
-              <circle
-                key={r}
-                cx={SOLAR_C}
-                cy={SOLAR_C}
-                r={r}
-                fill="none"
-                stroke="#ffffff"
-                strokeWidth="1"
-                strokeDasharray={r > 120 ? "1 7" : undefined}
-                className="opacity-[0.06]"
-              />
-            ))}
-            <circle
-              cx={SOLAR_C}
-              cy={SOLAR_C}
-              r={140}
-              fill="none"
-              stroke={`url(#${gradId})`}
-              strokeWidth="1.5"
-              className="opacity-40"
-            />
 
-            {/* Group sector labels (app-level fleet mode only) */}
-            {mode === "apps" &&
-              (groups ?? [])
-              .filter((g) => g.apps.some((a) => members.includes(a)))
-              .map((g, i, arr) => {
-                const mid = (i / arr.length) * 2 * Math.PI - Math.PI / 2;
-                const lx = SOLAR_C + 186 * Math.cos(mid);
-                const ly = SOLAR_C + 186 * Math.sin(mid);
-                return (
-                  <text
-                    key={g.id}
-                    x={lx}
-                    y={ly}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    className="fill-neutral-500 text-[9px]"
-                  >
-                    {g.name}
-                  </text>
-                );
-              })}
+            {/* Concentric orbital tracks */}
+            {ORBIT_TRACKS.map((r) => {
+              const occupied = occupiedTracks.includes(r);
+              return (
+                <circle
+                  key={r}
+                  cx={SOLAR_C}
+                  cy={SOLAR_C}
+                  r={r}
+                  fill="none"
+                  stroke={occupied ? `url(#${orbitGrad})` : "#ffffff"}
+                  strokeWidth={occupied ? 1.25 : 0.75}
+                  strokeOpacity={occupied ? 0.55 : 0.08}
+                  strokeDasharray={occupied ? undefined : "2 10"}
+                />
+              );
+            })}
 
-            {/* Dependency constellation */}
+            {/* Dependency chords (faint constellation under planets) */}
             {visibleEdges.map((e) => {
-              const a = posById.get(e.from);
-              const b = posById.get(e.to);
+              const a = positions.get(e.from);
+              const b = positions.get(e.to);
               if (!a || !b) return null;
-              const mx2 = (a.x + b.x) / 2;
-              const my2 = (a.y + b.y) / 2;
-              // Slight curve perpendicular to the chord.
-              const dx = b.x - a.x;
-              const dy = b.y - a.y;
-              const len = Math.hypot(dx, dy) || 1;
-              const cx = mx2 - (dy / len) * 14;
-              const cy = my2 + (dx / len) * 14;
               return (
                 <g key={`${e.from}->${e.to}`} data-edge>
-                  <path
-                    d={`M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`}
-                    fill="none"
+                  <line
+                    x1={a.x}
+                    y1={a.y}
+                    x2={b.x}
+                    y2={b.y}
                     stroke={e.source === "config" ? "#a3a3a3" : "#737373"}
-                    strokeWidth={editMode ? 2.2 : 1.4}
-                    strokeOpacity={0.45}
+                    strokeWidth={editMode ? 2 : 1}
+                    strokeOpacity={0.35}
                     className={cn(editMode && "cursor-pointer")}
                     onClick={(ev) => {
                       if (!editMode || !editable) return;
@@ -432,92 +359,62 @@ export function SolarSystem({
                     }}
                   >
                     <title>
-                      {title(e.from)} → {title(e.to)} ({e.source}
-                      {editMode ? " — click to remove" : ""})
+                      {title(e.from)} → {title(e.to)}
                     </title>
-                  </path>
-                  {e.source === "config" && (
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={2}
-                      fill="#a3a3a3"
-                      className="opacity-50"
-                    />
-                  )}
+                  </line>
                 </g>
               );
             })}
+
+            {/* Sun */}
+            <circle
+              cx={SOLAR_C}
+              cy={SOLAR_C}
+              r={34}
+              fill={`url(#${sunGrad})`}
+              className="opacity-90"
+            />
+            <circle
+              cx={SOLAR_C}
+              cy={SOLAR_C}
+              r={22}
+              fill="#ffd56a"
+              className="opacity-90"
+            />
           </svg>
 
-          {/* Sun */}
+          {/* Sun label */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <motion.div
-              className="relative flex size-28 flex-col items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-center shadow-[0_0_40px_rgba(0,0,0,0.45)] backdrop-blur-md md:size-32"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.15, duration: 0.45 }}
-            >
-              <span
-                aria-hidden
-                className="absolute inset-2 rounded-full opacity-30 blur-md"
-                style={{ background: hex }}
-              />
-              <p
-                className={cn(
-                  "relative z-[1] line-clamp-2 max-w-[6.5rem] break-words px-2 font-semibold leading-tight tracking-tight text-neutral-50",
-                  sunLabel.length <= 10 ? "text-lg md:text-xl" : "text-sm md:text-base",
-                )}
-              >
+            <div className="flex max-w-[5.5rem] flex-col items-center text-center">
+              <p className="text-[11px] font-semibold tracking-tight text-neutral-950/90 drop-shadow-sm">
                 {sunLabel}
               </p>
-              <p
-                className="relative z-[1] mt-0.5 text-[11px] font-medium"
-                style={{ color: hex }}
-              >
-                {summaryLine[aggregate]}
+              <p className="mt-0.5 text-[9px] font-medium text-neutral-900/70">
+                {members.length} planet{members.length === 1 ? "" : "s"}
               </p>
-              <p className="relative z-[1] text-[10px] text-neutral-500">
-                {members.length} app{members.length === 1 ? "" : "s"}
-              </p>
-            </motion.div>
+            </div>
           </div>
 
           {/* Planets */}
-          {members.map((app, i) => {
-            const n = posById.get(app);
-            if (!n) return null;
-            const status = statuses[i];
+          {orbits.map((p, i) => {
+            const pos = positions.get(p.id);
+            if (!pos) return null;
+            const status = statusById.get(p.id) ?? "empty";
             const shex = STATUS_HEX[status];
-            const expanded = active === app && !editMode;
-            const left = (n.x / 400) * 100;
-            const top = (n.y / 400) * 100;
-            const dx = n.x - SOLAR_C;
-            const dy = n.y - SOLAR_C;
-            const cos = dx / (Math.hypot(dx, dy) || 1);
-            const sin = dy / (Math.hypot(dx, dy) || 1);
-            const pillAnchor =
-              Math.abs(cos) < 0.35 ? "center" : cos > 0 ? "left" : "right";
-            const pillTx =
-              pillAnchor === "center"
-                ? "-50%"
-                : pillAnchor === "left"
-                  ? "0%"
-                  : "-100%";
-            const cardPlacement: React.CSSProperties =
-              pillAnchor === "center"
-                ? sin < 0
-                  ? { top: "100%", left: "50%", translate: "-50% 0" }
-                  : { bottom: "100%", left: "50%", translate: "-50% 0" }
-                : {
-                    ...(cos > 0 ? { right: "100%" } : { left: "100%" }),
-                    ...(sin <= 0 ? { top: 0 } : { bottom: 0 }),
-                  };
-            const lat = latencyByApp.get(app);
-            const linking = editMode && linkFrom === app;
+            const expanded = active === p.id && !editMode;
+            const linking = editMode && linkFrom === p.id;
+            const lat = latencyByMember.get(p.id);
+            const left = (pos.x / 400) * 100;
+            const top = (pos.y / 400) * 100;
+            // Planet body grows slightly for unhealthy / deploying.
+            const body =
+              status === "failed" || status === "deploying" ? 14 : 11;
+
+            const dy = pos.y - SOLAR_C;
+            const labelSide = dy >= 0 ? 1 : -1;
 
             return (
-              <div key={app}>
+              <div key={p.id}>
                 <div
                   className="absolute z-10"
                   style={{
@@ -528,52 +425,64 @@ export function SolarSystem({
                 >
                   <motion.button
                     type="button"
-                    aria-label={`${title(app)}: ${STATUS_WORD[status]}`}
-                    onClick={() => onPlanetClick(app)}
-                    onMouseEnter={() => hoverIn(app)}
+                    aria-label={`${title(p.id)}: ${STATUS_WORD[status]}`}
+                    onClick={() => onPlanetClick(p.id)}
+                    onMouseEnter={() => hoverIn(p.id)}
                     onMouseLeave={hoverOut}
-                    initial={{ opacity: 0, scale: 0 }}
-                    animate={{ opacity: 1, scale: linking ? 1.35 : 1 }}
-                    transition={{ type: "spring", stiffness: 220, damping: 19 }}
-                    whileHover={{ scale: 1.25 }}
-                    className="block"
+                    initial={{ opacity: 0, scale: 0.4 }}
+                    animate={{
+                      opacity: 1,
+                      scale: linking ? 1.25 : 1,
+                    }}
+                    transition={{
+                      delay: Math.min(0.08 * i, 0.6),
+                      type: "spring",
+                      stiffness: 220,
+                      damping: 18,
+                    }}
+                    whileHover={{ scale: 1.18 }}
+                    className="relative block"
+                    style={{ width: body + 8, height: body + 8 }}
                   >
-                    <span className="relative flex size-3.5 items-center justify-center">
-                      {status === "healthy" && (
-                        <span
-                          className="absolute inset-0 rounded-full [animation:node-pulse_3s_ease-out_infinite]"
-                          style={{ background: shex }}
-                        />
-                      )}
-                      {status === "deploying" && (
-                        <span
-                          className="absolute -inset-1.5 animate-spin rounded-full border-2 border-transparent"
-                          style={{ borderTopColor: shex }}
-                        />
-                      )}
+                    {status === "healthy" && (
                       <span
-                        className={cn(
-                          "relative size-3.5 rounded-full border-2 border-[#090909]",
-                          status === "loading" && "animate-pulse",
-                          linking && "ring-2 ring-white/70",
-                        )}
-                        style={{
-                          background: shex,
-                          boxShadow: `0 0 10px ${shex}80`,
-                        }}
+                        className="absolute inset-0 rounded-full [animation:node-pulse_3.5s_ease-out_infinite]"
+                        style={{ background: shex, opacity: 0.35 }}
                       />
-                    </span>
+                    )}
+                    {status === "deploying" && (
+                      <span
+                        className="absolute -inset-1 animate-spin rounded-full border-2 border-transparent"
+                        style={{ borderTopColor: shex }}
+                      />
+                    )}
+                    <span
+                      className={cn(
+                        "absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40 shadow-[0_0_12px_var(--glow)]",
+                        status === "loading" && "animate-pulse",
+                        linking && "ring-2 ring-white/80",
+                      )}
+                      style={
+                        {
+                          width: body,
+                          height: body,
+                          background: `radial-gradient(circle at 35% 30%, #ffffffaa, ${shex} 55%, ${shex}cc)`,
+                          "--glow": `${shex}99`,
+                        } as React.CSSProperties
+                      }
+                    />
                   </motion.button>
                 </div>
 
-                <motion.div
-                  className={cn("absolute", expanded ? "z-30" : "z-10")}
+                {/* Name plate parked just outside the planet */}
+                <div
+                  className={cn("absolute z-20", expanded && "z-30")}
                   style={{
-                    left: `${left + cos * 6}%`,
-                    top: `${top + sin * 6}%`,
-                    transform: `translate(${pillTx}, -50%)`,
+                    left: `${left}%`,
+                    top: `${top}%`,
+                    transform: `translate(-50%, ${labelSide > 0 ? "12px" : "calc(-100% - 12px)"})`,
                   }}
-                  onMouseEnter={() => hoverIn(app)}
+                  onMouseEnter={() => hoverIn(p.id)}
                   onMouseLeave={hoverOut}
                 >
                   <AnimatePresence>
@@ -583,19 +492,27 @@ export function SolarSystem({
                         initial={{ opacity: 0, scale: 0.94 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.96 }}
-                        transition={{ type: "spring", stiffness: 380, damping: 28 }}
-                        className="absolute"
-                        style={cardPlacement}
+                        transition={{
+                          type: "spring",
+                          stiffness: 380,
+                          damping: 28,
+                        }}
+                        className="absolute left-1/2 z-30 -translate-x-1/2"
+                        style={
+                          labelSide > 0
+                            ? { top: "100%", marginTop: 6 }
+                            : { bottom: "100%", marginBottom: 6 }
+                        }
                       >
                         <NodeCard
-                          id={app}
-                          label={title(app)}
+                          id={p.id}
+                          label={title(p.id)}
                           status={status}
-                          rings={results[i]}
+                          rings={resultById.get(p.id)}
                           latencyMs={lat ?? null}
                           mode={mode}
-                          subtitle={subtitles?.[app]}
-                          pinned={focused === app}
+                          subtitle={subtitles?.[p.id]}
+                          pinned={focused === p.id}
                           openLabel={openLabel}
                           onClose={() => {
                             setFocused(null);
@@ -609,38 +526,31 @@ export function SolarSystem({
                   </AnimatePresence>
                   <button
                     type="button"
-                    onClick={() => onPlanetClick(app)}
+                    onClick={() => onPlanetClick(p.id)}
                     className={cn(
-                      "flex items-center gap-1.5 rounded-full border bg-white/[0.06] px-2 py-1 shadow-lg backdrop-blur-md transition-colors",
+                      "max-w-[7.5rem] truncate rounded-full border px-2 py-0.5 text-[10px] font-medium backdrop-blur-md transition-colors",
                       expanded || linking
-                        ? "border-white/25 bg-white/[0.1]"
-                        : "border-white/10 hover:border-white/20",
+                        ? "border-white/30 bg-white/15 text-neutral-50"
+                        : "border-white/10 bg-black/45 text-neutral-200 hover:border-white/25",
                     )}
                   >
-                    <span
-                      className="flex size-4 shrink-0 items-center justify-center rounded-[5px] border bg-gradient-to-b from-white/15 to-white/5 text-[9px] font-semibold text-neutral-200"
-                      style={{ borderColor: `${shex}55` }}
-                    >
-                      {title(app)[0]?.toUpperCase()}
-                    </span>
-                    <span className="max-w-28 truncate text-xs font-medium text-neutral-200">
-                      {title(app)}
-                    </span>
-                    {subtitles?.[app] && (
-                      <span className="hidden max-w-16 truncate text-[9px] text-neutral-500 sm:inline">
-                        {subtitles[app]}
-                      </span>
-                    )}
+                    {title(p.id)}
                     {lat != null && (
-                      <span className="font-mono text-[9px] text-neutral-500">
+                      <span className="ml-1 font-mono text-[9px] text-neutral-500">
                         {Math.round(lat)}ms
                       </span>
                     )}
                   </button>
-                </motion.div>
+                </div>
               </div>
             );
           })}
+
+          {/* Legend */}
+          <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-neutral-500">
+            <span>{summaryLine[aggregate]}</span>
+            <span>Inner orbits = lower latency · Outer = higher latency</span>
+          </div>
         </motion.div>
       </div>
     </div>
@@ -685,11 +595,12 @@ function NodeCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span
-            className="flex size-6 shrink-0 items-center justify-center rounded-md border bg-gradient-to-b from-white/15 to-white/5 text-[11px] font-semibold text-neutral-100"
-            style={{ borderColor: `${hex}55` }}
-          >
-            {label[0]?.toUpperCase()}
-          </span>
+            className="flex size-6 shrink-0 items-center justify-center rounded-full border"
+            style={{
+              borderColor: `${hex}55`,
+              background: `radial-gradient(circle at 35% 30%, #ffffff88, ${hex})`,
+            }}
+          />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-neutral-50">
               {label}
@@ -734,9 +645,18 @@ function NodeCard({
           )}
         </Row>
         {mode === "groups" ? (
-          <Row label="Apps">
-            <span className="text-neutral-100">{subtitle ?? "—"}</span>
-          </Row>
+          <>
+            <Row label="Apps">
+              <span className="text-neutral-100">{subtitle ?? "—"}</span>
+            </Row>
+            <Row label="Health">
+              <span className="text-neutral-100">
+                {active.length === 0
+                  ? "nothing deployed"
+                  : `${healthy}/${active.length} rings healthy`}
+              </span>
+            </Row>
+          </>
         ) : (
           <>
             <Row label="Version">
@@ -764,15 +684,6 @@ function NodeCard({
               )}
             </Row>
           </>
-        )}
-        {mode === "groups" && (
-          <Row label="Health">
-            <span className="text-neutral-100">
-              {active.length === 0
-                ? "nothing deployed"
-                : `${healthy}/${active.length} rings healthy`}
-            </span>
-          </Row>
         )}
       </dl>
 

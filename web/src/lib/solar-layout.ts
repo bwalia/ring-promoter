@@ -2,9 +2,13 @@ import type { RingView } from "@/lib/types";
 
 /** SVG stage is 400×400 with the sun at the center. */
 export const SOLAR_C = 200;
-export const SOLAR_R_MIN = 72;
-export const SOLAR_R_MAX = 172;
-export const SOLAR_R_DEFAULT = 118;
+
+/** Discrete orbit tracks (solar-system style). Inner = low latency. */
+export const ORBIT_TRACKS = [78, 112, 146, 178] as const;
+
+export const SOLAR_R_MIN = ORBIT_TRACKS[0];
+export const SOLAR_R_MAX = ORBIT_TRACKS[ORBIT_TRACKS.length - 1];
+export const SOLAR_R_DEFAULT = ORBIT_TRACKS[1];
 
 /** Prefer prod latency; else the outermost configured ring that reported RTT. */
 export function appLatencyMs(rings: RingView[] | undefined): number | null {
@@ -19,12 +23,25 @@ export function appLatencyMs(rings: RingView[] | undefined): number | null {
   return null;
 }
 
-/** Map RTT → orbit radius. High latency pushes the planet farther from the sun. */
+/** Map RTT → continuous radius, then snap to a track. */
 export function latencyToRadius(ms: number | null): number {
   if (ms == null) return SOLAR_R_DEFAULT;
-  // 0ms → min, ~800ms+ → max (log-ish soft clamp).
   const t = Math.min(1, Math.log1p(ms) / Math.log1p(800));
-  return SOLAR_R_MIN + t * (SOLAR_R_MAX - SOLAR_R_MIN);
+  const continuous = SOLAR_R_MIN + t * (SOLAR_R_MAX - SOLAR_R_MIN);
+  return snapToTrack(continuous);
+}
+
+function snapToTrack(r: number): number {
+  let best = ORBIT_TRACKS[0];
+  let bestD = Math.abs(r - best);
+  for (const track of ORBIT_TRACKS) {
+    const d = Math.abs(r - track);
+    if (d < bestD) {
+      best = track;
+      bestD = d;
+    }
+  }
+  return best;
 }
 
 /** Spring rest-length between two linked apps; high latency stretches them apart. */
@@ -43,11 +60,21 @@ export type SimNode = {
   vx: number;
   vy: number;
   targetR: number;
-  /** Preferred angle (radians) for group sector clustering. */
   preferAngle: number | null;
 };
 
 export type SimEdge = { from: string; to: string; rest: number };
+
+/** A planet locked to a circular orbit (classic solar-system layout). */
+export type OrbitPlanet = {
+  id: string;
+  /** Orbit radius in SVG units. */
+  r: number;
+  /** Starting angle (radians). */
+  angle0: number;
+  /** Seconds for one full revolution (outer orbits slower). */
+  period: number;
+};
 
 function hash01(s: string): number {
   let h = 2166136261;
@@ -58,7 +85,54 @@ function hash01(s: string): number {
   return ((h >>> 0) % 10_000) / 10_000;
 }
 
-/** Seed nodes on their target orbits with deterministic jitter. */
+/**
+ * Place every id as a planet on concentric orbits.
+ * High-latency apps go to outer tracks; planets on the same track are
+ * evenly spaced so the stage reads as a solar system.
+ */
+export function buildOrbitPlanets(
+  ids: string[],
+  radiusOf: (id: string) => number,
+): OrbitPlanet[] {
+  const byTrack = new Map<number, string[]>();
+  for (const track of ORBIT_TRACKS) byTrack.set(track, []);
+
+  for (const id of ids) {
+    const r = snapToTrack(radiusOf(id));
+    byTrack.get(r)!.push(id);
+  }
+
+  const out: OrbitPlanet[] = [];
+  for (const track of ORBIT_TRACKS) {
+    const bucket = byTrack.get(track) ?? [];
+    // Stable order within a track.
+    bucket.sort((a, b) => a.localeCompare(b));
+    const n = bucket.length;
+    if (n === 0) continue;
+    // Outer orbits revolve more slowly (Kepler-ish feel).
+    const period = 48 + (track / SOLAR_R_MAX) * 70;
+    bucket.forEach((id, i) => {
+      const spin = (hash01(id) - 0.5) * 0.2;
+      const angle0 = (i / n) * 2 * Math.PI - Math.PI / 2 + spin;
+      out.push({ id, r: track, angle0, period });
+    });
+  }
+  return out;
+}
+
+export function planetPosition(
+  p: OrbitPlanet,
+  elapsedSec: number,
+): { x: number; y: number; angle: number } {
+  const angle = p.angle0 + (elapsedSec / p.period) * 2 * Math.PI;
+  return {
+    angle,
+    x: SOLAR_C + p.r * Math.cos(angle),
+    y: SOLAR_C + p.r * Math.sin(angle),
+  };
+}
+
+/** Seed nodes on their target orbits with deterministic jitter (force layout). */
 export function seedNodes(
   apps: string[],
   radiusOf: (app: string) => number,
@@ -83,11 +157,8 @@ export function seedNodes(
 }
 
 /**
- * One Euler step of a lightweight solar-system force layout.
- * - Radial spring toward targetR (latency)
- * - Angular bias toward group sector
- * - Link springs (dependency proximity / latency stretch)
- * - Soft node–node repulsion
+ * One Euler step of a lightweight force layout (used for dependency clustering
+ * when not in pure orbital mode).
  */
 export function stepSimulation(
   nodes: SimNode[],
@@ -109,12 +180,10 @@ export function stepSimulation(
     const ux = dx / dist;
     const uy = dy / dist;
 
-    // Pull toward target orbit radius.
     const radial = (n.targetR - dist) * 0.085;
     fx.set(n.id, fx.get(n.id)! + ux * radial);
     fy.set(n.id, fy.get(n.id)! + uy * radial);
 
-    // Soft angular bias into the group's sector.
     if (n.preferAngle != null) {
       const ang = Math.atan2(dy, dx);
       let dAng = n.preferAngle - ang;
@@ -162,7 +231,6 @@ export function stepSimulation(
     n.vy = (n.vy + fy.get(n.id)!) * 0.82;
     n.x += n.vx * dt * 16;
     n.y += n.vy * dt * 16;
-    // Keep inside the stage with a soft margin.
     n.x = Math.min(380, Math.max(20, n.x));
     n.y = Math.min(380, Math.max(20, n.y));
   }
