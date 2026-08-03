@@ -96,7 +96,9 @@ export function SolarSystem({
   const startRef = useRef<number | null>(null);
   const active = focused ?? hovered;
   const failing = statuses.filter((s) => s === "failed").length;
-  const openLabel = mode === "groups" ? "Open ring" : "Open";
+  const openLabel = mode === "groups" ? "Open ring" : "Open service";
+  const bodyWord = mode === "groups" ? "ring" : "service";
+  const bodyWordPlural = mode === "groups" ? "rings" : "services";
 
   const latencyByMember = useMemo(() => {
     const m = new Map<string, number | null>();
@@ -209,7 +211,7 @@ export function SolarSystem({
     healthy: "All systems operational",
     deploying: "Deployment in progress",
     degraded: "Partially degraded",
-    failed: `${failing} planet${failing === 1 ? "" : "s"} failing`,
+    failed: `${failing} ${failing === 1 ? bodyWord : bodyWordPlural} failing`,
     empty: "Nothing deployed yet",
     loading: "Checking health…",
   };
@@ -366,7 +368,7 @@ export function SolarSystem({
               );
             })}
 
-            {/* Sun */}
+            {/* Core business */}
             <circle
               cx={SOLAR_C}
               cy={SOLAR_C}
@@ -383,19 +385,20 @@ export function SolarSystem({
             />
           </svg>
 
-          {/* Sun label */}
+          {/* Core business label */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="flex max-w-[5.5rem] flex-col items-center text-center">
-              <p className="text-[11px] font-semibold tracking-tight text-neutral-950/90 drop-shadow-sm">
+            <div className="flex max-w-[7.5rem] flex-col items-center text-center">
+              <p className="text-[10px] font-semibold leading-tight tracking-tight text-neutral-950/90 drop-shadow-sm">
                 {sunLabel}
               </p>
               <p className="mt-0.5 text-[9px] font-medium text-neutral-900/70">
-                {members.length} planet{members.length === 1 ? "" : "s"}
+                {members.length}{" "}
+                {members.length === 1 ? bodyWord : bodyWordPlural}
               </p>
             </div>
           </div>
 
-          {/* Planets */}
+          {/* Services */}
           {orbits.map((p, i) => {
             const pos = positions.get(p.id);
             if (!pos) return null;
