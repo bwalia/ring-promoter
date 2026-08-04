@@ -9,8 +9,14 @@ import type { NextConfig } from "next";
 //    UI and API share one origin in production.
 const isExport = process.env.NEXT_OUTPUT === "export";
 
+// Optional sub-path prefix for exports hosted somewhere other than the domain
+// root (e.g. NEXT_BASE_PATH=/ring-promoter for GitHub Pages). The embedded UI
+// build (scripts/embed.sh) leaves this unset and is unaffected.
+const basePath = process.env.NEXT_BASE_PATH ?? "";
+
 const nextConfig: NextConfig = {
   turbopack: { root: path.join(__dirname) },
+  ...(basePath ? { basePath } : {}),
   ...(isExport
     ? { output: "export" as const }
     : {
