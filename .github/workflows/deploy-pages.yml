@@ -5,11 +5,12 @@ name: Deploy landing page (GitHub Pages)
 # published — the console SPA needs the API server and is served by the Go
 # binary instead.
 #
-# The custom domain serves from the domain root, so the build leaves
-# NEXT_BASE_PATH unset (the old bwalia.github.io/ring-promoter subpath needed
-# it; that URL now redirects to the custom domain). Runs on GitHub-hosted
-# runners on purpose: it must not queue behind deploys on the single
-# self-hosted mac-studio runner.
+# A custom domain serves from the root; a project page serves from /<repo>.
+# Getting this wrong breaks every asset URL, so the domain is resolved at
+# build time (CNAME file, then the Pages API) instead of hard-coding either
+# form — the same pattern as the vantiq deploy. Runs on GitHub-hosted runners
+# on purpose: it must not queue behind deploys on the single self-hosted
+# mac-studio runner.
 
 on:
   push:
@@ -44,6 +45,34 @@ jobs:
         working-directory: web
         run: npm ci
 
+      # In order: explicit override, the repo's own CNAME file, the Pages API.
+      # Worked out in bash rather than a `${{ a && b || c }}` expression:
+      # GitHub treats an empty string as falsy, so that idiom silently falls
+      # through to the default in exactly the custom-domain case where the
+      # base path must be "".
+      - name: Resolve deploy domain and base path
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOMAIN_OVERRIDE: ${{ vars.PAGES_CUSTOM_DOMAIN }}
+        run: |
+          domain="$DOMAIN_OVERRIDE"
+          if [ -z "$domain" ] && [ -f CNAME ]; then
+            domain=$(tr -d '[:space:]' < CNAME)
+          fi
+          if [ -z "$domain" ]; then
+            domain=$(gh api "repos/${{ github.repository }}/pages" --jq '.cname // empty' 2>/dev/null || true)
+          fi
+
+          if [ -n "$domain" ]; then
+            echo "Custom domain: $domain (serving from root)"
+            echo "PAGES_DOMAIN=$domain" >> "$GITHUB_ENV"
+            echo "NEXT_BASE_PATH=" >> "$GITHUB_ENV"
+          else
+            echo "Project page (serving from /${{ github.event.repository.name }})"
+            echo "PAGES_DOMAIN=" >> "$GITHUB_ENV"
+            echo "NEXT_BASE_PATH=/${{ github.event.repository.name }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Build static export
         working-directory: web
         env:
@@ -58,14 +87,17 @@ jobs:
           cp -R web/out/_next site/_next
           # Pages runs Jekyll by default, which drops _next/; opt out.
           touch site/.nojekyll
-          # Keep the custom domain bound to the deployed site.
-          cp CNAME site/CNAME
+          # An Actions deploy replaces the whole site, so the CNAME has to be
+          # part of the artifact or the custom domain binding is dropped.
+          if [ -n "$PAGES_DOMAIN" ]; then
+            echo "$PAGES_DOMAIN" > site/CNAME
+          fi
 
       - uses: actions/configure-pages@v5
         with:
           enablement: true
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
