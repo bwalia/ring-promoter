@@ -368,7 +368,7 @@ export function SolarSystem({
               );
             })}
 
-            {/* Business */}
+            {/* Rings */}
             <circle
               cx={SOLAR_C}
               cy={SOLAR_C}
@@ -385,7 +385,7 @@ export function SolarSystem({
             />
           </svg>
 
-          {/* Business label */}
+          {/* Rings label */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className="flex max-w-[7.5rem] flex-col items-center text-center">
               <p className="text-[10px] font-semibold leading-tight tracking-tight text-neutral-950/90 drop-shadow-sm">
