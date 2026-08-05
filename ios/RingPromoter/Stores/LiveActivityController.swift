@@ -21,11 +21,17 @@ final class LiveActivityController {
     private init() {}
 
     /// Live Activities are an iPhone/iPad Lock Screen feature. Touching
-    /// `Activity.activities` from an iOS app running on Mac (TestFlight / iOS
-    /// apps on Mac) has been observed to SIGSEGV inside Swift concurrency at
-    /// launch — see local crash reports from 2026-08-05.
+    /// `Activity.activities` from an iOS app running on Mac (TestFlight
+    /// MacFamily / iOS apps on Mac) SIGSEGVs inside Swift concurrency.
     private var isSupported: Bool {
         if ProcessInfo.processInfo.isiOSAppOnMac { return false }
+        // Belt-and-braces: some MacFamily builds have reported the same crash
+        // even when the isiOSAppOnMac bit is unreliable.
+        if ProcessInfo.processInfo.operatingSystemVersionString
+            .localizedCaseInsensitiveContains("macOS")
+        {
+            return false
+        }
         return ActivityAuthorizationInfo().areActivitiesEnabled
     }
 

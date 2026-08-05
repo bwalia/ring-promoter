@@ -22,10 +22,10 @@ struct RingPromoterApp: App {
                     AppDelegate.router = router
                     session.restoreLastSession()
                     await push.refreshStatus()
-                    // Clear Live Activities left by a previous crash. No-op on
-                    // Mac and when the system has Live Activities disabled —
-                    // ActivityKit is not safe to touch there at launch.
-                    await LiveActivityController.shared.endOrphans()
+                    // Do not touch ActivityKit here. Cleaning orphans at launch
+                    // SIGSEGV'd on TestFlight Mac (MacFamily) builds inside
+                    // Swift concurrency; orphans are cleared the next time a
+                    // Live Activity is started instead.
                     consumePendingIntent()
                 }
                 .onOpenURL { router.open($0) }
