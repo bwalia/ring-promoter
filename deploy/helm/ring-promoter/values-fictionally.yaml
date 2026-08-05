@@ -16,6 +16,18 @@ rbac:
 serviceAccount:
   name: ring-promoter-training
 
+# The training instance registers all 7 sample apps, health-checks every ring,
+# and serves constant demo/monitor polling — the chart default of 256Mi gets
+# the pod OOMKilled under that load (seen 2026-08-05: CrashLoopBackOff, exit
+# 137 ~60s after each start, which surfaced as a public 503).
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
 ingress:
   enabled: true
   className: traefik
