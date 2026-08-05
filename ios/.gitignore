@@ -16,3 +16,12 @@ build/
 
 # macOS
 .DS_Store
+
+# iOS release pipeline (fastlane + Vault)
+.ios-secrets/
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
+fastlane/report.xml
+fastlane/README.md

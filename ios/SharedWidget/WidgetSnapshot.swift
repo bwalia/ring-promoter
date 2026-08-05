@@ -6,12 +6,12 @@ import Foundation
 enum SharedContainer {
     /// The App Group both targets belong to. Change this and the matching
     /// entitlement together.
-    static let appGroupID = "group.com.example.RingPromoter"
+    static let appGroupID = "group.org.fictionally.ringpromoter"
 
     /// Keychain access group, so the widget could read credentials **if it ever
     /// needed to**. It deliberately does not: the widget reads only the cached
     /// snapshot below, which contains no secrets.
-    static let keychainAccessGroup = "$(AppIdentifierPrefix)com.example.RingPromoter"
+    static let keychainAccessGroup = "$(AppIdentifierPrefix)org.fictionally.ringpromoter"
 
     /// Where the app writes the widget's snapshot.
     static let snapshotFilename = "widget-snapshot.json"
