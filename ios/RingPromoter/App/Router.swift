@@ -32,7 +32,7 @@ final class Router {
         var systemImage: String {
             switch self {
             case .overview: "square.stack.3d.up"
-            case .rings: "atom"
+            case .rings: "circle.circle"
             case .activity: "clock.arrow.circlepath"
             case .settings: "gearshape"
             }
