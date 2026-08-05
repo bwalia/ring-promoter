@@ -22,8 +22,9 @@ struct RingPromoterApp: App {
                     AppDelegate.router = router
                     session.restoreLastSession()
                     await push.refreshStatus()
-                    // A crashed launch can leave a Live Activity running for
-                    // hours; clear anything this process did not start.
+                    // Clear Live Activities left by a previous crash. No-op on
+                    // Mac and when the system has Live Activities disabled —
+                    // ActivityKit is not safe to touch there at launch.
                     await LiveActivityController.shared.endOrphans()
                     consumePendingIntent()
                 }
