@@ -34,7 +34,7 @@ enum Keychain {
     }
 
     /// The service under which all Ring Promoter tokens live.
-    static let service = "com.example.RingPromoter.token"
+    static let service = "org.fictionally.ringpromoter.token"
 
     static func save(token: String, for instanceID: String) throws {
         guard let data = token.data(using: .utf8) else { throw Failure.unexpectedData }
