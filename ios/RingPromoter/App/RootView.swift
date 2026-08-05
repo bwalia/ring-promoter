@@ -43,6 +43,8 @@ struct RootView: View {
         switch tab {
         case .overview:
             OverviewView()
+        case .rings:
+            RingsUniverseView()
         case .activity:
             ActivityFeedView()
         case .settings:

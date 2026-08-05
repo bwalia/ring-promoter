@@ -76,6 +76,10 @@ struct RingStatus: Codable, Hashable, Sendable, Identifiable {
     let liveHealthy: Bool
     /// Why the live check failed, when it did.
     let liveHealthError: String?
+    /// Round-trip time of the live health check, in milliseconds. Absent when
+    /// the ring has no health endpoint or the check never completed. Drives the
+    /// orbit radius on the Rings of Applications screen.
+    var latencyMs: Int?
     let autoPromote: Bool
     /// Config owns this ring's auto-promote switch: the API toggle returns 409,
     /// so the control must be rendered disabled with an explanation.
@@ -96,6 +100,7 @@ struct RingStatus: Codable, Hashable, Sendable, Identifiable {
         case liveVersion = "live_version"
         case liveHealthy = "live_healthy"
         case liveHealthError = "live_health_error"
+        case latencyMs = "latency_ms"
         case autoPromote = "auto_promote"
         case autoPromoteManaged = "auto_promote_managed"
         case updatedAt = "updated_at"
