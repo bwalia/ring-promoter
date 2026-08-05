@@ -103,6 +103,9 @@ struct JobView: View {
     private func mirrorToLiveActivity(_ job: Job) async {
         guard !job.isFinished else { return }
         let controller = LiveActivityController.shared
+        // Orphan cleanup belongs here (first real Live Activity use), not at
+        // app launch — ActivityKit at launch crashes on TestFlight Mac builds.
+        await controller.endOrphans()
         controller.start(
             job: job,
             appTitle: session.capabilities?.title(for: app) ?? app,
