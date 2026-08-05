@@ -20,13 +20,18 @@ final class LiveActivityController {
 
     private init() {}
 
-    private var isEnabled: Bool {
-        ActivityAuthorizationInfo().areActivitiesEnabled
+    /// Live Activities are an iPhone/iPad Lock Screen feature. Touching
+    /// `Activity.activities` from an iOS app running on Mac (TestFlight / iOS
+    /// apps on Mac) has been observed to SIGSEGV inside Swift concurrency at
+    /// launch — see local crash reports from 2026-08-05.
+    private var isSupported: Bool {
+        if ProcessInfo.processInfo.isiOSAppOnMac { return false }
+        return ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
     /// Begin an activity for a job that has just started.
     func start(job: Job, appTitle: String, targetRing: String, version: String) {
-        guard isEnabled, !startedJobIDs.contains(job.id) else { return }
+        guard isSupported, !startedJobIDs.contains(job.id) else { return }
         let attributes = PromotionActivityAttributes(
             app: job.app, appTitle: appTitle, action: job.action,
             targetRing: targetRing, version: version, jobID: job.id
@@ -45,14 +50,14 @@ final class LiveActivityController {
     }
 
     func update(with job: Job) async {
-        guard startedJobIDs.contains(job.id) else { return }
+        guard isSupported, startedJobIDs.contains(job.id) else { return }
         await Self.apply(ActivityContent(state: Self.state(from: job), staleDate: nil), to: job.id)
     }
 
     /// Finish the activity on the job's terminal state, leaving it on screen
     /// briefly so the outcome is actually seen.
     func end(with job: Job) async {
-        guard startedJobIDs.remove(job.id) != nil else { return }
+        guard isSupported, startedJobIDs.remove(job.id) != nil else { return }
         await Self.finish(
             ActivityContent(state: Self.state(from: job), staleDate: nil), for: job.id
         )
@@ -61,6 +66,7 @@ final class LiveActivityController {
     /// Tidy up anything left behind by a previous launch — a crashed app can
     /// leave an activity running for hours otherwise.
     func endOrphans() async {
+        guard isSupported else { return }
         let known = startedJobIDs
         await Self.endActivities(excluding: known)
     }
