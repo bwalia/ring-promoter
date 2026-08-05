@@ -212,6 +212,32 @@ final class CriticalPathUITests: XCTestCase {
         attachScreenshot(named: "09-settings")
     }
 
+    func testRingsUniverseShowsTheFleetAndOpensAService() {
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Applications"].waitForExistence(timeout: 10))
+
+        app.tabBars.buttons["Rings"].tap()
+        XCTAssertTrue(
+            app.navigationBars["Rings of Applications"].waitForExistence(timeout: 5)
+        )
+
+        // Every demo application orbits the stage as a tappable body.
+        let planet = app.buttons["planet-payments-api"]
+        XCTAssertTrue(planet.waitForExistence(timeout: 10))
+        planet.tap()
+
+        // The detail card pins open with the way into the service.
+        let open = app.buttons["Open service"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        attachScreenshot(named: "11-rings-universe")
+
+        open.tap()
+        XCTAssertTrue(
+            app.navigationBars["Payments API"].waitForExistence(timeout: 10),
+            "opening a body should land on that service's pipeline"
+        )
+    }
+
     func testHistoryIsReachableFromAnApp() {
         app.launch()
         openApp(named: "Web Frontend")

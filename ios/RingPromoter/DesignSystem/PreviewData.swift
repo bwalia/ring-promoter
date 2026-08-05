@@ -29,7 +29,8 @@ enum PreviewData {
         _ name: String, label: String, version: String = "", previous: String = "",
         live: String? = nil, healthy: Bool = true, configured: Bool = true,
         autoPromote: Bool = false, managed: Bool = false, gates: RingGates = .none,
-        healthError: String? = nil, updatedAt: Date = .now.addingTimeInterval(-900)
+        healthError: String? = nil, latency: Int? = nil,
+        updatedAt: Date = .now.addingTimeInterval(-900)
     ) -> RingStatus {
         RingStatus(
             ring: Ring(name: name, label: label),
@@ -40,6 +41,7 @@ enum PreviewData {
             healthy: healthy,
             liveHealthy: healthy,
             liveHealthError: healthError,
+            latencyMs: latency,
             autoPromote: autoPromote,
             autoPromoteManaged: managed,
             updatedAt: version.isEmpty ? .distantPast : updatedAt,
@@ -49,10 +51,10 @@ enum PreviewData {
     }
 
     static let healthyRings: [RingStatus] = [
-        ring("int", label: "Integration", version: "2.7.2", previous: "2.7.1"),
-        ring("test", label: "Test", version: "2.7.1"),
-        ring("acc", label: "Acceptance", version: "2.7.0", previous: "2.6.9"),
-        ring("prod", label: "Production", version: "2.6.9", previous: "2.6.8"),
+        ring("int", label: "Integration", version: "2.7.2", previous: "2.7.1", latency: 24),
+        ring("test", label: "Test", version: "2.7.1", latency: 38),
+        ring("acc", label: "Acceptance", version: "2.7.0", previous: "2.6.9", latency: 61),
+        ring("prod", label: "Production", version: "2.6.9", previous: "2.6.8", latency: 47),
     ]
 
     static let troubledRings: [RingStatus] = [

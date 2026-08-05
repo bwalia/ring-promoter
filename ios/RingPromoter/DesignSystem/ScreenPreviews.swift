@@ -21,6 +21,23 @@ import SwiftUI
         .environment(\.dynamicTypeSize, .accessibility5)
 }
 
+#Preview("Rings universe — light") {
+    PreviewHost { RingsUniverseView() }
+        .preferredColorScheme(.light)
+}
+
+#Preview("Rings universe — dark") {
+    PreviewHost { RingsUniverseView() }
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Rings universe — largest text") {
+    // The radial stage cannot be read at accessibility sizes, so the screen
+    // reflows to plain rows; this preview is where that must be checked.
+    PreviewHost { RingsUniverseView() }
+        .environment(\.dynamicTypeSize, .accessibility5)
+}
+
 #Preview("App detail — light") {
     PreviewHost {
         NavigationStack { AppDetailView(app: "payments-api") }

@@ -16,13 +16,14 @@ enum Route: Hashable, Sendable {
 final class Router {
     /// Which tab is showing.
     enum Tab: String, Hashable, CaseIterable, Identifiable {
-        case overview, activity, settings
+        case overview, rings, activity, settings
 
         var id: String { rawValue }
 
         var label: String {
             switch self {
             case .overview: "Overview"
+            case .rings: "Rings"
             case .activity: "Activity"
             case .settings: "Settings"
             }
@@ -31,6 +32,7 @@ final class Router {
         var systemImage: String {
             switch self {
             case .overview: "square.stack.3d.up"
+            case .rings: "circle.circle"
             case .activity: "clock.arrow.circlepath"
             case .settings: "gearshape"
             }

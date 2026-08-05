@@ -18,7 +18,13 @@ struct RootView: View {
                 TabView(selection: $router.tab) {
                     ForEach(Router.Tab.allCases) { tab in
                         content(for: tab)
-                            .tabItem { Label(tab.label, systemImage: tab.systemImage) }
+                            .tabItem {
+                                Label(tab.label, systemImage: tab.systemImage)
+                                    // Keep the Rings icon as two thin outline
+                                    // circles; the tab bar would otherwise fill
+                                    // the inner one.
+                                    .environment(\.symbolVariants, tab == .rings ? .none : .fill)
+                            }
                             .tag(tab)
                     }
                 }
@@ -43,6 +49,8 @@ struct RootView: View {
         switch tab {
         case .overview:
             OverviewView()
+        case .rings:
+            RingsUniverseView()
         case .activity:
             ActivityFeedView()
         case .settings:
