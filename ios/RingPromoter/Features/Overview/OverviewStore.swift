@@ -58,9 +58,10 @@ struct AppSummary: Identifiable, Hashable, Sendable {
 
 /// Loads and holds everything the Overview draws.
 ///
-/// The app list, each app's rings, the shared job feed and the groups are
-/// fetched concurrently — there are as many ring requests as applications, and
-/// doing them in series would make a 20-app control plane feel broken.
+/// Ring requests run one after another on purpose. Nested `async let` /
+/// `withTaskGroup` on this `@Observable` store SIGSEGV'd inside
+/// `swift::TaskGroup::offer` on real iPhones (TestFlight 1.0 and 1.1) while
+/// Observation notified SwiftUI — see TestFlight crash feedback from iPhone17,2.
 @MainActor
 @Observable
 final class OverviewStore {
@@ -78,7 +79,7 @@ final class OverviewStore {
 
     private let session: AppSession
     /// Guards against two refreshes racing (pull-to-refresh during a timer tick).
-    private var refreshTask: Task<Void, Never>?
+    private var refreshInFlight = false
 
     init(session: AppSession) {
         self.session = session
@@ -127,17 +128,13 @@ final class OverviewStore {
     // MARK: - Loading
 
     /// Refresh everything. Safe to call from pull-to-refresh, a timer, and
-    /// `onAppear` at once: a second call cancels nothing and simply awaits the
-    /// first.
+    /// `onAppear` at once: a second call while one is in flight is ignored
+    /// (callers that need fresh data after a mutation should await the first).
     func refresh() async {
-        if let refreshTask {
-            await refreshTask.value
-            return
-        }
-        let task = Task { await performRefresh() }
-        refreshTask = task
-        await task.value
-        refreshTask = nil
+        guard !refreshInFlight else { return }
+        refreshInFlight = true
+        defer { refreshInFlight = false }
+        await performRefresh()
     }
 
     private func performRefresh() async {
@@ -157,39 +154,27 @@ final class OverviewStore {
         }
 
         let api = session.api
-        // The shared job feed and the groups are one request each and are not
-        // worth failing the whole refresh for.
-        async let jobsResult = try? api.recentJobs()
-        async let groupsResult = try? api.groups()
+        // Sequential on purpose — no `async let` / `withTaskGroup`. Those
+        // nested TaskGroups crashed TestFlight iPhone builds inside
+        // `TaskGroup::offer` while @Observable mutations hit SwiftUI.
+        let jobs = (try? await api.recentJobs()) ?? []
+        let fetchedGroups = (try? await api.groups()) ?? groups
 
-        // One rings request per application, run concurrently: in series, a
-        // 20-app control plane would take 20 round trips to draw.
-        let results = await withTaskGroup(
-            of: (String, Result<[RingStatus], APIError>).self,
-            returning: [String: Result<[RingStatus], APIError>].self
-        ) { group in
-            for app in capabilities.apps {
-                group.addTask {
-                    // `throws(APIError)` does not survive the task group's
-                    // closure type, so the typed error is restored here.
-                    do throws(APIError) {
-                        return (app, .success(try await api.rings(app: app)))
-                    } catch {
-                        return (app, .failure(error))
-                    }
-                }
+        var results: [String: Result<[RingStatus], APIError>] = [:]
+        for app in capabilities.apps {
+            do throws(APIError) {
+                results[app] = .success(try await api.rings(app: app))
+            } catch {
+                results[app] = .failure(error)
             }
-            var collected: [String: Result<[RingStatus], APIError>] = [:]
-            for await (app, result) in group { collected[app] = result }
-            return collected
         }
 
-        let jobs = await jobsResult ?? []
         let jobsByApp = Dictionary(
             jobs.map { ($0.app, $0) }, uniquingKeysWith: { first, _ in first }
         )
 
         // Preserve the server's app ordering; the view re-sorts by trouble.
+        // Mutate Observable state only after every await has finished.
         summaries = capabilities.apps.map { app in
             let result = results[app]
             var loadError: String?
@@ -202,7 +187,7 @@ final class OverviewStore {
                 loadError: loadError
             )
         }
-        groups = await groupsResult ?? groups
+        groups = fetchedGroups
         // A group that has been deleted server-side must not keep filtering.
         if let selectedGroupID, !groups.contains(where: { $0.id == selectedGroupID }) {
             self.selectedGroupID = nil
