@@ -46,11 +46,15 @@
 	<key>NSFaceIDUsageDescription</key>
 	<string>Ring Promoter uses Face ID to unlock the app and to confirm actions that deploy to production.</string>
 
-	<!-- Live Activity for a running promotion (Lock Screen / Dynamic Island). -->
+	<!--
+	  Live Activities are temporarily disabled for TestFlight stability.
+	  Re-enable with NSSupportsLiveActivities + PromotionLiveActivity once an
+	  iPhone crash stack confirms ActivityKit is safe again.
+	-->
 	<key>NSSupportsLiveActivities</key>
-	<true/>
+	<false/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
-	<true/>
+	<false/>
 
 	<!-- Deep links: ringpromoter://app/{name}[/job/{id}] -->
 	<key>CFBundleURLTypes</key>
