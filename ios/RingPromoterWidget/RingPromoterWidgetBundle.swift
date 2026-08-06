@@ -6,6 +6,7 @@ struct RingPromoterWidgetBundle: WidgetBundle {
     var body: some Widget {
         PipelineWidget()
         HealthWidget()
-        PromotionLiveActivity()
+        // PromotionLiveActivity omitted until ActivityKit is re-enabled for
+        // TestFlight — see NSSupportsLiveActivities in RingPromoter-Info.plist.
     }
 }
