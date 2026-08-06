@@ -70,12 +70,8 @@ final class AppDetailStore {
         defer { isLoading = false }
         let api = session.api
 
-        // Rings are the only request worth failing the screen for. The rest
-        // enrich the action sheets and degrade quietly.
-        async let versionsResult = try? api.versions(app: app)
-        async let maintenanceResult = try? api.maintenance(app: app)
-        async let signoffsResult = try? api.signoffs(app: app)
-
+        // Sequential fetches — avoid `async let` TaskGroups on this @Observable
+        // store (same crash class as OverviewStore on TestFlight iPhone).
         do {
             rings = try await api.rings(app: app)
             error = nil
@@ -85,9 +81,9 @@ final class AppDetailStore {
             session.note(error)
         }
 
-        versions = await versionsResult ?? versions
-        maintenance = await maintenanceResult ?? maintenance
-        signoffs = await signoffsResult ?? signoffs
+        versions = (try? await api.versions(app: app)) ?? versions
+        maintenance = (try? await api.maintenance(app: app)) ?? maintenance
+        signoffs = (try? await api.signoffs(app: app)) ?? signoffs
         if let capabilities = session.capabilities {
             title = capabilities.title(for: app)
         }
@@ -97,10 +93,8 @@ final class AppDetailStore {
     /// a full refresh.
     func refreshGates() async {
         let api = session.api
-        async let maintenanceResult = try? api.maintenance(app: app)
-        async let signoffsResult = try? api.signoffs(app: app)
-        maintenance = await maintenanceResult ?? maintenance
-        signoffs = await signoffsResult ?? signoffs
+        maintenance = (try? await api.maintenance(app: app)) ?? maintenance
+        signoffs = (try? await api.signoffs(app: app)) ?? signoffs
         // Ring gates carry `maintenance_window_open`, so they must be refreshed
         // too or the badge and the sheet would disagree.
         if let refreshed = try? await api.rings(app: app) { rings = refreshed }
