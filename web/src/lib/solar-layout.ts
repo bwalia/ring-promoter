@@ -3,8 +3,17 @@ import type { RingView } from "@/lib/types";
 /** SVG stage is 400×400 with the sun at the center. */
 export const SOLAR_C = 200;
 
-/** Discrete orbit tracks (solar-system style). Inner = low latency. */
-export const ORBIT_TRACKS = [78, 112, 146, 178] as const;
+/**
+ * Discrete orbit tracks (solar-system style). Inner = low latency.
+ *
+ * The outermost track stops well short of the 200-unit edge: name plates are
+ * parked radially outward of their planet (see LABEL_ORBIT_GAP), so the track
+ * radius plus that gap plus half a plate has to stay on stage.
+ */
+export const ORBIT_TRACKS = [68, 100, 132, 162] as const;
+
+/** Radial gap between a planet and its name plate, in SVG units. */
+export const LABEL_ORBIT_GAP = 15;
 
 export const SOLAR_R_MIN = ORBIT_TRACKS[0];
 export const SOLAR_R_MAX = ORBIT_TRACKS[ORBIT_TRACKS.length - 1];
