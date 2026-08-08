@@ -94,6 +94,7 @@
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -176,6 +177,43 @@
   }
   50% {
     opacity: 0.45;
+  }
+}
+
+/* ── Solar-system stage (components/solar-system.tsx) ───────────────────
+   The orbit itself is driven imperatively in JS (one rAF loop writing
+   transforms, no React state), so only the ambient effects live here.
+   Everything decorative and infinite is gated on reduced motion below. */
+
+/* Corona breathing. Scale only — opacity alone reads as a flicker at this
+   size, and animating width/height would trigger layout every frame. */
+@keyframes sun-corona {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.78;
+  }
+}
+
+/* Slow counter-rotating shimmer on the occupied orbit tracks, so an
+   otherwise static ring reads as "live" without moving anything. */
+@keyframes orbit-shimmer {
+  to {
+    stroke-dashoffset: -360;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Freeze every ambient loop on the stage. Planet positions are pinned to
+     their t=0 angles by the component, so the layout stays fully legible —
+     users still get the shape of the system, just without the motion. */
+  [data-testid="solar-system"] *,
+  [data-solar-ambient] {
+    animation: none !important;
   }
 }
 
