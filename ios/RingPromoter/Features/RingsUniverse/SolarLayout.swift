@@ -179,20 +179,47 @@ enum SolarLayout {
     static let canvasSize: Double = 400
     static let center = 200.0
 
-    /// The four discrete orbit radii. Bodies snap to the nearest track rather
-    /// than sitting at arbitrary distances, so the sky reads as rings.
-    static let tracks: [Double] = [78, 112, 146, 178]
-    static let defaultRadius: Double = 112
+    /// Discrete orbit tracks (solar-system style). Inner = low latency.
+    /// Matches web `ORBIT_TRACKS` — outermost stops short of the edge so name
+    /// plates riding outside the body still fit on stage.
+    static let tracks: [Double] = [68, 100, 132, 162]
+    static let defaultRadius: Double = 100
+
+    /// Bodies are nudged off straight-up so the radial latency axis stays readable.
+    static let axisClearance: Double = 0.22
+
+    /// Radial stagger applied to consecutive bodies on a crowded track.
+    static let stagger: [Double] = [0, 15, -15, 30]
 
     /// A body on its track: everything needed to compute its position at any
     /// instant.
     struct Planet: Hashable, Sendable {
         let id: String
+        /// Draw radius: the latency track plus any anti-crowding stagger.
+        let r: Double
+        /// The latency band this body belongs to (always one of `tracks`).
         let track: Double
         /// Radians at t=0; bodies are spread evenly starting from 12 o'clock.
         let angle0: Double
         /// Seconds per revolution — outer orbits drift slower, like real ones.
         let period: Double
+    }
+
+    /// Human-readable bound for each orbit track, derived from
+    /// `radius(forLatencyMs:)` so axis labels cannot drift from placement maths.
+    static var orbitBands: [(r: Double, label: String)] {
+        var upper: [Double: Int] = [:]
+        for ms in 0...2000 {
+            upper[radius(forLatencyMs: ms)] = ms
+        }
+        return tracks.enumerated().map { i, r in
+            if i == tracks.count - 1 {
+                let prev = upper[tracks[i - 1]]
+                return (r, prev == nil ? "slowest" : ">\(prev!)ms")
+            }
+            let max = upper[r]
+            return (r, max == nil ? "" : "≤\(max!)ms")
+        }
     }
 
     /// FNV-1a folded to 0..<1. Deterministic so a body keeps its jitter across
@@ -234,22 +261,33 @@ enum SolarLayout {
     }
 
     /// Place bodies on their tracks: bucketed by radius, alphabetical within a
-    /// track, spread evenly from 12 o'clock with a small deterministic spin so
-    /// two single-body tracks don't align artificially.
+    /// track, spread evenly from 12 o'clock with axis clearance and a small
+    /// deterministic spin. Crowded tracks stagger radially across the band.
     static func planets(for bodies: [(id: String, radius: Double)]) -> [Planet] {
         var byTrack: [Double: [String]] = [:]
         for body in bodies {
             byTrack[snapToTrack(body.radius), default: []].append(body.id)
         }
         var out: [Planet] = []
+        let maxTrack = tracks.last ?? defaultRadius
         for track in tracks {
             guard var bucket = byTrack[track], !bucket.isEmpty else { continue }
             bucket.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            let period = 48 + (track / (tracks.last ?? track)) * 70
+            // Outer orbits revolve more slowly (Kepler-ish), matching web.
+            let period = 48 + (track / maxTrack) * 70
+            let crowded = bucket.count > 6
             for (index, id) in bucket.enumerated() {
-                let spin = (hash01(id) - 0.5) * 0.2
-                let angle0 = (Double(index) / Double(bucket.count)) * 2 * .pi - .pi / 2 + spin
-                out.append(Planet(id: id, track: track, angle0: angle0, period: period))
+                let spin = (hash01(id) - 0.5) * 0.12
+                let angle0 =
+                    (Double(index) / Double(bucket.count)) * 2 * .pi
+                    - .pi / 2 + axisClearance + spin
+                let staggerOffset = crowded ? stagger[index % stagger.count] : 0
+                out.append(
+                    Planet(
+                        id: id, r: track + staggerOffset, track: track,
+                        angle0: angle0, period: period
+                    )
+                )
             }
         }
         return out
@@ -259,8 +297,13 @@ enum SolarLayout {
     static func position(of planet: Planet, at elapsed: TimeInterval) -> CGPoint {
         let angle = planet.angle0 + (elapsed / planet.period) * 2 * .pi
         return CGPoint(
-            x: center + planet.track * cos(angle),
-            y: center + planet.track * sin(angle)
+            x: center + planet.r * cos(angle),
+            y: center + planet.r * sin(angle)
         )
+    }
+
+    /// Angle of a body at `elapsed` (for name-plate side decisions).
+    static func angle(of planet: Planet, at elapsed: TimeInterval) -> Double {
+        planet.angle0 + (elapsed / planet.period) * 2 * .pi
     }
 }
