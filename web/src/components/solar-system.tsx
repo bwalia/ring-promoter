@@ -1,27 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import {
-  AnimatePresence,
-  motion,
-  useMotionValue,
-  useSpring,
-  useTransform,
-} from "motion/react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { Link2, X } from "lucide-react";
 import { RelativeTime } from "@/components/relative-time";
 import { STATUS_HEX, type NodeStatus } from "@/components/group-ring";
+import { DIAL_SIZE, OrbitDial, ringSegments } from "@/components/orbit-body";
 import { Button } from "@/components/ui/button";
 import { summarizeRings } from "@/lib/app-health";
-import { useAppTitle, type GroupAppRings } from "@/lib/queries";
+import { useApps, useAppTitle, type GroupAppRings } from "@/lib/queries";
 import {
   appLatencyMs,
   buildOrbitPlanets,
-  LABEL_ORBIT_GAP,
   latencyToRadius,
-  ORBIT_TRACKS,
+  ORBIT_BANDS,
   planetPosition,
   SOLAR_C,
+  SOLAR_R_MAX,
 } from "@/lib/solar-layout";
 import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
 import type { AppGroup, TopologyEdge } from "@/lib/types";
@@ -35,20 +30,6 @@ const STATUS_WORD: Record<NodeStatus, string> = {
   empty: "No version",
   loading: "Checking…",
 };
-
-const STARS = Array.from({ length: 52 }, (_, i) => {
-  const h = (n: number) => (((n * 9301 + 49297) % 233280) / 233280 + 1) % 1;
-  return {
-    x: h(i * 3 + 1) * 100,
-    y: h(i * 7 + 2) * 100,
-    size: 1 + h(i * 11 + 3) * 1.6,
-    duration: 2.5 + h(i * 13 + 5) * 4,
-    delay: h(i * 17 + 7) * 5,
-    // Only a third of the field twinkles. A sky where every star pulses
-    // reads as noise and pulls attention off the planets.
-    twinkles: i % 3 === 0,
-  };
-});
 
 export type SolarSystemProps = {
   sunLabel: string;
@@ -88,23 +69,23 @@ export function SolarSystem({
 }: SolarSystemProps) {
   const appTitle = useAppTitle();
   const title = resolveTitle ?? appTitle;
-  const sunGrad = useId();
-  const orbitGrad = useId();
-  const coronaGrad = useId();
-  const bodyGrad = useId();
+  const hubGrad = useId();
   const hex = STATUS_HEX[aggregate];
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [linkFrom, setLinkFrom] = useState<string | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stageRect = useRef<DOMRect | null>(null);
   const active = focused ?? hovered;
   const reduceMotion = usePrefersReducedMotion();
   const failing = statuses.filter((s) => s === "failed").length;
-  const openLabel = mode === "groups" ? "Open ring" : "Open service";
-  const bodyWord = mode === "groups" ? "ring" : "service";
-  const bodyWordPlural = mode === "groups" ? "rings" : "services";
+  const openLabel = mode === "groups" ? "Open ring" : "Open app";
+  const bodyWord = mode === "groups" ? "ring" : "app";
+  const bodyWordPlural = mode === "groups" ? "rings" : "apps";
+
+  // Canonical promotion order (int → test → acc → prod) straight from the
+  // server, so the dial segments read in the order a version travels.
+  const ringOrder = useApps().data?.rings?.map((r) => r.name) ?? [];
 
   const latencyByMember = useMemo(() => {
     const m = new Map<string, number | null>();
@@ -140,205 +121,100 @@ export function SolarSystem({
     [members, latencyByMember],
   );
 
-  // ── Orbital motion ───────────────────────────────────────────────────
-  // One rAF loop writes transforms straight onto the DOM. Nothing here goes
-  // through React state: driving `tick` through setState re-rendered this
-  // whole subtree (every planet, plate and open card) 60 times a second,
-  // which is what made the stage feel cheap. Positions are still derived
-  // from the same pure `planetPosition` math.
+  // Bodies hold station. Motion is reserved for things that mean something —
+  // a deploy running, a service failing — so movement on this stage is always
+  // worth looking at. Positions therefore resolve once, at t=0.
+  const positions = useMemo(() => {
+    const m = new Map<string, { x: number; y: number; angle: number }>();
+    for (const p of orbits) m.set(p.id, planetPosition(p, 0));
+    return m;
+  }, [orbits]);
+
+  const visibleEdges = useMemo(
+    () => edges.filter((e) => members.includes(e.from) && members.includes(e.to)),
+    [edges, members],
+  );
+
+  const occupiedTracks = useMemo(
+    () => new Set(orbits.map((o) => o.track)),
+    [orbits],
+  );
+
+  // ── Name decluttering ──────────────────────────────────────────────────
+  // Bodies bunch up near the top and bottom of a track, where the names are
+  // far wider than the gap between them. Overlapping names are hidden rather
+  // than left to overprint into mush — the dial always stays, because losing
+  // a body would lose information, whereas a name comes back on hover.
+  // Layout is static, so this runs on data/size changes only, never per frame.
   const stageEl = useRef<HTMLDivElement>(null);
-  const planetEls = useRef(new Map<string, HTMLDivElement | null>());
-  const plateEls = useRef(new Map<string, HTMLDivElement | null>());
-  const edgeEls = useRef(new Map<string, SVGLineElement | null>());
-  // Pixels per SVG unit; the stage is square and scales with the viewport.
-  const scale = useRef(1);
-  const elapsed = useRef(0);
+  const nameEls = useRef(new Map<string, HTMLElement | null>());
 
-  // Hovering or pinning a planet holds the system still so the card you are
-  // reading does not drift out from under the pointer. Kept in a ref so the
-  // rAF loop can read it without being torn down and restarted on every
-  // hover.
-  const paused = useRef(false);
-  useEffect(() => {
-    paused.current = active !== null || editMode;
-  }, [active, editMode]);
+  useLayoutEffect(() => {
+    const stage = stageEl.current;
+    if (!stage) return;
 
-  // Inputs the rAF loop needs but must not be re-created for: keeping these
-  // in refs stops every hover from tearing down and restarting the loop.
-  const activeRef = useRef<string | null>(null);
-  useEffect(() => {
-    activeRef.current = active;
-  }, [active]);
-  const plateSizes = useRef(new Map<string, { w: number; h: number }>());
-  // Label priority: whatever you are pointing at wins, then anything that
-  // needs attention, then a stable fallback so the same plate keeps winning
-  // frame to frame (a tie-break that flickers is worse than a hidden label).
-  const rankRef = useRef(new Map<string, number>());
-  useEffect(() => {
-    const m = new Map<string, number>();
-    orbits.forEach((p, i) => {
-      const st = statusById.get(p.id) ?? "empty";
-      const attention =
-        st === "failed" || st === "degraded" || st === "deploying";
-      m.set(p.id, (attention ? 1000 : 2000) + i);
-    });
-    rankRef.current = m;
-  }, [orbits, statusById]);
+    const run = () => {
+      const scale = stage.clientWidth / 400 || 1;
+      const ordered = [...orbits].sort((x, y) => {
+        const rank = (id: string) => {
+          if (id === active) return 0;
+          const st = statusById.get(id) ?? "empty";
+          return st === "failed" || st === "degraded" || st === "deploying"
+            ? 1
+            : 2;
+        };
+        return rank(x.id) - rank(y.id);
+      });
 
-  const measurePlates = useCallback(() => {
-    for (const [id, el] of plateEls.current) {
-      if (!el) continue;
-      plateSizes.current.set(id, { w: el.offsetWidth, h: el.offsetHeight });
-    }
-  }, []);
-
-  const writeFrame = useCallback(
-    (seconds: number) => {
-      const s = scale.current;
-      const coords = new Map<string, { x: number; y: number }>();
-      const platePos: { id: string; x: number; y: number }[] = [];
-
-      for (const p of orbits) {
-        const { x, y, angle } = planetPosition(p, seconds);
-        coords.set(p.id, { x, y });
-
-        const planet = planetEls.current.get(p.id);
-        if (planet) {
-          planet.style.transform = `translate3d(${x * s}px, ${y * s}px, 0)`;
-        }
-
-        // Name plates ride a slightly wider orbit than their planet, so they
-        // always sit on the far side from the core and never flip sides
-        // mid-revolution the way a simple above/below rule does.
-        const plate = plateEls.current.get(p.id);
-        if (plate) {
-          const px = x + Math.cos(angle) * LABEL_ORBIT_GAP;
-          const py = y + Math.sin(angle) * LABEL_ORBIT_GAP;
-          plate.style.transform = `translate3d(${px * s}px, ${py * s}px, 0)`;
-          platePos.push({ id: p.id, x: px * s, y: py * s });
-        }
-      }
-
-      // ── Declutter ──────────────────────────────────────────────────────
-      // Planets bunch up near the top and bottom of a track, where their
-      // plates are far wider than the gap between them. Rather than let the
-      // names overprint each other into mush, drop the lower-priority plate
-      // of any overlapping pair; it comes back as soon as the orbit opens up,
-      // and hovering always restores it.
-      const activeId = activeRef.current;
-      platePos.sort(
-        (a, b) =>
-          (a.id === activeId ? -1 : (rankRef.current.get(a.id) ?? 9999)) -
-          (b.id === activeId ? -1 : (rankRef.current.get(b.id) ?? 9999)),
-      );
+      // Only names are deconflicted against each other. Seeding this with the
+      // dials as well was tried and is far too strict: past ~20 bodies every
+      // name box grazes somebody's dial and the entire stage goes anonymous.
+      // Names carry their own backdrop instead, so crossing an orbit line or
+      // clipping a neighbouring dial stays readable.
       const kept: { l: number; r: number; t: number; b: number }[] = [];
-      for (const pos of platePos) {
-        const plate = plateEls.current.get(pos.id);
-        const size = plateSizes.current.get(pos.id);
-        if (!plate) continue;
-        if (!size || size.w === 0) {
-          plate.style.opacity = "1";
-          continue;
-        }
-        const halfW = size.w / 2 + 3;
-        const halfH = size.h / 2 + 2;
+      for (const p of ordered) {
+        const el = nameEls.current.get(p.id);
+        const pos = positions.get(p.id);
+        if (!el || !pos) continue;
+        el.style.opacity = "1";
+
+        // Boxes are derived from layout size plus the body's known position
+        // rather than read back with getBoundingClientRect: the entrance
+        // spring is still scaling these nodes when this first runs, and
+        // measured rects would be snapshots of a mid-animation frame.
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+        const nameRight =
+          pos.x > 300 ? false : pos.x < 100 ? true : Math.cos(pos.angle) >= 0;
+        const offset = DIAL_SIZE / 2 + 4 + w / 2;
+        const cx = pos.x * scale + (nameRight ? offset : -offset);
+        const cy = pos.y * scale;
         const box = {
-          l: pos.x - halfW,
-          r: pos.x + halfW,
-          t: pos.y - halfH,
-          b: pos.y + halfH,
+          l: cx - w / 2 - 2,
+          r: cx + w / 2 + 2,
+          t: cy - h / 2 - 1,
+          b: cy + h / 2 + 1,
         };
         const clash = kept.some(
           (k) => !(box.r < k.l || box.l > k.r || box.b < k.t || box.t > k.b),
         );
         if (clash) {
-          plate.style.opacity = "0";
-          plate.style.pointerEvents = "none";
+          el.style.opacity = "0";
+          el.style.pointerEvents = "none";
         } else {
-          plate.style.opacity = "1";
-          plate.style.pointerEvents = "";
+          el.style.pointerEvents = "";
           kept.push(box);
         }
       }
-
-      // Dependency chords are SVG user units, so they need no scaling.
-      for (const [key, line] of edgeEls.current) {
-        if (!line) continue;
-        const [from, to] = key.split(" ");
-        const a = coords.get(from);
-        const b = coords.get(to);
-        if (!a || !b) continue;
-        line.setAttribute("x1", String(a.x));
-        line.setAttribute("y1", String(a.y));
-        line.setAttribute("x2", String(b.x));
-        line.setAttribute("y2", String(b.y));
-      }
-    },
-    [orbits],
-  );
-
-  useEffect(() => {
-    const el = stageEl.current;
-    if (!el) return;
-    const measure = () => {
-      scale.current = el.clientWidth / 400 || 1;
-      measurePlates();
-      writeFrame(elapsed.current);
     };
-    measure();
-    // Plate widths are text-dependent, so they are wrong until the webfont
-    // actually lands — re-measure once it has, or every label is deconflicted
-    // against fallback-font metrics.
-    document.fonts?.ready.then(measure).catch(() => {});
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
+
+    run();
+    // Widths depend on the webfont, so redo it once that has actually landed.
+    document.fonts?.ready.then(run).catch(() => {});
+    const ro = new ResizeObserver(run);
+    ro.observe(stage);
     return () => ro.disconnect();
-  }, [writeFrame, measurePlates]);
-
-  useEffect(() => {
-    // Reduced motion: draw the system once at t=0 and leave it there. The
-    // layout still reads correctly — it just does not revolve.
-    if (reduceMotion) {
-      writeFrame(elapsed.current);
-      return;
-    }
-    let raf = 0;
-    let last: number | null = null;
-    const loop = (t: number) => {
-      if (last != null && !paused.current) {
-        elapsed.current += (t - last) / 1000;
-      }
-      last = t;
-      writeFrame(elapsed.current);
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [reduceMotion, writeFrame]);
-
-  const visibleEdges = useMemo(
-    () =>
-      edges.filter(
-        (e) => members.includes(e.from) && members.includes(e.to),
-      ),
-    [edges, members],
-  );
-
-  const occupiedTracks = useMemo(() => {
-    const set = new Set(orbits.map((o) => o.r));
-    return ORBIT_TRACKS.filter((r) => set.has(r));
-  }, [orbits]);
-
-  const mx = useMotionValue(0);
-  const my = useMotionValue(0);
-  const sceneX = useSpring(useTransform(mx, (v) => v * -6), {
-    stiffness: 50,
-    damping: 18,
-  });
-  const sceneY = useSpring(useTransform(my, (v) => v * -6), {
-    stiffness: 50,
-    damping: 18,
-  });
+  }, [orbits, positions, statusById, active, title]);
 
   const hoverIn = (id: string) => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -349,7 +225,7 @@ export function SolarSystem({
     closeTimer.current = setTimeout(() => setHovered(null), 170);
   };
 
-  const onPlanetClick = (id: string) => {
+  const onBodyClick = (id: string) => {
     if (editMode && editable) {
       if (!linkFrom) {
         setLinkFrom(id);
@@ -378,57 +254,28 @@ export function SolarSystem({
   };
 
   return (
-    <div
-      className="relative overflow-hidden rounded-2xl border border-black/20 bg-[#07070a] dark:border-border"
-      onMouseEnter={(e) => {
-        stageRect.current = e.currentTarget.getBoundingClientRect();
-      }}
-      onMouseMove={(e) => {
-        const b = (stageRect.current ??=
-          e.currentTarget.getBoundingClientRect());
-        mx.set((e.clientX - b.left) / b.width - 0.5);
-        my.set((e.clientY - b.top) / b.height - 0.5);
-      }}
-      onMouseLeave={() => {
-        stageRect.current = null;
-        mx.set(0);
-        my.set(0);
-      }}
-    >
-      <div aria-hidden data-solar-ambient className="absolute inset-0">
-        {STARS.map((s, i) => (
-          <span
-            key={i}
-            className={cn(
-              "absolute rounded-full bg-white",
-              s.twinkles
-                ? "[animation:twinkle_var(--d)_ease-in-out_infinite]"
-                : "opacity-20",
-            )}
-            style={
-              {
-                left: `${s.x}%`,
-                top: `${s.y}%`,
-                width: s.size,
-                height: s.size,
-                "--d": `${s.duration}s`,
-                animationDelay: `${s.delay}s`,
-              } as React.CSSProperties
-            }
-          />
-        ))}
-      </div>
+    <div className="relative overflow-hidden rounded-2xl border border-black/20 bg-[#07070a] dark:border-border">
+      {/* A single, restrained pool of light at the centre. The old starfield
+          and heavy glow competed with the data for attention. */}
       <div
         aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,200,80,0.07)_0%,transparent_42%,rgba(0,0,0,0.72)_100%)]"
+        className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(245,185,66,0.05)_0%,transparent_55%)]"
       />
+
+      <div className="pointer-events-none absolute left-4 top-3 z-40">
+        <p className="font-display text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+          {sunLabel}
+        </p>
+        <p className="mt-0.5 font-mono text-[11px] tabular-nums text-neutral-500">
+          {members.length} {members.length === 1 ? bodyWord : bodyWordPlural}
+        </p>
+      </div>
 
       {editable && (
         <div className="absolute right-3 top-3 z-40 flex items-center gap-2">
           {editMode && linkFrom && (
             <span className="rounded-md border border-white/15 bg-black/50 px-2 py-1 text-[11px] text-neutral-300 backdrop-blur-md">
-              Link from{" "}
-              <span className="text-neutral-100">{title(linkFrom)}</span>…
+              Link from <span className="text-neutral-100">{title(linkFrom)}</span>…
             </span>
           )}
           <Button
@@ -452,7 +299,7 @@ export function SolarSystem({
 
       <div
         ref={stageEl}
-        className="relative mx-auto aspect-square w-full max-w-[720px] p-3 sm:p-5"
+        className="relative mx-auto aspect-square w-full max-w-[760px] p-3 sm:p-6"
         data-testid="solar-system"
         data-status={aggregate}
         onClick={(e) => {
@@ -466,271 +313,256 @@ export function SolarSystem({
           }
         }}
       >
-        <motion.div
-          className="absolute inset-0"
-          style={{ x: sceneX, y: sceneY }}
+        <svg
+          viewBox="0 0 400 400"
+          className="absolute inset-0 size-full overflow-visible"
         >
-          <svg
-            viewBox="0 0 400 400"
-            className="absolute inset-0 size-full overflow-visible"
-          >
-            <defs>
-              <radialGradient id={sunGrad} cx="50%" cy="45%" r="50%">
-                <stop offset="0%" stopColor="#fff4c2" stopOpacity="1" />
-                <stop offset="35%" stopColor="#f5b942" stopOpacity="0.95" />
-                <stop offset="70%" stopColor="#e07820" stopOpacity="0.55" />
-                <stop offset="100%" stopColor="#e07820" stopOpacity="0" />
-              </radialGradient>
-              <linearGradient id={orbitGrad} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor={hex} stopOpacity="0.55" />
-                <stop offset="100%" stopColor="#ffffff" stopOpacity="0.12" />
-              </linearGradient>
-              <radialGradient id={coronaGrad} cx="50%" cy="50%" r="50%">
-                <stop offset="45%" stopColor="#f5b942" stopOpacity="0.28" />
-                <stop offset="75%" stopColor="#e07820" stopOpacity="0.12" />
-                <stop offset="100%" stopColor="#e07820" stopOpacity="0" />
-              </radialGradient>
-              <radialGradient id={bodyGrad} cx="38%" cy="32%" r="72%">
-                <stop offset="0%" stopColor="#fffbe8" />
-                <stop offset="55%" stopColor="#ffd56a" />
-                <stop offset="100%" stopColor="#f0a63a" />
-              </radialGradient>
-            </defs>
+          <defs>
+            <radialGradient id={hubGrad} cx="42%" cy="36%" r="70%">
+              <stop offset="0%" stopColor="#2a2417" />
+              <stop offset="100%" stopColor="#131316" />
+            </radialGradient>
+          </defs>
 
-            {/* Concentric orbital tracks. Occupied tracks carry a slow
-                dash drift so a populated orbit reads as live even while the
-                system is paused under the pointer. */}
-            {ORBIT_TRACKS.map((r) => {
-              const occupied = occupiedTracks.includes(r);
-              if (!occupied) {
-                return (
-                  <circle
-                    key={r}
-                    cx={SOLAR_C}
-                    cy={SOLAR_C}
-                    r={r}
-                    fill="none"
-                    stroke="#ffffff"
-                    strokeWidth={0.75}
-                    strokeOpacity={0.08}
-                    strokeDasharray="2 10"
-                  />
-                );
-              }
-              return (
-                <g key={r}>
-                  <circle
-                    cx={SOLAR_C}
-                    cy={SOLAR_C}
-                    r={r}
-                    fill="none"
-                    stroke={`url(#${orbitGrad})`}
-                    strokeWidth={1.25}
-                    strokeOpacity={0.5}
-                  />
-                  <circle
-                    data-solar-ambient
-                    cx={SOLAR_C}
-                    cy={SOLAR_C}
-                    r={r}
-                    fill="none"
-                    stroke={hex}
-                    strokeWidth={1.25}
-                    strokeOpacity={0.35}
-                    strokeDasharray="1 17"
-                    strokeLinecap="round"
-                    style={{
-                      animation: `orbit-shimmer ${34 + r * 0.22}s linear infinite`,
-                    }}
-                  />
-                </g>
-              );
-            })}
-
-            {/* Dependency chords (faint constellation under planets).
-                Endpoints are written by the rAF loop, keyed "from to". */}
-            {visibleEdges.map((e) => {
-              return (
-                <g key={`${e.from}->${e.to}`} data-edge>
-                  <line
-                    ref={(el) => {
-                      edgeEls.current.set(`${e.from} ${e.to}`, el);
-                    }}
-                    stroke={e.source === "config" ? "#a3a3a3" : "#737373"}
-                    strokeWidth={editMode ? 2 : 1}
-                    strokeOpacity={0.35}
-                    className={cn(editMode && "cursor-pointer")}
-                    onClick={(ev) => {
-                      if (!editMode || !editable) return;
-                      ev.stopPropagation();
-                      onRemoveEdge?.(e.from, e.to);
-                    }}
-                  >
-                    <title>
-                      {title(e.from)} → {title(e.to)}
-                    </title>
-                  </line>
-                </g>
-              );
-            })}
-
-            {/* Core. Four layers instead of two flat discs: an outer corona
-                that breathes, the falloff halo, a bright limb, and the body
-                with an off-centre highlight so it reads as a sphere. Same
-                amber family as before — no new hues. */}
-            <circle
-              data-solar-ambient
-              cx={SOLAR_C}
-              cy={SOLAR_C}
-              r={52}
-              fill={`url(#${coronaGrad})`}
-              style={{
-                animation: "sun-corona 7s ease-in-out infinite",
-                transformOrigin: `${SOLAR_C}px ${SOLAR_C}px`,
-              }}
-            />
-            <circle
-              cx={SOLAR_C}
-              cy={SOLAR_C}
-              r={34}
-              fill={`url(#${sunGrad})`}
-              className="opacity-90"
-            />
-            <circle
-              cx={SOLAR_C}
-              cy={SOLAR_C}
-              r={23}
-              fill="none"
-              stroke="#fff4c2"
-              strokeWidth={1.5}
-              strokeOpacity={0.55}
-            />
-            <circle cx={SOLAR_C} cy={SOLAR_C} r={22} fill={`url(#${bodyGrad})`} />
-          </svg>
-
-          {/* Core label */}
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="flex max-w-[8rem] flex-col items-center text-center">
-              <p className="font-display text-[13px] font-semibold leading-none tracking-tight text-neutral-950">
-                {sunLabel}
-              </p>
-              <p className="mt-1 font-mono text-[10px] font-medium tabular-nums leading-none text-neutral-900/75">
-                {members.length}{" "}
-                {members.length === 1 ? bodyWord : bodyWordPlural}
-              </p>
-            </div>
-          </div>
-
-          {/* Services. Both the planet and its name plate are positioned by
-              the rAF loop writing translate3d onto these wrappers; the inner
-              element handles its own centring so the loop only ever touches
-              one transform per node. */}
-          {orbits.map((p, i) => {
-            const status = statusById.get(p.id) ?? "empty";
-            const shex = STATUS_HEX[status];
-            const expanded = active === p.id && !editMode;
-            const linking = editMode && linkFrom === p.id;
-            const lat = latencyByMember.get(p.id);
-            // Planet body grows slightly for unhealthy / deploying.
-            const body =
-              status === "failed" || status === "deploying" ? 14 : 11;
-
+          {/* Latency bands. Each occupied track is a real axis now, not a
+              decorative circle — the "inner = faster" rule is finally
+              something you can read off the chart instead of a footnote. */}
+          {ORBIT_BANDS.map(({ r }) => {
+            const occupied = occupiedTracks.has(r);
             return (
-              <div key={p.id}>
-                <div
-                  ref={(el) => {
-                    planetEls.current.set(p.id, el);
+              <circle
+                key={r}
+                cx={SOLAR_C}
+                cy={SOLAR_C}
+                r={r}
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth={occupied ? 0.9 : 0.6}
+                strokeOpacity={occupied ? 0.14 : 0.05}
+                strokeDasharray={occupied ? undefined : "2 8"}
+              />
+            );
+          })}
+
+          {/* The radial axis itself, drawn straight up; bodies are angled off
+              it (AXIS_CLEARANCE) so the scale stays readable. */}
+          <line
+            x1={SOLAR_C}
+            y1={SOLAR_C}
+            x2={SOLAR_C}
+            y2={SOLAR_C - SOLAR_R_MAX - 6}
+            stroke="#ffffff"
+            strokeOpacity={0.1}
+            strokeWidth={0.8}
+          />
+          {ORBIT_BANDS.map(({ r }) => (
+            <line
+              key={`tick-${r}`}
+              x1={SOLAR_C - 2.5}
+              y1={SOLAR_C - r}
+              x2={SOLAR_C + 2.5}
+              y2={SOLAR_C - r}
+              stroke="#ffffff"
+              strokeOpacity={0.22}
+              strokeWidth={0.9}
+            />
+          ))}
+
+          {/* Dependency chords */}
+          {visibleEdges.map((e) => {
+            const a = positions.get(e.from);
+            const b = positions.get(e.to);
+            if (!a || !b) return null;
+            return (
+              <g key={`${e.from}->${e.to}`} data-edge>
+                <path
+                  d={chordPath(a, b)}
+                  fill="none"
+                  stroke={e.source === "config" ? "#a3a3a3" : "#737373"}
+                  strokeWidth={editMode ? 1.6 : 0.9}
+                  strokeOpacity={editMode ? 0.5 : 0.22}
+                  className={cn(editMode && "cursor-pointer")}
+                  onClick={(ev) => {
+                    if (!editMode || !editable) return;
+                    ev.stopPropagation();
+                    onRemoveEdge?.(e.from, e.to);
                   }}
-                  className="absolute left-0 top-0 z-10 will-change-transform"
                 >
-                  <div className="-translate-x-1/2 -translate-y-1/2">
-                  <motion.button
+                  <title>
+                    {title(e.from)} → {title(e.to)}
+                  </title>
+                </path>
+              </g>
+            );
+          })}
+
+          {/* Hub: a machined centre, not a sun. Deliberately quiet so the
+              bodies carry the eye. */}
+          <circle
+            cx={SOLAR_C}
+            cy={SOLAR_C}
+            r={42}
+            fill={`url(#${hubGrad})`}
+            stroke="#f5b942"
+            strokeOpacity={0.28}
+            strokeWidth={1}
+          />
+          <circle
+            cx={SOLAR_C}
+            cy={SOLAR_C}
+            r={35}
+            fill="none"
+            stroke="#f5b942"
+            strokeOpacity={0.12}
+            strokeWidth={0.6}
+          />
+        </svg>
+
+        {/* Axis scale. Rendered as HTML, not SVG <text>: inside a 400-unit
+            viewBox that stretches to the container, any font-size is scaled by
+            the viewport and these came out roughly twice the size of every
+            other label on the stage. */}
+        {ORBIT_BANDS.map(({ r, label }) => (
+          <span
+            key={`band-${r}`}
+            aria-hidden
+            className="pointer-events-none absolute -translate-x-full -translate-y-1/2 pr-2 font-mono text-[10px] leading-none tabular-nums text-neutral-600"
+            style={{
+              left: "50%",
+              top: `${((SOLAR_C - r) / 400) * 100}%`,
+            }}
+          >
+            {label}
+          </span>
+        ))}
+
+        {/* Hub label */}
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="flex w-[7.5rem] flex-col items-center text-center">
+            <p className="font-display text-[12px] font-semibold uppercase tracking-[0.12em] text-[#f5b942]">
+              Rings
+            </p>
+            <p className="mt-1 font-mono text-[15px] font-medium tabular-nums leading-none text-neutral-100">
+              {members.length}
+            </p>
+            <p className="mt-0.5 font-mono text-[9px] uppercase tracking-wider text-neutral-500">
+              {members.length === 1 ? bodyWord : bodyWordPlural}
+            </p>
+          </div>
+        </div>
+
+        {/* Bodies */}
+        {orbits.map((p, i) => {
+          const pos = positions.get(p.id);
+          if (!pos) return null;
+          const status = statusById.get(p.id) ?? "empty";
+          const expanded = active === p.id && !editMode;
+          const linking = editMode && linkFrom === p.id;
+          const lat = latencyByMember.get(p.id);
+          const rings = resultById.get(p.id);
+          const segs = ringSegments(rings?.rings, ringOrder);
+          const { latest } = summarizeRings(rings?.rings);
+          const left = (pos.x / 400) * 100;
+          const top = (pos.y / 400) * 100;
+          // Names normally sit on the outward side so they never point back
+          // through the hub — but near the left and right extremes "outward"
+          // runs straight off the stage, so those flip inward instead.
+          const outwardRight = Math.cos(pos.angle) >= 0;
+          const nameRight =
+            pos.x > 300 ? false : pos.x < 100 ? true : outwardRight;
+          const below = Math.sin(pos.angle) >= 0;
+
+          return (
+            <div
+              key={p.id}
+              className="absolute z-10"
+              style={{ left: `${left}%`, top: `${top}%` }}
+              onMouseEnter={() => hoverIn(p.id)}
+              onMouseLeave={hoverOut}
+            >
+              <motion.div
+                className="-translate-x-1/2 -translate-y-1/2"
+                initial={reduceMotion ? false : { opacity: 0, scale: 0.6 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{
+                  delay: Math.min(0.04 * i, 0.5),
+                  type: "spring",
+                  stiffness: 240,
+                  damping: 20,
+                }}
+              >
+                <div className="relative">
+                  <button
                     type="button"
                     aria-label={`${title(p.id)}: ${STATUS_WORD[status]}`}
-                    onClick={() => onPlanetClick(p.id)}
-                    onMouseEnter={() => hoverIn(p.id)}
-                    onMouseLeave={hoverOut}
-                    initial={{ opacity: 0, scale: 0.4 }}
-                    animate={{
-                      opacity: 1,
-                      scale: linking ? 1.25 : 1,
-                    }}
-                    transition={{
-                      delay: Math.min(0.08 * i, 0.6),
-                      type: "spring",
-                      stiffness: 220,
-                      damping: 18,
-                    }}
-                    whileHover={{ scale: 1.18 }}
-                    className="relative block"
-                    style={{ width: body + 8, height: body + 8 }}
+                    onClick={() => onBodyClick(p.id)}
+                    className={cn(
+                      "block rounded-full transition-transform",
+                      "hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+                      linking && "ring-2 ring-white/80",
+                    )}
                   >
-                    {status === "healthy" && (
-                      <span
-                        data-solar-ambient
-                        className="absolute inset-0 rounded-full [animation:node-pulse_3.5s_ease-out_infinite]"
-                        style={{ background: shex, opacity: 0.35 }}
-                      />
+                    <OrbitDial
+                      segments={segs}
+                      status={status}
+                      reduceMotion={reduceMotion}
+                    />
+                  </button>
+
+                  {/* Name plate, attached to the body rather than floating */}
+                  <button
+                    ref={(el) => {
+                      nameEls.current.set(p.id, el);
+                    }}
+                    type="button"
+                    onClick={() => onBodyClick(p.id)}
+                    title={title(p.id)}
+                    className={cn(
+                      "absolute top-1/2 flex -translate-y-1/2 flex-col whitespace-nowrap rounded-md bg-[#07070a]/80 px-1.5 py-0.5 text-left transition-opacity",
+                      nameRight ? "left-full ml-1" : "right-full mr-1 items-end",
                     )}
-                    {status === "deploying" && (
-                      <span
-                        data-solar-ambient
-                        className="absolute -inset-1 animate-spin rounded-full border-2 border-transparent"
-                        style={{ borderTopColor: shex }}
-                      />
-                    )}
+                  >
                     <span
                       className={cn(
-                        "absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40 shadow-[0_0_12px_var(--glow)]",
-                        status === "loading" && "animate-pulse",
-                        linking && "ring-2 ring-white/80",
+                        "max-w-[7.5rem] truncate font-display text-[11px] font-medium leading-tight tracking-tight",
+                        expanded || linking
+                          ? "text-neutral-50"
+                          : "text-neutral-200",
                       )}
-                      style={
-                        {
-                          width: body,
-                          height: body,
-                          background: `radial-gradient(circle at 35% 30%, #ffffffaa, ${shex} 55%, ${shex}cc)`,
-                          "--glow": `${shex}99`,
-                        } as React.CSSProperties
-                      }
-                    />
-                  </motion.button>
-                  </div>
-                </div>
+                    >
+                      {title(p.id)}
+                    </span>
+                    <span className="font-mono text-[9.5px] leading-tight tabular-nums text-neutral-500">
+                      {mode === "groups"
+                        ? (subtitles?.[p.id] ?? "")
+                        : (latest?.current_version ?? "—")}
+                      {lat != null && (
+                        <span className="text-neutral-600">
+                          {" · "}
+                          {Math.round(lat)}ms
+                        </span>
+                      )}
+                    </span>
+                  </button>
 
-                {/* Name plate, parked on a slightly wider orbit than its
-                    planet so it always points away from the core. */}
-                <div
-                  ref={(el) => {
-                    plateEls.current.set(p.id, el);
-                  }}
-                  className={cn(
-                    "absolute left-0 top-0 z-20 transition-opacity duration-200 will-change-transform",
-                    expanded && "z-30",
-                  )}
-                  onMouseEnter={() => hoverIn(p.id)}
-                  onMouseLeave={hoverOut}
-                >
-                  <div className="-translate-x-1/2 -translate-y-1/2">
                   <AnimatePresence>
                     {expanded && (
                       <motion.div
                         key="card"
-                        initial={{ opacity: 0, scale: 0.94 }}
+                        initial={{ opacity: 0, scale: 0.96 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.96 }}
-                        transition={{
-                          type: "spring",
-                          stiffness: 380,
-                          damping: 28,
-                        }}
-                        className="absolute left-1/2 top-full z-30 mt-1.5 -translate-x-1/2"
+                        exit={{ opacity: 0, scale: 0.97 }}
+                        transition={{ duration: 0.14, ease: "easeOut" }}
+                        className={cn(
+                          "absolute left-1/2 z-30 -translate-x-1/2",
+                          below ? "bottom-full mb-2" : "top-full mt-2",
+                        )}
                       >
                         <NodeCard
                           id={p.id}
                           label={title(p.id)}
                           status={status}
-                          rings={resultById.get(p.id)}
+                          rings={rings}
                           latencyMs={lat ?? null}
                           mode={mode}
                           subtitle={subtitles?.[p.id]}
@@ -746,54 +578,92 @@ export function SolarSystem({
                       </motion.div>
                     )}
                   </AnimatePresence>
-                  <button
-                    type="button"
-                    onClick={() => onPlanetClick(p.id)}
-                    // Names in a fleet often share a long prefix
-                    // ("diytaxreturn-…"), so a narrow plate ellipsises away
-                    // the only part that identifies the service. Give the
-                    // plate real room and keep the full name in the tooltip.
-                    title={title(p.id)}
-                    className={cn(
-                      "flex max-w-[11rem] items-baseline gap-1.5 rounded-full border px-2.5 py-[3px] backdrop-blur-md transition-colors",
-                      expanded || linking
-                        ? "border-white/30 bg-black/70 text-neutral-50"
-                        : "border-white/10 bg-black/60 text-neutral-100 hover:border-white/25",
-                    )}
-                  >
-                    <span className="truncate font-display text-[11px] font-medium leading-none tracking-tight">
-                      {title(p.id)}
-                    </span>
-                    {lat != null && (
-                      <span className="shrink-0 font-mono text-[10px] leading-none tabular-nums text-neutral-400">
-                        {Math.round(lat)}
-                        <span className="text-neutral-500">ms</span>
-                      </span>
-                    )}
-                  </button>
-                  </div>
                 </div>
-              </div>
-            );
-          })}
+              </motion.div>
+            </div>
+          );
+        })}
 
-          {/* Legend */}
-          <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap items-center justify-between gap-2 text-[11px] leading-none text-neutral-400">
-            <span className="inline-flex items-center gap-1.5 font-medium">
-              <span
-                aria-hidden
-                className="size-1.5 rounded-full"
-                style={{ background: hex }}
-              />
-              {summaryLine[aggregate]}
+        {/* Legend */}
+        <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap items-center justify-between gap-2 text-[11px] leading-none text-neutral-400">
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <span
+              aria-hidden
+              className="size-1.5 rounded-full"
+              style={{ background: hex }}
+            />
+            {summaryLine[aggregate]}
+          </span>
+          <span className="inline-flex items-center gap-2 text-neutral-500">
+            <span className="inline-flex items-center gap-1">
+              <RingKey />
+              {ringOrder.length ? ringOrder.join(" · ") : "promotion rings"}
             </span>
-            <span className="text-neutral-500">
-              Inner orbits = lower latency · Outer = higher
-            </span>
-          </div>
-        </motion.div>
+            <span className="text-neutral-600">·</span>
+            <span>ring = latency</span>
+          </span>
+        </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Dependency chord, bowed away from the centre.
+ *
+ * A straight line between two bodies on opposite sides of the stage runs
+ * right through the hub and reads as a strike-through. Curving it outward
+ * keeps the hub clean and makes overlapping dependencies distinguishable.
+ */
+function chordPath(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): string {
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2;
+  let dx = mx - SOLAR_C;
+  let dy = my - SOLAR_C;
+  let dist = Math.hypot(dx, dy);
+  if (dist < 1) {
+    // Chord passes dead through the hub: bow along the segment's normal.
+    dx = -(b.y - a.y);
+    dy = b.x - a.x;
+    dist = Math.hypot(dx, dy) || 1;
+  }
+  // The closer the midpoint sits to the hub, the harder it needs to bow. The
+  // threshold is comfortably wider than the hub radius (42) so chords clear
+  // its edge rather than grazing it.
+  const bow = Math.max(0, 88 - dist) * 1.35;
+  const cx = mx + (dx / dist) * bow;
+  const cy = my + (dy / dist) * bow;
+  return `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`;
+}
+
+/** Tiny four-segment mark used in the legend to explain the body dials. */
+function RingKey() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden>
+      {[0, 1, 2, 3].map((i) => {
+        const step = (2 * Math.PI) / 4;
+        const a0 = -Math.PI / 2 + i * step + 0.22;
+        const a1 = -Math.PI / 2 + (i + 1) * step - 0.22;
+        const r = 4;
+        const x0 = 5.5 + r * Math.cos(a0);
+        const y0 = 5.5 + r * Math.sin(a0);
+        const x1 = 5.5 + r * Math.cos(a1);
+        const y1 = 5.5 + r * Math.sin(a1);
+        return (
+          <path
+            key={i}
+            d={`M ${x0} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y1}`}
+            fill="none"
+            stroke="#a1a1aa"
+            strokeWidth={1.6}
+            strokeLinecap="round"
+          />
+        );
+      })}
+    </svg>
   );
 }
 
@@ -830,16 +700,13 @@ function NodeCard({
   return (
     <div
       data-node-card
-      className="w-60 rounded-2xl border border-white/15 bg-white/[0.08] p-3.5 text-left shadow-2xl ring-1 ring-black/40 backdrop-blur-2xl"
+      className="w-60 rounded-2xl border border-white/15 bg-neutral-950/85 p-3.5 text-left shadow-2xl ring-1 ring-black/40 backdrop-blur-2xl"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span
-            className="flex size-6 shrink-0 items-center justify-center rounded-full border"
-            style={{
-              borderColor: `${hex}55`,
-              background: `radial-gradient(circle at 35% 30%, #ffffff88, ${hex})`,
-            }}
+            className="size-2.5 shrink-0 rounded-full"
+            style={{ background: hex }}
           />
           <div className="min-w-0">
             <p className="truncate font-display text-sm font-semibold tracking-tight text-neutral-50">
@@ -868,16 +735,12 @@ function NodeCard({
             className="inline-flex items-center gap-1.5 font-medium"
             style={{ color: hex }}
           >
-            <span
-              className="size-1.5 rounded-full"
-              style={{ background: hex }}
-            />
             {STATUS_WORD[status]}
           </span>
         </Row>
         <Row label="Latency">
           {latencyMs != null ? (
-            <span className="font-mono text-neutral-100">
+            <span className="font-mono tabular-nums text-neutral-100">
               {Math.round(latencyMs)}ms
             </span>
           ) : (
@@ -901,7 +764,7 @@ function NodeCard({
           <>
             <Row label="Version">
               {latest ? (
-                <span className="font-mono text-neutral-100">
+                <span className="font-mono tabular-nums text-neutral-100">
                   {latest.current_version}
                   <span className="text-neutral-400"> · {latest.ring.name}</span>
                 </span>
@@ -911,9 +774,7 @@ function NodeCard({
             </Row>
             <Row label="Rings">
               <span className="text-neutral-100">
-                {active.length === 0
-                  ? "—"
-                  : `${healthy}/${active.length} healthy`}
+                {active.length === 0 ? "—" : `${healthy}/${active.length} healthy`}
               </span>
             </Row>
             <Row label="Last deploy">
@@ -949,18 +810,9 @@ function NodeCard({
   );
 }
 
-function Row({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      {/* neutral-500 on this glass sits around 4:1 — under the 4.5:1 floor
-          for text this size. neutral-400 clears it and still reads as the
-          quieter half of the pair. */}
       <dt className="text-neutral-400">{label}</dt>
       <dd className="min-w-0 truncate text-right">{children}</dd>
     </div>

@@ -79,9 +79,10 @@ function groupEdges(
 }
 
 /**
- * Rings of Applications home with two views:
- * - All apps: every service orbits Rings
- * - Rings: each group orbits as a service cluster
+ * "Rings of Applications" in the nav; the stage itself is titled "Rings of
+ * Apps". Two views:
+ * - All apps: every app orbits Rings
+ * - Rings: each group orbits as a cluster of apps
  */
 export function FleetView() {
   const { data } = useApps();
@@ -166,18 +167,18 @@ export function FleetView() {
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Rings of Applications</h2>
+          <h2 className="font-display text-lg font-semibold tracking-tight">Rings of Apps</h2>
           <p className="text-sm text-muted-foreground">
             {view === "apps"
-              ? "Services orbit Rings. Dependencies pull them together; high health latency pushes them apart."
-              : "Each orbiting body is a ring (group of services). Switch to All services to see every service."}
+              ? "Each body is an app. Its dial shows promotion state across the rings; distance from the centre is health latency."
+              : "Each orbiting body is a ring (a group of apps). Switch to All apps to see every app."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div
             className="inline-flex rounded-md border border-border bg-muted/40 p-0.5"
             role="group"
-            aria-label="Rings of Applications view"
+            aria-label="Rings of Apps view"
           >
             <button
               type="button"
@@ -190,7 +191,7 @@ export function FleetView() {
               )}
               data-testid="solar-view-apps"
             >
-              All services
+              All apps
             </button>
             <button
               type="button"
@@ -220,7 +221,7 @@ export function FleetView() {
 
       {known.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
-          <p className="text-sm font-medium">No services configured</p>
+          <p className="text-sm font-medium">No apps configured</p>
           <p className="text-sm text-muted-foreground">
             Add apps under <code>apps:</code> in the server config.
           </p>
@@ -228,7 +229,7 @@ export function FleetView() {
       ) : view === "apps" ? (
         <>
           <SolarSystem
-            sunLabel="Rings"
+            sunLabel="Rings of Apps"
             members={known}
             results={appResults}
             statuses={appStatuses}
@@ -248,12 +249,12 @@ export function FleetView() {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
           <p className="text-sm font-medium">No rings yet</p>
           <p className="text-sm text-muted-foreground">
-            Create a group of services — or switch to All services to see every
-            service around Rings.
+            Create a group of apps — or switch to All apps to see every app
+            around Rings.
           </p>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => setView("apps")}>
-              All services
+              All apps
             </Button>
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               Create a ring
@@ -263,7 +264,7 @@ export function FleetView() {
       ) : (
         <>
           <SolarSystem
-            sunLabel="Rings"
+            sunLabel="Rings of Apps"
             members={ringIds}
             results={ringResults}
             statuses={ringStatuses}
