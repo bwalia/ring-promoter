@@ -46,25 +46,25 @@ struct RingsUniverseTests {
     @Test("bodies on one track are spread evenly and ordered alphabetically")
     func evenSpread() {
         let planets = SolarLayout.planets(for: [
-            ("charlie", 112), ("alpha", 112), ("bravo", 112),
+            ("charlie", 100), ("alpha", 100), ("bravo", 100),
         ])
         #expect(planets.map(\.id) == ["alpha", "bravo", "charlie"])
         #expect(Set(planets.map(\.angle0)).count == 3)
 
         // Even spread: successive seed angles are 2π/3 apart, give or take the
-        // small deterministic jitter (±0.1 rad each).
+        // small deterministic jitter (±0.06 rad each). Axis clearance is shared.
         let gap = 2 * Double.pi / 3
         for pair in zip(planets, planets.dropFirst()) {
             let delta = pair.1.angle0 - pair.0.angle0
-            #expect(abs(delta - gap) < 0.2)
+            #expect(abs(delta - gap) < 0.15)
         }
     }
 
     @Test("outer orbits revolve slower than inner ones")
     func orbitalPeriods() {
         let planets = SolarLayout.planets(for: [
-            ("inner", SolarLayout.tracks.first ?? 78),
-            ("outer", SolarLayout.tracks.last ?? 178),
+            ("inner", SolarLayout.tracks.first ?? 68),
+            ("outer", SolarLayout.tracks.last ?? 162),
         ])
         let inner = planets.first { $0.id == "inner" }
         let outer = planets.first { $0.id == "outer" }
@@ -73,13 +73,30 @@ struct RingsUniverseTests {
 
     @Test("a body's position stays on its orbit as time passes")
     func positionsStayOnOrbit() {
-        let planet = SolarLayout.planets(for: [("web-frontend", 146)])[0]
+        let planet = SolarLayout.planets(for: [("web-frontend", 132)])[0]
         for elapsed in [0.0, 13.7, 92.4] {
             let pos = SolarLayout.position(of: planet, at: elapsed)
             let dx = pos.x - SolarLayout.center
             let dy = pos.y - SolarLayout.center
-            #expect(abs((dx * dx + dy * dy).squareRoot() - planet.track) < 0.001)
+            #expect(abs((dx * dx + dy * dy).squareRoot() - planet.r) < 0.001)
         }
+    }
+
+    @Test("orbit tracks and latency bands match the web console")
+    func tracksMatchWeb() {
+        #expect(SolarLayout.tracks == [68, 100, 132, 162])
+        #expect(SolarLayout.defaultRadius == 100)
+        #expect(SolarLayout.orbitBands.map(\.r) == SolarLayout.tracks)
+        #expect(!SolarLayout.orbitBands[0].label.isEmpty)
+    }
+
+    @Test("crowded tracks stagger draw radius off the latency band")
+    func crowdedStagger() {
+        let ids = (0..<8).map { "app-\($0)" }
+        let planets = SolarLayout.planets(for: ids.map { ($0, 100.0) })
+        #expect(planets.count == 8)
+        #expect(Set(planets.map(\.track)) == [100])
+        #expect(Set(planets.map(\.r)).count > 1)
     }
 
     // MARK: - Latency selection
