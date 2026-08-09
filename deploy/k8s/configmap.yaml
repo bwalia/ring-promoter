@@ -24,46 +24,6 @@ data:
       delay: 5s
     operation_timeout: 60m
     apps:
-      # wslproxy — the edge proxy itself (github.com/bwalia/wslproxy), installed
-      # by ANSIBLE through its own GitHub Actions workflow. RP dispatches
-      # deploy-single-environment.yml once per ring; that workflow deploys
-      # exactly ONE environment with no cascade, which is precisely what
-      # ring-at-a-time promotion needs (its header comment says it was written
-      # for Ring Promoter). Its ENV / DEPLOY_BRANCH / DEPLOY_MODE inputs are
-      # also the defaults this deployer already assumes, so no input overrides
-      # are needed. The promoted version is a git ref of the same repo, so the
-      # version dropdown and pre-dispatch ref validation both work.
-      #
-      # Ring -> host, from the workflow's own environment table:
-      #   int  -> 192.168.1.193      test -> 192.168.1.140
-      #   acc  -> 192.168.1.48       prod -> 18.133.126.242 ("pop1", AWS)
-      #
-      # HEALTH: prod only, and deliberately. Every public wslproxy hostname
-      # (int-our., test., prod-our-v1.) resolves to 18.133.126.242 — the SAME
-      # box as prod — so pointing int/test/acc at them would report prod's
-      # health as if it were that ring's, which is worse than not checking at
-      # all. The LAN hosts answer 404 on /healthz (no such vhost) and acc does
-      # not answer on :80. With no health_url a ring falls back to RP's
-      # documented behaviour: the ansible run's own success or failure is the
-      # health signal. Give a ring a real per-host endpoint and it starts
-      # verifying properly with no other change.
-      - name: wslproxy
-        display_name: "WSL Proxy"
-        deployer: github
-        github:
-          owner: bwalia
-          repo: wslproxy
-          workflow: deploy-single-environment.yml
-          # The deployer defaults to ref "build"; this repo's default branch —
-          # and the only ref carrying the workflow — is main.
-          ref: main
-          deploy_mode: full
-        rings:
-          int:  { target_env: int }
-          test: { target_env: test }
-          acc:  { target_env: acc }
-          prod: { target_env: prod, health_url: "https://pop1.diytaxreturn.co.uk/healthz" }
-
       # jobshout — deployed via the K8SJOB deployer: each seed/promote/rollback
       # runs as a short-lived Kubernetes Job in ring-exec (SA ring-deploy-job)
       # that helm-installs the jobshout chart into the ring's namespace. The
