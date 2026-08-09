@@ -53,6 +53,26 @@ function snapToTrack(r: number): number {
   return best;
 }
 
+/**
+ * Human-readable bound for each orbit track, derived from `latencyToRadius`
+ * itself rather than hand-written, so the axis labels can never drift out of
+ * step with the placement maths.
+ */
+export const ORBIT_BANDS: { r: number; label: string }[] = (() => {
+  const upper = new Map<number, number>();
+  for (let ms = 0; ms <= 2000; ms += 1) {
+    upper.set(latencyToRadius(ms), ms);
+  }
+  return ORBIT_TRACKS.map((r, i) => {
+    if (i === ORBIT_TRACKS.length - 1) {
+      const prev = upper.get(ORBIT_TRACKS[i - 1]);
+      return { r, label: prev == null ? "slowest" : `>${prev}ms` };
+    }
+    const max = upper.get(r);
+    return { r, label: max == null ? "" : `≤${max}ms` };
+  });
+})();
+
 /** Spring rest-length between two linked apps; high latency stretches them apart. */
 export function linkRestLength(msA: number | null, msB: number | null): number {
   const a = msA ?? 80;
@@ -77,13 +97,24 @@ export type SimEdge = { from: string; to: string; rest: number };
 /** A planet locked to a circular orbit (classic solar-system layout). */
 export type OrbitPlanet = {
   id: string;
-  /** Orbit radius in SVG units. */
+  /** Actual draw radius, i.e. the track plus any anti-crowding stagger. */
   r: number;
+  /** The latency band this body belongs to (always one of ORBIT_TRACKS). */
+  track: number;
   /** Starting angle (radians). */
   angle0: number;
   /** Seconds for one full revolution (outer orbits slower). */
   period: number;
 };
+
+/**
+ * Bodies are nudged off the straight-up direction so the radial latency axis
+ * drawn there stays readable.
+ */
+const AXIS_CLEARANCE = 0.22;
+
+/** Radial stagger applied to consecutive bodies on a crowded track. */
+const STAGGER = [0, 15, -15, 30] as const;
 
 function hash01(s: string): number {
   let h = 2166136261;
@@ -120,10 +151,16 @@ export function buildOrbitPlanets(
     if (n === 0) continue;
     // Outer orbits revolve more slowly (Kepler-ish feel).
     const period = 48 + (track / SOLAR_R_MAX) * 70;
+    // Bodies now carry their own name plate, so a crowded track is resolved
+    // by staggering them across the width of the latency band rather than by
+    // hiding names. Only kicks in once a track is actually busy.
+    const crowded = n > 6;
     bucket.forEach((id, i) => {
-      const spin = (hash01(id) - 0.5) * 0.2;
-      const angle0 = (i / n) * 2 * Math.PI - Math.PI / 2 + spin;
-      out.push({ id, r: track, angle0, period });
+      const spin = (hash01(id) - 0.5) * 0.12;
+      const angle0 =
+        (i / n) * 2 * Math.PI - Math.PI / 2 + AXIS_CLEARANCE + spin;
+      const stagger = crowded ? STAGGER[i % STAGGER.length] : 0;
+      out.push({ id, r: track + stagger, track, angle0, period });
     });
   }
   return out;
