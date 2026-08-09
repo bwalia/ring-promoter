@@ -242,15 +242,13 @@ private struct SolarStage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// t=0 for the orbital clock. Bodies drift from their seeded positions.
     @State private var start = Date()
+    /// Entrance reveal: bodies spring in once the stage appears.
+    @State private var revealed = false
 
     private var planets: [SolarLayout.Planet] {
         SolarLayout.planets(
             for: nodes.map { ($0.id, SolarLayout.radius(forLatencyMs: $0.latencyMs)) }
         )
-    }
-
-    private var aggregate: FleetStatus {
-        FleetStatus.aggregate(nodes.map(\.status))
     }
 
     var body: some View {
@@ -265,26 +263,38 @@ private struct SolarStage: View {
                 let scale = side / SolarLayout.canvasSize
                 ZStack {
                     StarField(elapsed: elapsed)
+                    latencyAxis(scale: scale)
                     orbitTracks(occupied: occupied, scale: scale)
+                    orbitBandLabels(scale: scale)
                     sun(scale: scale)
-                    ForEach(planets, id: \.id) { planet in
+                    ForEach(Array(planets.enumerated()), id: \.element.id) { index, planet in
                         if let node = byID[planet.id] {
                             let pos = SolarLayout.position(of: planet, at: elapsed)
+                            let angle = SolarLayout.angle(of: planet, at: elapsed)
                             let point = CGPoint(x: pos.x * scale, y: pos.y * scale)
-                            // The plate sits on the side facing the sun: unlike
-                            // the web stage this one clips at its edges, so a
-                            // plate facing outward would be cut off on the
-                            // outermost orbit.
-                            let below = pos.y < SolarLayout.center
+                            // Name plates sit radially outward of the body,
+                            // flipping inward near the left/right edges so they
+                            // stay on stage (matches the web console).
+                            let outwardBelow = sin(angle) >= 0
+                            let nearEdge = pos.x > 300 || pos.x < 100
+                            let plateBelow = nearEdge ? !outwardBelow : outwardBelow
                             PlanetView(
                                 node: node, elapsed: elapsed,
-                                isSelected: selectedID == node.id
+                                isSelected: selectedID == node.id,
+                                appearDelay: Double(min(index, 12)) * 0.04,
+                                revealed: revealed
                             ) {
-                                selectedID = selectedID == node.id ? nil : node.id
+                                withAnimation(.spring(duration: 0.32, bounce: 0.28)) {
+                                    selectedID = selectedID == node.id ? nil : node.id
+                                }
                             }
                             .position(point)
-                            NamePlate(node: node)
-                                .position(x: point.x, y: point.y + (below ? 22 : -22))
+                            NamePlate(node: node, emphasized: selectedID == node.id)
+                                .opacity(revealed || reduceMotion ? 1 : 0)
+                                .position(
+                                    x: point.x,
+                                    y: point.y + (plateBelow ? 24 : -24)
+                                )
                         }
                     }
                 }
@@ -298,40 +308,118 @@ private struct SolarStage: View {
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.black.opacity(0.2)))
         .overlay(alignment: .bottom) {
             if let node = selectedID.flatMap({ id in nodes.first { $0.id == id } }) {
-                NodeCard(node: node, mode: mode, onOpen: onOpen) { selectedID = nil }
-                    .padding(10)
-                    .transition(.scale(scale: 0.94).combined(with: .opacity))
+                NodeCard(node: node, mode: mode, onOpen: onOpen) {
+                    withAnimation(.spring(duration: 0.28, bounce: 0.2)) {
+                        selectedID = nil
+                    }
+                }
+                .padding(10)
+                .transition(
+                    .asymmetric(
+                        insertion: .scale(scale: 0.92).combined(with: .opacity)
+                            .combined(with: .move(edge: .bottom)),
+                        removal: .scale(scale: 0.96).combined(with: .opacity)
+                    )
+                )
             }
         }
-        .animation(.spring(duration: 0.25), value: selectedID)
+        .animation(.spring(duration: 0.32, bounce: 0.22), value: selectedID)
         // Space is dark in both appearances, like the web console's stage.
         .environment(\.colorScheme, .dark)
         .contentShape(RoundedRectangle(cornerRadius: 16))
-        .onTapGesture { selectedID = nil }
+        .onTapGesture {
+            withAnimation(.spring(duration: 0.28, bounce: 0.2)) {
+                selectedID = nil
+            }
+        }
+        .onAppear {
+            guard !reduceMotion else {
+                revealed = true
+                return
+            }
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
+                revealed = true
+            }
+        }
+        .onChange(of: nodes.map(\.id)) { _, _ in
+            // Re-entrance when the set of bodies changes (mode / filter).
+            if reduceMotion {
+                revealed = true
+                return
+            }
+            revealed = false
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.78).delay(0.02)) {
+                revealed = true
+            }
+        }
     }
 
-    /// Near-black space with the sun's warm glow bleeding into the middle.
+    /// Near-black space with a restrained warm glow at the centre — quiet
+    /// enough that the latency rings and bodies carry the eye.
     private var spaceBackground: some View {
         ZStack {
             Color(red: 0.027, green: 0.027, blue: 0.039)
             RadialGradient(
-                colors: [Color(red: 1, green: 0.78, blue: 0.31).opacity(0.07), .clear],
-                center: .center, startRadius: 0, endRadius: 200
+                colors: [Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.05), .clear],
+                center: .center, startRadius: 0, endRadius: 220
             )
         }
     }
 
-    /// All four tracks are always drawn; occupied ones take the fleet's
-    /// aggregate colour so the sky itself reports overall health.
+    /// Radial latency axis drawn straight up; tick marks at each track.
+    private func latencyAxis(scale: CGFloat) -> some View {
+        let maxR = (SolarLayout.tracks.last ?? SolarLayout.defaultRadius) + 6
+        return ZStack {
+            Path { path in
+                path.move(to: CGPoint(x: SolarLayout.center * scale, y: SolarLayout.center * scale))
+                path.addLine(
+                    to: CGPoint(
+                        x: SolarLayout.center * scale,
+                        y: (SolarLayout.center - maxR) * scale
+                    )
+                )
+            }
+            .stroke(.white.opacity(0.1), lineWidth: 0.8)
+            ForEach(SolarLayout.tracks, id: \.self) { track in
+                Path { path in
+                    let y = (SolarLayout.center - track) * scale
+                    let cx = SolarLayout.center * scale
+                    path.move(to: CGPoint(x: cx - 2.5 * scale, y: y))
+                    path.addLine(to: CGPoint(x: cx + 2.5 * scale, y: y))
+                }
+                .stroke(.white.opacity(0.22), lineWidth: 0.9)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// Latency band labels along the axis so "inner = faster" is readable.
+    private func orbitBandLabels(scale: CGFloat) -> some View {
+        ForEach(SolarLayout.orbitBands, id: \.r) { band in
+            Text(band.label)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.38))
+                .position(
+                    x: (SolarLayout.center - 28) * scale,
+                    y: (SolarLayout.center - band.r) * scale
+                )
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// All four tracks are always drawn; occupied ones take a slightly stronger
+    /// stroke so the latency bands read as an axis, not decoration.
     private func orbitTracks(occupied: Set<Double>, scale: CGFloat) -> some View {
         ForEach(SolarLayout.tracks, id: \.self) { track in
             let isOccupied = occupied.contains(track)
             Circle()
                 .stroke(
-                    isOccupied ? aggregate.tint.opacity(0.4) : .white.opacity(0.08),
+                    .white.opacity(isOccupied ? 0.14 : 0.05),
                     style: StrokeStyle(
-                        lineWidth: isOccupied ? 1.25 : 0.75,
-                        dash: isOccupied ? [] : [2, 10]
+                        lineWidth: isOccupied ? 0.9 : 0.6,
+                        dash: isOccupied ? [] : [2, 8]
                     )
                 )
                 .frame(width: track * 2 * scale, height: track * 2 * scale)
@@ -344,51 +432,55 @@ private struct SolarStage: View {
                 .fill(
                     RadialGradient(
                         stops: [
-                            .init(color: Color(red: 1, green: 0.96, blue: 0.76), location: 0),
-                            .init(
-                                color: Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.95),
-                                location: 0.35
-                            ),
-                            .init(
-                                color: Color(red: 0.88, green: 0.47, blue: 0.13).opacity(0.55),
-                                location: 0.7
-                            ),
-                            .init(
-                                color: Color(red: 0.88, green: 0.47, blue: 0.13).opacity(0),
-                                location: 1
-                            ),
+                            .init(color: Color(red: 0.16, green: 0.14, blue: 0.09), location: 0),
+                            .init(color: Color(red: 0.07, green: 0.07, blue: 0.09), location: 1),
                         ],
-                        center: .init(x: 0.5, y: 0.45),
-                        startRadius: 0, endRadius: 34 * scale
+                        center: .init(x: 0.42, y: 0.36),
+                        startRadius: 0, endRadius: 42 * scale
                     )
                 )
-                .frame(width: 68 * scale, height: 68 * scale)
+                .overlay(
+                    Circle().strokeBorder(
+                        Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.28),
+                        lineWidth: 1
+                    )
+                )
+                .frame(width: 84 * scale, height: 84 * scale)
             Circle()
-                .fill(Color(red: 1, green: 0.84, blue: 0.42))
-                .frame(width: 44 * scale, height: 44 * scale)
-            VStack(spacing: 0) {
+                .strokeBorder(
+                    Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.12),
+                    lineWidth: 0.6
+                )
+                .frame(width: 70 * scale, height: 70 * scale)
+            VStack(spacing: 1) {
                 Text("Rings")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.black.opacity(0.9))
-                Text(countLine)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.black.opacity(0.65))
+                    .tracking(1.2)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color(red: 0.96, green: 0.73, blue: 0.26))
+                Text("\(nodes.count)")
+                    .font(.system(size: 15, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.92))
+                Text(bodyWord)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+                    .foregroundStyle(.white.opacity(0.45))
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Rings. \(countLine).")
+        .accessibilityLabel("Rings. \(nodes.count) \(bodyWord).")
     }
 
-    private var countLine: String {
+    private var bodyWord: String {
         switch mode {
-        case .apps: nodes.count == 1 ? "1 service" : "\(nodes.count) services"
-        case .rings: nodes.count == 1 ? "1 ring" : "\(nodes.count) rings"
+        case .apps: nodes.count == 1 ? "service" : "services"
+        case .rings: nodes.count == 1 ? "ring" : "rings"
         }
     }
 }
 
-/// The deterministic star field, identical to the web console's: the same
-/// linear congruential generator, so both skies twinkle the same stars.
+/// Sparse star field — quiet atmosphere so latency rings and bodies dominate.
 private struct StarField: View {
     let elapsed: TimeInterval
 
@@ -397,17 +489,17 @@ private struct StarField: View {
             func h(_ n: Int) -> Double {
                 Double((n * 9301 + 49297) % 233_280) / 233_280
             }
-            for i in 0..<52 {
+            for i in 0..<28 {
                 let x = h(i * 3 + 1) * size.width
                 let y = h(i * 7 + 2) * size.height
-                let radius = (1 + h(i * 11 + 3) * 1.6) / 2
-                let period = 2.5 + h(i * 13 + 5) * 4
+                let radius = (0.8 + h(i * 11 + 3) * 1.2) / 2
+                let period = 3.5 + h(i * 13 + 5) * 5
                 let phase = h(i * 17 + 7)
-                let twinkle = 0.5 + 0.5 * sin(2 * .pi * (elapsed / period + phase))
+                let twinkle = 0.55 + 0.45 * sin(2 * .pi * (elapsed / period + phase))
                 let rect = CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)
                 context.fill(
                     Path(ellipseIn: rect),
-                    with: .color(.white.opacity(0.06 + 0.39 * twinkle))
+                    with: .color(.white.opacity(0.04 + 0.18 * twinkle))
                 )
             }
         }
@@ -415,12 +507,15 @@ private struct StarField: View {
     }
 }
 
-/// One orbiting body: a sphere in the node's status colour, with a pulse when
-/// healthy and a spinner arc while deploying.
+/// One orbiting body: a sphere in the node's status colour. Motion is reserved
+/// for states that mean something (deploying spin, failing pulse) plus the
+/// staged entrance and selection ring.
 private struct PlanetView: View {
     let node: FleetNode
     let elapsed: TimeInterval
     let isSelected: Bool
+    let appearDelay: Double
+    let revealed: Bool
     let onTap: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -433,44 +528,55 @@ private struct PlanetView: View {
         let tint = node.status.tint
         Button(action: onTap) {
             ZStack {
-                if node.status == .healthy, !reduceMotion {
-                    // A slow expanding ripple: "alive and well".
-                    let t = elapsed.truncatingRemainder(dividingBy: 3.5) / 3.5
+                // Selection halo — scales in with the spring on `isSelected`.
+                Circle()
+                    .strokeBorder(.white.opacity(isSelected ? 0.85 : 0), lineWidth: 2)
+                    .frame(width: size + 12, height: size + 12)
+                    .scaleEffect(isSelected ? 1 : 0.7)
+                    .opacity(isSelected ? 1 : 0)
+
+                if node.status == .failed || node.status == .loading, !reduceMotion {
+                    let pulse = 0.55 + 0.45 * sin(elapsed * 2.4)
                     Circle()
-                        .fill(tint)
-                        .frame(width: size, height: size)
-                        .scaleEffect(1 + 1.1 * t)
-                        .opacity(0.35 * (1 - t))
+                        .fill(tint.opacity(0.35 * pulse))
+                        .frame(width: size + 10, height: size + 10)
                 }
+
                 if node.status == .deploying {
                     Circle()
-                        .trim(from: 0, to: 0.28)
-                        .stroke(tint, lineWidth: 2)
-                        .frame(width: size + 8, height: size + 8)
-                        .rotationEffect(.degrees(reduceMotion ? 0 : elapsed * 300))
+                        .trim(from: 0, to: 0.22)
+                        .stroke(tint, style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
+                        .frame(width: size + 10, height: size + 10)
+                        .rotationEffect(.degrees(reduceMotion ? 0 : elapsed * 225))
                 }
+
                 Circle()
                     .fill(
                         RadialGradient(
-                            colors: [.white.opacity(0.65), tint, tint.opacity(0.8)],
+                            colors: [.white.opacity(0.55), tint, tint.opacity(0.85)],
                             center: .init(x: 0.35, y: 0.3),
                             startRadius: 0, endRadius: size * 0.7
                         )
                     )
                     .frame(width: size, height: size)
-                    .overlay(Circle().strokeBorder(.black.opacity(0.4), lineWidth: 1))
-                    .shadow(color: tint.opacity(0.6), radius: 6)
-                if isSelected {
-                    Circle()
-                        .strokeBorder(.white.opacity(0.8), lineWidth: 2)
-                        .frame(width: size + 8, height: size + 8)
-                }
+                    .overlay(Circle().strokeBorder(.black.opacity(0.35), lineWidth: 1))
+                    .shadow(color: tint.opacity(isSelected ? 0.75 : 0.45), radius: isSelected ? 8 : 5)
             }
+            .scaleEffect(isSelected ? 1.12 : 1)
             // A comfortable hit target around a small body.
             .frame(width: 44, height: 44)
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .scaleEffect(revealed || reduceMotion ? 1 : 0.6)
+        .opacity(revealed || reduceMotion ? 1 : 0)
+        .animation(
+            reduceMotion
+                ? nil
+                : .spring(response: 0.5, dampingFraction: 0.78).delay(appearDelay),
+            value: revealed
+        )
+        .animation(.spring(duration: 0.32, bounce: 0.28), value: isSelected)
         .accessibilityLabel("\(node.title): \(node.status.label)")
         .accessibilityHint("Shows details")
         .accessibilityIdentifier("planet-\(node.id)")
@@ -480,6 +586,7 @@ private struct PlanetView: View {
 /// The always-visible name pill riding along with its body.
 private struct NamePlate: View {
     let node: FleetNode
+    var emphasized: Bool = false
 
     var body: some View {
         HStack(spacing: 3) {
@@ -488,15 +595,15 @@ private struct NamePlate: View {
             if let ms = node.latencyMs {
                 Text("\(ms)ms")
                     .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.45))
             }
         }
         .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(.white.opacity(0.85))
+        .foregroundStyle(.white.opacity(emphasized ? 0.95 : 0.8))
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
-        .background(.black.opacity(0.45), in: .capsule)
-        .overlay(Capsule().strokeBorder(.white.opacity(0.1)))
+        .background(.black.opacity(0.55), in: .capsule)
+        .overlay(Capsule().strokeBorder(.white.opacity(emphasized ? 0.22 : 0.1)))
         .frame(maxWidth: 130)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
