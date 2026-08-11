@@ -24,6 +24,7 @@ import (
 	"github.com/example/ring-promoter/internal/changerequest"
 	"github.com/example/ring-promoter/internal/config"
 	"github.com/example/ring-promoter/internal/deployer"
+	"github.com/example/ring-promoter/internal/grafana"
 	"github.com/example/ring-promoter/internal/health"
 	"github.com/example/ring-promoter/internal/metrics"
 	"github.com/example/ring-promoter/internal/ring"
@@ -100,6 +101,12 @@ type RingGates struct {
 	// MaintenanceWindowOpen is whether a window is currently open for this ring
 	// (only meaningful when MaintenanceWindow is true).
 	MaintenanceWindowOpen bool `json:"maintenance_window_open"`
+	// Grafana reports whether a Grafana dashboard gates entering this ring, and
+	// (when it does) its current verdict — the value the UI draws between the
+	// ring cards.
+	Grafana bool `json:"grafana"`
+	// GrafanaStatus is the live verdict, present only when Grafana is true.
+	GrafanaStatus *grafana.Result `json:"grafana_status,omitempty"`
 }
 
 // ringGates computes the gate requirements/status for one ring of an app.
@@ -112,6 +119,7 @@ func (p *Promoter) ringGates(ctx context.Context, app, ringName string) RingGate
 		MaintenanceWindow: pol.MaintenanceWindow.Guards(ringName),
 		QASignoff:         pol.QASignoff.Guards(ringName),
 		ChangeRequest:     pol.ChangeRequest.Guards(ringName),
+		Grafana:           pol.Grafana.Guards(ringName),
 	}
 	if g.ChangeRequest {
 		g.ChangeRequestProvider = pol.ChangeRequest.ProviderKind()
@@ -120,6 +128,10 @@ func (p *Promoter) ringGates(ctx context.Context, app, ringName string) RingGate
 		if open, err := p.maintenanceOpenAt(ctx, app, ringName, p.now()); err == nil {
 			g.MaintenanceWindowOpen = open
 		}
+	}
+	if g.Grafana {
+		res := p.grafanaVerdict(ctx, app, ringName)
+		g.GrafanaStatus = &res
 	}
 	return g
 }
@@ -147,6 +159,9 @@ type Promoter struct {
 	// recoveryPoll is how often ResumePendingOp re-probes a ring while waiting
 	// for an interrupted deploy to land; overridable in tests.
 	recoveryPoll time.Duration
+	// grafanaGateState caches Grafana go/no-go verdicts and the per-app clients
+	// that fetch them (see grafana_gate.go).
+	grafanaGateState
 }
 
 // New constructs a Promoter. deployers maps an application name to its deployer;

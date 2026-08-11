@@ -14,6 +14,27 @@ import type {
   VersionsResponse,
 } from "@/lib/types";
 
+/**
+ * The extras a seed/promote may carry to get past an app's promotion policy:
+ * the production password, a change-request code, and a Grafana-gate override
+ * (which the server rejects unless it comes with a reason).
+ */
+export interface GateOpts {
+  password?: string;
+  crCode?: string;
+  overrideReason?: string;
+}
+
+function gateBody(o: GateOpts): Record<string, unknown> {
+  return {
+    ...(o.password ? { password: o.password } : {}),
+    ...(o.crCode ? { cr_code: o.crCode } : {}),
+    ...(o.overrideReason
+      ? { override_grafana: true, override_reason: o.overrideReason }
+      : {}),
+  };
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -153,39 +174,17 @@ export const api = {
     ),
 
   // Mutations always use the async job flow so the UI can render live
-  // step-by-step progress; each returns the job id to poll. `password` is the
-  // production password; `crCode` is the change-request code required by an
-  // app's promotion policy for a change-request-gated ring.
-  seed: (
-    name: string,
-    ring: string,
-    version: string,
-    password?: string,
-    crCode?: string,
-  ) =>
+  // step-by-step progress; each returns the job id to poll.
+  seed: (name: string, ring: string, version: string, opts: GateOpts = {}) =>
     request<{ job_id: string }>(`${app(name)}/seed?async=1`, {
       method: "POST",
-      body: JSON.stringify({
-        ring,
-        version,
-        ...(password ? { password } : {}),
-        ...(crCode ? { cr_code: crCode } : {}),
-      }),
+      body: JSON.stringify({ ring, version, ...gateBody(opts) }),
     }),
 
-  promote: (
-    name: string,
-    fromRing: string,
-    password?: string,
-    crCode?: string,
-  ) =>
+  promote: (name: string, fromRing: string, opts: GateOpts = {}) =>
     request<{ job_id: string }>(`${app(name)}/promote?async=1`, {
       method: "POST",
-      body: JSON.stringify({
-        from_ring: fromRing,
-        ...(password ? { password } : {}),
-        ...(crCode ? { cr_code: crCode } : {}),
-      }),
+      body: JSON.stringify({ from_ring: fromRing, ...gateBody(opts) }),
     }),
 
   // ---- promotion-policy gates ----
