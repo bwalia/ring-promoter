@@ -32,6 +32,13 @@ var (
 	// ErrChangeRequestInvalid: a change-request code was supplied but did not
 	// validate against the configured business system.
 	ErrChangeRequestInvalid = errors.New("change-request code invalid")
+	// ErrGrafanaNoGo: the target ring's Grafana dashboard reports no-go for the
+	// release. Unlike the other gate errors this one is overridable — see
+	// GateInputs.OverrideGrafana.
+	ErrGrafanaNoGo = errors.New("grafana dashboard reports no-go")
+	// ErrGrafanaOverrideReason: an override was requested without a reason. The
+	// override is recorded in history, so it must say why.
+	ErrGrafanaOverrideReason = errors.New("grafana override needs a reason")
 )
 
 // demoCRCode is the universal change-request code accepted by every provider so
@@ -46,6 +53,14 @@ const demoCRCode = "test"
 // operation including any auto-promote hops it triggers.
 type GateInputs struct {
 	ChangeRequestCode string
+	// OverrideGrafana lets a release engineer promote past a Grafana no-go. It
+	// applies ONLY to the Grafana gate — the maintenance window, sign-off and
+	// change-request gates have their own ways to be satisfied and are never
+	// bypassed. An override requires OverrideReason and is written into the job
+	// log and history so the decision is attributable after the fact.
+	OverrideGrafana bool
+	// OverrideReason explains why the dashboard was overruled.
+	OverrideReason string
 }
 
 type gateInputsKey struct{}
@@ -132,7 +147,40 @@ func (p *Promoter) evaluateGates(ctx context.Context, app, targetRing, version s
 			rep.Log(fmt.Sprintf("gate: change-request %q validated for %s", code, targetRing))
 		}
 	}
+
+	// 4. Grafana go/no-go, read from the app's release dashboard. Only an
+	// explicit no-go blocks: a "check" verdict is advisory, and a Grafana that
+	// cannot be reached must not become an outage of its own.
+	if pol.Grafana.Guards(targetRing) {
+		res := p.grafanaVerdict(ctx, app, targetRing)
+		switch {
+		case !res.Verdict.Blocks():
+			rep.Log(fmt.Sprintf("gate: grafana %s for %s (%s)", res.Verdict, targetRing, describeGrafana(res)))
+		case in.OverrideGrafana:
+			reason := strings.TrimSpace(in.OverrideReason)
+			if reason == "" {
+				return fmt.Errorf("%w: state why the %s no-go is being overruled", ErrGrafanaOverrideReason, targetRing)
+			}
+			rep.Log(fmt.Sprintf("gate: grafana NO-GO for %s (%s) OVERRIDDEN — %s",
+				targetRing, describeGrafana(res), reason))
+			p.log.Warn("grafana gate overridden",
+				"app", app, "ring", targetRing, "version", version,
+				"verdict", describeGrafana(res), "reason", reason)
+		default:
+			return fmt.Errorf("%w: %s reports %s for %s (open the ring's panel to override)",
+				ErrGrafanaNoGo, dashboardName(pol.Grafana), describeGrafana(res), targetRing)
+		}
+	}
 	return nil
+}
+
+// dashboardName renders the dashboard behind a Grafana gate for an error
+// message, falling back to a generic noun when it is unnamed.
+func dashboardName(g *config.GrafanaPolicy) string {
+	if t := g.DashboardTitle(); t != "" {
+		return t
+	}
+	return "the release dashboard"
 }
 
 // validateChangeRequest runs the app's CR validator, mapping a rejection to the

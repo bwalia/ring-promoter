@@ -124,6 +124,35 @@ apps:
   - name: wslproxy
     display_name: "diytaxreturn proxy"
     depends_on: [diytaxreturn-opsapi]
+    # Grafana go/no-go gate, reading the NIGHTLY E2E suite. Promotion time
+    # itself is guarded by fast checks only (the ring health_url check here plus
+    # the deploy job's own smoke tests); the E2E suites run overnight, and this
+    # gate carries their verdict into the next day's promotions. Each check is
+    # one suite's "Go / No-Go" panel query (2 = success, 0 = failure), and ONE
+    # red suite blocks. In PRODUCTION set `url` (and provide a Grafana
+    # service-account token via RP_GRAFANA_TOKEN) — see the real block in the
+    # diy repo's devops/ring-promoter/configmap.yaml. Here (local dev) `url` is
+    # omitted, which puts the gate in demo mode: no HTTP call, verdicts come
+    # from demo_verdicts.
+    promotion_policy:
+      grafana:
+        rings: [test, acc, prod]
+        dashboard_uid: sre-e2e-test-suite
+        dashboard_name: "DIY Tax Return — E2E Test Suite"
+        go_min: 2       # 2 = suite passed
+        no_go_max: 0    # 0 = suite failed
+        # The suites run nightly, so a result older than this is treated as "no
+        # data" rather than a GO that happens to be days old.
+        max_age: 36h
+        checks:
+          - name: "Register & Login"
+          - name: "Full Tax Return Flow"
+          - name: "RBAC & Admin Access"
+          - name: "Daily Tests"
+        demo_verdicts:
+          test: go
+          acc: check
+          prod: no_go
     rings:
       int:  { target_env: int,  health_url: "https://int-our.wslproxy.com/healthz" }
       test: { target_env: test, health_url: "https://test.wslproxy.com/healthz" }

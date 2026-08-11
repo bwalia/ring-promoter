@@ -65,6 +65,10 @@ import { useUiStore } from "@/lib/ui-store";
 import type { AppVersion, RingView } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { GateChecklist, gatesActive } from "@/components/dashboard/gate-controls";
+import {
+  GrafanaOverrideField,
+  gateBlocks,
+} from "@/components/dashboard/grafana-gate";
 
 /**
  * The seed / promote / rollback dialogs for the selected app. All are driven
@@ -140,6 +144,7 @@ function SeedDialog({
   const [version, setVersion] = useState("");
   const [password, setPassword] = useState("");
   const [crCode, setCrCode] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const seed = useSeedMutation(app);
   const versionsQuery = useVersions(app);
@@ -149,10 +154,12 @@ function SeedDialog({
   const replaces = target?.current_version;
   const needsPassword = prodProtected && ring === prodRing;
   const needsCrCode = !!target?.gates?.change_request;
+  const needsOverride = gateBlocks(target);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!ring || !version.trim() || seed.isPending) return;
+    if (needsOverride && !overrideReason.trim()) return;
     setError(null);
     seed.mutate(
       {
@@ -160,6 +167,7 @@ function SeedDialog({
         version: version.trim(),
         password: needsPassword ? password : undefined,
         crCode: needsCrCode ? crCode.trim() : undefined,
+        overrideReason: needsOverride ? overrideReason.trim() : undefined,
       },
       {
         onSuccess: onClose,
@@ -248,6 +256,14 @@ function SeedDialog({
             />
           )}
 
+          {target && (
+            <GrafanaOverrideField
+              target={target}
+              reason={overrideReason}
+              onReasonChange={setOverrideReason}
+            />
+          )}
+
           {needsPassword && (
             <ProdPasswordField
               id="seed-prod-password"
@@ -269,13 +285,14 @@ function SeedDialog({
                 !version.trim() ||
                 (needsPassword && !password) ||
                 (needsCrCode && !crCode.trim()) ||
+                (needsOverride && !overrideReason.trim()) ||
                 seed.isPending
               }
             >
               {seed.isPending && (
                 <Loader2 aria-hidden className="size-4 animate-spin" />
               )}
-              Seed {ring || "…"}
+              {needsOverride ? "Override and seed" : `Seed ${ring || "…"}`}
             </Button>
           </DialogFooter>
         </form>
@@ -405,6 +422,7 @@ function PromoteDialog({
   const { prodProtected, prodRing } = useProdProtection();
   const [password, setPassword] = useState("");
   const [crCode, setCrCode] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const i = rings.findIndex((r) => r.ring.name === fromRing);
   const source = i >= 0 ? rings[i] : undefined;
@@ -415,6 +433,9 @@ function PromoteDialog({
   // A change-request-gated target needs a code before we even try — every other
   // gate (window / sign-off) is enforced server-side and surfaced as an error.
   const needsCrCode = !!target?.gates?.change_request;
+  // A Grafana no-go can be overruled, but only with a stated reason. Reaching
+  // this dialog at all means the operator went through the ring's details sheet.
+  const needsOverride = gateBlocks(target);
 
   const confirm = (e: React.MouseEvent) => {
     if (!fromRing) return;
@@ -426,6 +447,7 @@ function PromoteDialog({
         fromRing,
         password: needsPassword ? password : undefined,
         crCode: needsCrCode ? crCode.trim() : undefined,
+        overrideReason: needsOverride ? overrideReason.trim() : undefined,
       },
       {
         onSuccess: onClose,
@@ -479,6 +501,14 @@ function PromoteDialog({
           />
         )}
 
+        {target && (
+          <GrafanaOverrideField
+            target={target}
+            reason={overrideReason}
+            onReasonChange={setOverrideReason}
+          />
+        )}
+
         {needsPassword && (
           <ProdPasswordField
             id="promote-prod-password"
@@ -498,6 +528,7 @@ function PromoteDialog({
             disabled={
               (needsPassword && !password) ||
               (needsCrCode && !crCode.trim()) ||
+              (needsOverride && !overrideReason.trim()) ||
               promote.isPending
             }
             onClick={confirm}
@@ -505,7 +536,7 @@ function PromoteDialog({
             {promote.isPending && (
               <Loader2 aria-hidden className="size-4 animate-spin" />
             )}
-            Promote
+            {needsOverride ? "Override and promote" : "Promote"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

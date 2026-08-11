@@ -280,6 +280,10 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 		// CRCode is the change-request code for a change-request-gated ring; the
 		// universal demo code "test" is always accepted.
 		CRCode string `json:"cr_code,omitempty"`
+		// OverrideGrafana promotes past a Grafana no-go; OverrideReason says why
+		// and is required with it.
+		OverrideGrafana bool   `json:"override_grafana,omitempty"`
+		OverrideReason  string `json:"override_reason,omitempty"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -289,9 +293,14 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 	if body.Ring == prodRing() && !s.checkProdPassword(w, body.Password) {
 		return
 	}
-	// Promotion-policy gate inputs (change-request code) ride the operation
-	// context so Seed and its pre-validation see the same values.
-	gateCtx := promoter.WithGateInputs(r.Context(), promoter.GateInputs{ChangeRequestCode: body.CRCode})
+	// Promotion-policy gate inputs (change-request code, Grafana override) ride
+	// the operation context so Seed and its pre-validation see the same values.
+	gates := promoter.GateInputs{
+		ChangeRequestCode: body.CRCode,
+		OverrideGrafana:   body.OverrideGrafana,
+		OverrideReason:    body.OverrideReason,
+	}
+	gateCtx := promoter.WithGateInputs(r.Context(), gates)
 	if wantsAsync(r) {
 		// Reject precondition failures (unknown ring, missing version, closed
 		// gate) on the request itself instead of spawning a doomed job — the UI
@@ -308,7 +317,7 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := s.opContext(r)
 	defer cancel()
-	ctx = promoter.WithGateInputs(ctx, promoter.GateInputs{ChangeRequestCode: body.CRCode})
+	ctx = promoter.WithGateInputs(ctx, gates)
 	res, err := s.prom.Seed(ctx, app, body.Ring, body.Version)
 	writeResult(w, res, err)
 }
@@ -320,6 +329,10 @@ func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
 		// CRCode is the change-request code for a change-request-gated target
 		// ring; the universal demo code "test" is always accepted.
 		CRCode string `json:"cr_code,omitempty"`
+		// OverrideGrafana promotes past a Grafana no-go on the TARGET ring;
+		// OverrideReason says why and is required with it.
+		OverrideGrafana bool   `json:"override_grafana,omitempty"`
+		OverrideReason  string `json:"override_reason,omitempty"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -330,7 +343,12 @@ func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
 		!s.checkProdPassword(w, body.Password) {
 		return
 	}
-	gateCtx := promoter.WithGateInputs(r.Context(), promoter.GateInputs{ChangeRequestCode: body.CRCode})
+	gates := promoter.GateInputs{
+		ChangeRequestCode: body.CRCode,
+		OverrideGrafana:   body.OverrideGrafana,
+		OverrideReason:    body.OverrideReason,
+	}
+	gateCtx := promoter.WithGateInputs(r.Context(), gates)
 	if wantsAsync(r) {
 		// Reject a gated promotion (closed window / missing sign-off / bad CR
 		// code) before spawning a job so the UI can show why.
@@ -346,7 +364,7 @@ func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := s.opContext(r)
 	defer cancel()
-	ctx = promoter.WithGateInputs(ctx, promoter.GateInputs{ChangeRequestCode: body.CRCode})
+	ctx = promoter.WithGateInputs(ctx, gates)
 	res, err := s.prom.Promote(ctx, app, body.FromRing)
 	writeResult(w, res, err)
 }
@@ -648,11 +666,13 @@ func statusForErr(err error) int {
 		errors.Is(err, promoter.ErrUnknownApp),
 		errors.Is(err, promoter.ErrSelfDependency), errors.Is(err, promoter.ErrEmptyEdge),
 		errors.Is(err, promoter.ErrChangeRequestRequired), errors.Is(err, promoter.ErrChangeRequestInvalid),
+		errors.Is(err, promoter.ErrGrafanaOverrideReason),
 		errors.Is(err, promoter.ErrInvalidWindow), errors.Is(err, promoter.ErrInvalidSignoff):
 		return http.StatusBadRequest
 	case errors.Is(err, promoter.ErrNothingToPromote), errors.Is(err, promoter.ErrNothingToRollback),
 		errors.Is(err, promoter.ErrMaintenanceWindowClosed), errors.Is(err, promoter.ErrSignoffRequired),
-		errors.Is(err, promoter.ErrSignoffNoGo), errors.Is(err, promoter.ErrAutoPromoteConfigOwned):
+		errors.Is(err, promoter.ErrSignoffNoGo), errors.Is(err, promoter.ErrGrafanaNoGo),
+		errors.Is(err, promoter.ErrAutoPromoteConfigOwned):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

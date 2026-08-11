@@ -29,6 +29,52 @@ export interface RingGates {
   change_request_provider?: string;
   /** Whether a maintenance window is open right now for this ring. */
   maintenance_window_open: boolean;
+  /** A Grafana dashboard's go/no-go verdict is required to enter this ring. */
+  grafana: boolean;
+  /** The live verdict, present only when `grafana` is true. */
+  grafana_status?: GrafanaVerdict;
+}
+
+/**
+ * One evaluation of a ring's Grafana go/no-go gate. `no_go` blocks promotion
+ * into the ring; `check` is advisory; `unknown` means Grafana could not answer
+ * (an observability outage must not stop a release, so it never blocks).
+ */
+export interface GrafanaVerdict {
+  verdict: GateState;
+  /** The individual dashboard queries behind the verdict, in config order. */
+  checks?: GrafanaCheck[];
+  /** Human name of the dashboard behind the verdict. */
+  dashboard?: string;
+  /** Deep link to that dashboard for this ring. */
+  dashboard_url?: string;
+  /** One-line explanation of a gate-level failure. */
+  error?: string;
+  checked_at: string;
+  /** No Grafana was contacted — the verdict comes from config. */
+  demo?: boolean;
+}
+
+export type GateState = "go" | "check" | "no_go" | "unknown";
+
+/** One check behind a gate — typically one nightly E2E suite. */
+export interface GrafanaCheck {
+  /** e.g. "Register & Login". */
+  name: string;
+  verdict: GateState;
+  /** The number the query returned (absent when unknown). */
+  value?: number;
+  /** Suffix for the value, e.g. "%". */
+  unit?: string;
+  /** Thresholds the value was judged against. */
+  go_min: number;
+  no_go_max: number;
+  /** When the underlying test run happened — not when we queried it. */
+  ran_at?: string;
+  /** The run is older than the gate's max_age, so its verdict is not trusted. */
+  stale?: boolean;
+  /** One-line explanation of an `unknown` verdict. */
+  error?: string;
 }
 
 export interface RingView {

@@ -432,16 +432,16 @@ export function useSeedMutation(app: string | null) {
     mutationFn: ({
       ring,
       version,
-      password,
-      crCode,
+      ...opts
     }: {
       ring: string;
       version: string;
       password?: string;
       crCode?: string;
+      overrideReason?: string;
     }) => {
       if (!app) throw new Error("no application selected");
-      return api.seed(app, ring, version, password, crCode);
+      return api.seed(app, ring, version, opts);
     },
     onSuccess: (_res, { ring, version }) => {
       // The shared jobs poll picks the new job up; refetch now for snappiness.
@@ -460,15 +460,15 @@ export function usePromoteMutation(app: string | null) {
   return useMutation({
     mutationFn: ({
       fromRing,
-      password,
-      crCode,
+      ...opts
     }: {
       fromRing: string;
       password?: string;
       crCode?: string;
+      overrideReason?: string;
     }) => {
       if (!app) throw new Error("no application selected");
-      return api.promote(app, fromRing, password, crCode);
+      return api.promote(app, fromRing, opts);
     },
     onSuccess: (_res, { fromRing }) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });

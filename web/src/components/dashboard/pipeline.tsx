@@ -28,6 +28,12 @@ import {
 } from "@/components/ui/tooltip";
 import { VersionLabel } from "@/components/version-label";
 import { gatesActive } from "@/components/dashboard/gate-controls";
+import {
+  GateDetail,
+  GrafanaGate,
+  gateBlocks,
+  gateVerdict,
+} from "@/components/dashboard/grafana-gate";
 import { Lock } from "lucide-react";
 import {
   useActiveJob,
@@ -111,7 +117,15 @@ export function Pipeline({
                     setDetailsOpen(true);
                   }}
                 />
-                {i < rings.length - 1 && (
+                {i < rings.length - 1 &&
+                // The gap between two cards carries the gate guarding entry
+                // into the NEXT ring, or a plain chevron when it is ungated.
+                (gateVerdict(rings[i + 1]) ? (
+                  <GrafanaGate
+                    targetLabel={rings[i + 1].ring.label}
+                    verdict={gateVerdict(rings[i + 1])!}
+                  />
+                ) : (
                   <div className="flex items-center justify-center self-center text-muted-foreground/60">
                     <ChevronDown aria-hidden className="size-4 xl:hidden" />
                     <ChevronRight
@@ -119,7 +133,7 @@ export function Pipeline({
                       className="hidden size-4 xl:block"
                     />
                   </div>
-                )}
+                ))}
               </Fragment>
             ))}
           </div>
@@ -178,14 +192,20 @@ function RingCard({
   const inSync =
     !!next && !!view.current_version &&
     next.current_version === view.current_version;
-  const promoteDisabled = busy || !view.can_promote_from || inSync;
+  // A Grafana no-go on the TARGET ring stops the promotion here. It is the one
+  // gate a release engineer may overrule, and the override lives in the details
+  // sheet — deliberately one click away from the quick action.
+  const noGo = gateBlocks(next);
+  const promoteDisabled = busy || !view.can_promote_from || inSync || noGo;
   const promoteHint = !view.current_version
     ? "Nothing to promote — seed a version first"
     : !view.can_promote_from
       ? "Target ring not available"
       : inSync
         ? `${next!.ring.label} already has ${view.current_version}`
-        : `Promote ${view.current_version} to ${next!.ring.label}`;
+        : noGo
+          ? `${next!.ring.label} is NO-GO on ${gateVerdict(next)?.dashboard || "Grafana"} — open this card to override`
+          : `Promote ${view.current_version} to ${next!.ring.label}`;
 
   return (
     <div
@@ -442,6 +462,30 @@ function RingDetailsSheet({
             </DetailRow>
           </section>
 
+          {/* The gate guarding the NEXT ring, because that is what this ring's
+              Promote has to get past. Its no-go is the only gate a release
+              engineer can overrule, and this panel is where they do it. */}
+          {next && gateVerdict(next) && (
+            <section
+              className={cn(
+                "space-y-3 rounded-lg border p-3",
+                gateBlocks(next) && "border-status-critical/40",
+              )}
+            >
+              <GateDetail
+                targetLabel={next.ring.label}
+                verdict={gateVerdict(next)!}
+              />
+              {gateBlocks(next) && (
+                <p className="text-xs text-muted-foreground">
+                  Promotion is blocked. Use “Override and promote” below to
+                  overrule the dashboard — you will be asked why, and the reason
+                  is recorded against the promotion.
+                </p>
+              )}
+            </section>
+          )}
+
           {gatesActive(view) && (
             <section className="rounded-lg border p-3">
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -517,7 +561,15 @@ function RingDetailsSheet({
 
         <SheetFooter>
           {next && (
+            // Unlike the card's Promote, this one stays enabled on a no-go: the
+            // sheet is the deliberate path, and the dialog it opens collects the
+            // reason before anything is deployed.
             <Button
+              variant={gateBlocks(next) ? "outline" : "default"}
+              className={cn(
+                gateBlocks(next) &&
+                  "border-status-critical/40 text-status-critical hover:text-status-critical",
+              )}
               disabled={busy || !view.can_promote_from}
               onClick={() =>
                 act(() =>
@@ -526,7 +578,9 @@ function RingDetailsSheet({
               }
             >
               <ArrowUpRight aria-hidden className="size-4" />
-              Promote to {next.ring.label}
+              {gateBlocks(next)
+                ? `Override and promote to ${next.ring.label}`
+                : `Promote to ${next.ring.label}`}
             </Button>
           )}
           <Button

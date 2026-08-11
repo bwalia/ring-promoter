@@ -314,13 +314,48 @@ the commented example in `config.yaml`):
   `jira` validates the code against a JIRA issue (and optional approved statuses /
   project keys), with the token from `RP_JIRA_TOKEN`. **The demo code `test` is
   always accepted** — for demos — whatever the provider.
+- **Grafana go/no-go** — the target ring's release dashboard has to agree. Each
+  `checks` entry runs one dashboard query through Grafana's `/api/ds/query`
+  (token from `RP_GRAFANA_TOKEN`) and turns the number it returns into a
+  verdict: `>= go_min` is **GO**, `<= no_go_max` is **NO-GO**, anything between
+  is **CHECK**. The checks roll up worst-first — **one red check blocks the
+  promotion** (`409`), and the error names it. Because the queries are the
+  panels' own, the gate and the dashboard cannot disagree.
+
+  This is the gate for **slow** signals — nightly E2E suites rather than
+  anything that could run inside a promotion. (Promotion time itself stays fast:
+  the ring health check, plus whatever smoke tests the app's deploy runs.) Two
+  rules keep a slow signal honest:
+  - **`max_age`** — a "latest run" query happily returns a result from days ago,
+    so a suite that silently stopped running would show its last GO forever.
+    Past `max_age` a check reads **NO DATA** instead. Needs the query to select
+    the run's timestamp (`created_at AS "time"`).
+  - **Nothing unreadable ever blocks.** An unreachable Grafana, a stale run or a
+    partial answer is advisory — an observability outage must not become a
+    release outage — but the UI shows it, so it is never mistaken for a GO.
+
+  Verdicts are cached for 60s so the polled rings endpoint does not hammer
+  Grafana. Omit `url` to run the gate in **demo mode** (verdicts from
+  `demo_verdict` / `demo_verdicts`, no HTTP call), the way `deployer: log` lets
+  deploys run offline.
+
+**Overriding a no-go.** The Grafana gate is the only overridable one — it is a
+metric-based opinion, and a release engineer looking at the same dashboard may
+legitimately disagree. `seed`/`promote` accept `override_grafana: true` with a
+non-empty `override_reason` (`400` without one); the reason goes into the job log
+and the service log, so the decision stays attributable. The override applies to
+**that gate only** — a closed window, a missing sign-off or a bad CR code still
+block. In the UI the card's Promote is disabled on a no-go and the override lives
+in the ring's details sheet, one deliberate click away.
 
 The `GET .../rings` response carries a per-ring `gates` object (which gates guard
-the ring, the CR provider, and whether a window is open now) so the UI prompts
-appropriately; the Seed/Promote dialogs let a release engineer open a window,
-record a sign-off, and enter a CR code inline. Auto-promote into a
-change-request-gated ring fails closed (there is no interactive CR code), so such
-rings are always promoted into explicitly.
+the ring, the CR provider, whether a window is open now, and the live Grafana
+verdict in `grafana_status`) so the UI prompts appropriately; the Seed/Promote
+dialogs let a release engineer open a window, record a sign-off, enter a CR code
+and state an override reason inline. Auto-promote into a change-request-gated
+ring fails closed (there is no interactive CR code), so such rings are always
+promoted into explicitly — and auto-promote into a Grafana-gated ring stops at a
+no-go, since an override needs a human reason.
 
 **Version validation.** For apps using the `github` deployer, `seed` verifies
 the requested version (branch, tag or commit SHA) actually resolves in the
