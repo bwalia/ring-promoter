@@ -67,10 +67,15 @@ data:
                 --set externalSecret.enabled=false \
                 --set-string secrets.registryUsername="${REGISTRY_USERNAME}" \
                 --set-string secrets.registryPassword="${REGISTRY_PASSWORD}" \
-                --wait --timeout 5m
+                # --wait blocks on the rollout, which includes pulling any
+                # image the target node has not cached. 5m was shorter than a
+                # cold pull, so a deploy that helm had already applied got
+                # reported as UPGRADE FAILED while kubernetes finished it
+                # anyway. The job timeout below stays above this.
+                --wait --timeout 12m
               echo "jobshout ${RP_VERSION} live in ${ns}"
           resources: { cpu_request: 100m, memory_limit: 512Mi }
-          timeout: 15m
+          timeout: 20m
           retries: 0
           ttl_after_finished: 1h
         rings:
