@@ -225,3 +225,54 @@ apps:
       test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
       acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
       prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+
+  # 9) Platform Services — five more INERT dummy apps forming a second demo
+  #    group, in the same style as Core Platform above: per-app `deployer: log`
+  #    means seed/promote/rollback succeed instantly WITHOUT touching the
+  #    cluster, and health_url points at this control plane's own /healthz.
+  #    Seed/refresh their version spread and the "Platform Services" group with
+  #    the one-shot seed-core-platform.yml workflow.
+  - name: search-service
+    display_name: "Search Service"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+
+  - name: feature-flags
+    display_name: "Feature Flags"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+
+  - name: audit-log
+    display_name: "Audit Log"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+
+  - name: event-bus
+    display_name: "Event Bus"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+
+  - name: analytics-service
+    display_name: "Analytics Service"
+    deployer: log
+    rings:
+      int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      test: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      acc:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
+      prod: { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
