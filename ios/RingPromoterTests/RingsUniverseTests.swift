@@ -288,6 +288,88 @@ struct RingsUniverseTests {
         #expect(pin?.placed == true)
         #expect(sat?.placed == false)
         #expect(abs((pin?.lat ?? 0) - 51.5) < 2)
+        #expect((pin?.inclination ?? 0) >= SolarLayout.minInclination)
+        #expect((pin?.inclination ?? 0) >= abs(pin?.lat ?? 0) - 0.01)
+        #expect(sat?.driftDegPerSec ?? 0 > 0)
+        #expect(pin?.driftDegPerSec == 0)
+    }
+
+    @Test("an equatorial orbit matches lat 0 orthographic projection")
+    func orbitMatchesEquator() {
+        let fromOrbit = SolarLayout.projectOrbit(
+            radius: SolarLayout.earthR, inclinationDeg: 0, raanDeg: 0, argDeg: 40, spin: 0
+        )
+        let fromLatLng = SolarLayout.projectOrtho(
+            latDeg: 0, lngDeg: 40, radius: SolarLayout.earthR, spin: 0
+        )
+        #expect(abs(fromOrbit.x - fromLatLng.x) < 0.001)
+        #expect(abs(fromOrbit.y - fromLatLng.y) < 0.001)
+        #expect(abs(fromOrbit.z - fromLatLng.z) < 0.001)
+    }
+
+    @Test("a geo pin sits on its ring at that city's longitude")
+    func pinSitsOnOrbit() {
+        let london = AppLocation(lat: 51.5, lng: -0.1, city: "London", region: "GB")
+        let node = FleetNode(
+            summary: AppSummary(
+                name: "web-frontend", title: "Web Frontend",
+                rings: PreviewData.healthyRings, latestJob: nil, loadError: nil,
+                location: london
+            )
+        )
+        let body = SolarLayout.globeBodies(for: [node])[0]
+        let sat = SolarLayout.point(of: body, elapsed: 0, spin: 0)
+        let expected = SolarLayout.projectOrtho(
+            latDeg: body.lat, lngDeg: body.lng0, radius: body.r, spin: 0
+        )
+        #expect(abs(sat.x - expected.x) < 0.05)
+        #expect(abs(sat.y - expected.y) < 0.05)
+        #expect(abs(sat.z - expected.z) < 0.05)
+    }
+
+    @Test("apps in the same city get distinct orbital rings")
+    func sameCityRingsDiverge() {
+        let london = AppLocation(lat: 51.5, lng: -0.1, city: "London", region: "GB")
+        func node(_ name: String) -> FleetNode {
+            FleetNode(
+                summary: AppSummary(
+                    name: name, title: name,
+                    rings: PreviewData.healthyRings, latestJob: nil, loadError: nil,
+                    location: london
+                )
+            )
+        }
+        let bodies = SolarLayout.globeBodies(for: [node("web-frontend"), node("payments-api")])
+        #expect(bodies.count == 2)
+        let a = bodies[0], b = bodies[1]
+        let distinct =
+            abs(a.r - b.r) > 0.5
+            || abs(a.inclination - b.inclination) > 0.5
+            || abs(a.raan0 - b.raan0) > 0.5
+        #expect(distinct)
+        #expect(a.inclination >= SolarLayout.minInclination)
+        #expect(b.inclination >= SolarLayout.minInclination)
+    }
+
+    @Test("orbit samples stay on a sphere of the body's radius")
+    func orbitSamplesStayOnSphere() {
+        let london = AppLocation(lat: 51.5, lng: -0.1, city: "London", region: "GB")
+        let node = FleetNode(
+            summary: AppSummary(
+                name: "web-frontend", title: "Web Frontend",
+                rings: PreviewData.healthyRings, latestJob: nil, loadError: nil,
+                location: london
+            )
+        )
+        let body = SolarLayout.globeBodies(for: [node])[0]
+        for p in SolarLayout.sampleOrbit(body, spin: 0.4) {
+            let dx = p.x - SolarLayout.center
+            let dy = p.y - SolarLayout.center
+            let radius = (dx * dx + dy * dy + p.z * p.z).squareRoot()
+            #expect(abs(radius - body.r) < 0.001)
+        }
+        #expect(SolarLayout.minInclination == 22)
+        #expect(SolarLayout.orbitSamples == 80)
     }
 
     @Test("the Rings tab exists and sits between Overview and Activity")

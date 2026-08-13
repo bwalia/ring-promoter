@@ -324,6 +324,9 @@ enum SolarLayout {
     static let earthSpinPeriodReduced: Double = 20 * 60
     static let altMin: Double = 14
     static let altMax: Double = 78
+    /// Floor so rings never go edge-on in this equatorial camera. Matches web.
+    static let minInclination: Double = 22
+    static let orbitSamples: Int = 80
 
     struct GlobePoint: Sendable {
         let x: Double
@@ -339,8 +342,12 @@ enum SolarLayout {
         let track: Double
         let lat: Double
         let lng0: Double
+        /// Motion along the ring (argument of latitude). Geo pins stay put (0).
         let driftDegPerSec: Double
         let placed: Bool
+        let inclination: Double
+        let raan0: Double
+        let arg0: Double
     }
 
     static func ttfb(for rings: [RingStatus]) -> Int? {
@@ -376,14 +383,48 @@ enum SolarLayout {
         return GlobePoint(x: center + x, y: center + y, z: z)
     }
 
+    /// Circular orbit in the Earth's equatorial frame, then into the same
+    /// canvas coordinates as `projectOrtho`. `spin` is added to the node so
+    /// rings ride with Earth.
+    static func projectOrbit(
+        radius: Double, inclinationDeg: Double, raanDeg: Double, argDeg: Double, spin: Double
+    ) -> GlobePoint {
+        let i = inclinationDeg * .pi / 180
+        let Ω = raanDeg * .pi / 180 + spin
+        let u = argDeg * .pi / 180
+        let cosI = cos(i), sinI = sin(i)
+        let cosO = cos(Ω), sinO = sin(Ω)
+        let cosU = cos(u), sinU = sin(u)
+        let x = radius * (cosO * cosU - sinO * sinU * cosI)
+        let y = radius * (sinO * cosU + cosO * sinU * cosI)
+        let z = radius * (sinU * sinI)
+        return GlobePoint(x: center + y, y: center - z, z: x)
+    }
+
     static func point(of body: GlobeBody, elapsed: TimeInterval, spin: Double) -> GlobePoint {
-        let lng = body.lng0 + body.driftDegPerSec * elapsed
-        return projectOrtho(latDeg: body.lat, lngDeg: lng, radius: body.r, spin: spin)
+        let arg = body.arg0 + body.driftDegPerSec * elapsed
+        return projectOrbit(
+            radius: body.r, inclinationDeg: body.inclination,
+            raanDeg: body.raan0, argDeg: arg, spin: spin
+        )
     }
 
     static func surface(of body: GlobeBody, elapsed: TimeInterval, spin: Double) -> GlobePoint {
-        let lng = body.lng0 + body.driftDegPerSec * elapsed
-        return projectOrtho(latDeg: body.lat, lngDeg: lng, radius: earthR, spin: spin)
+        let arg = body.arg0 + body.driftDegPerSec * elapsed
+        return projectOrbit(
+            radius: earthR, inclinationDeg: body.inclination,
+            raanDeg: body.raan0, argDeg: arg, spin: spin
+        )
+    }
+
+    static func sampleOrbit(_ body: GlobeBody, spin: Double) -> [GlobePoint] {
+        let n = orbitSamples
+        return (0...n).map { k in
+            projectOrbit(
+                radius: body.r, inclinationDeg: body.inclination,
+                raanDeg: body.raan0, argDeg: (Double(k) / Double(n)) * 360, spin: spin
+            )
+        }
     }
 
     static func globeBodies(for nodes: [FleetNode]) -> [GlobeBody] {
@@ -403,12 +444,14 @@ enum SolarLayout {
         for p in placed {
             let jitterLat = (hash01(p.id + ":lat") - 0.5) * 1.6
             let jitterLng = (hash01(p.id + ":lng") - 0.5) * 2.2
+            let lat = min(80, max(-80, p.loc.lat + jitterLat))
+            let lng0 = wrapLng(p.loc.lng + jitterLng)
+            let orbit = orbitThrough(lat: lat, lng: lng0, id: p.id)
             out.append(
                 GlobeBody(
-                    id: p.id, r: earthR + p.alt, track: p.track,
-                    lat: min(80, max(-80, p.loc.lat + jitterLat)),
-                    lng0: wrapLng(p.loc.lng + jitterLng),
-                    driftDegPerSec: 0, placed: true
+                    id: p.id, r: ringRadius(id: p.id, alt: p.alt), track: p.track,
+                    lat: lat, lng0: lng0, driftDegPerSec: 0, placed: true,
+                    inclination: orbit.inclination, raan0: orbit.raan, arg0: orbit.arg
                 )
             )
         }
@@ -416,17 +459,49 @@ enum SolarLayout {
         let n = Double(max(sorted.count, 1))
         let maxTrack = tracks.last ?? defaultRadius
         for (index, p) in sorted.enumerated() {
-            let lat = -18 + hash01(p.id) * 36
-            let lng0 = (Double(index) / n) * 360 - 180
+            let inclination = minInclination + hash01(p.id) * 50
+            let raan0 = (Double(index) / n) * 360 - 180
+            let arg0 = hash01(p.id + ":arg") * 360
             let period = 72 + (p.track / maxTrack) * 50
+            let geo = latLngOnOrbit(inclination: inclination, raan: raan0, arg: arg0)
             out.append(
                 GlobeBody(
-                    id: p.id, r: earthR + p.alt, track: p.track,
-                    lat: lat, lng0: lng0, driftDegPerSec: 360 / period, placed: false
+                    id: p.id, r: ringRadius(id: p.id, alt: p.alt), track: p.track,
+                    lat: geo.lat, lng0: geo.lng, driftDegPerSec: 360 / period, placed: false,
+                    inclination: inclination, raan0: raan0, arg0: arg0
                 )
             )
         }
         return out
+    }
+
+    /// TTFB altitude plus a per-app stagger so equal-latency rings don't coincide.
+    static func ringRadius(id: String, alt: Double) -> Double {
+        let nudge = (hash01(id + ":r") - 0.5) * 12
+        return max(earthR + 10, earthR + alt + nudge)
+    }
+
+    /// Inclination / node / anomaly so the satellite sits at (lat, lng).
+    static func orbitThrough(lat: Double, lng: Double, id: String) -> (inclination: Double, raan: Double, arg: Double) {
+        let absLat = abs(lat)
+        let extra = 6 + hash01(id + ":i") * 20
+        var inclination = min(78, max(minInclination, max(absLat, minInclination) + extra * 0.45))
+        if inclination <= absLat + 0.25 {
+            inclination = min(80, max(minInclination, absLat + 0.5))
+        }
+        let i = inclination * .pi / 180
+        let sinU = min(1, max(-1, sin(lat * .pi / 180) / max(sin(i), 1e-6)))
+        let u = asin(sinU)
+        let raan = lng * .pi / 180 - atan2(cos(i) * sin(u), cos(u))
+        return (inclination, wrapLng(raan * 180 / .pi), u * 180 / .pi)
+    }
+
+    static func latLngOnOrbit(inclination: Double, raan: Double, arg: Double) -> (lat: Double, lng: Double) {
+        let i = inclination * .pi / 180
+        let u = arg * .pi / 180
+        let lat = asin(sin(i) * sin(u)) * 180 / .pi
+        let lng = wrapLng(raan + atan2(cos(i) * sin(u), cos(u)) * 180 / .pi)
+        return (lat, lng)
     }
 
     static func centroid(of pins: [AppLocation]) -> AppLocation? {

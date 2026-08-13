@@ -10,8 +10,6 @@ import { DIAL_SIZE, OrbitDial, ringSegments } from "@/components/orbit-body";
 import { Button } from "@/components/ui/button";
 import { summarizeRings } from "@/lib/app-health";
 import {
-  ALT_MAX,
-  ALT_MIN,
   bodyPoint,
   buildGlobeBodies,
   EARTH_R,
@@ -19,6 +17,7 @@ import {
   estimateRttMs,
   formatLocation,
   haversineKm,
+  orbitPathPair,
   surfacePoint,
   type GlobeBody,
 } from "@/lib/globe-layout";
@@ -84,6 +83,8 @@ export function SolarSystem({
   const markerEls = useRef(new Map<string, HTMLElement | null>());
   const stemEls = useRef(new Map<string, SVGLineElement | null>());
   const chordEls = useRef(new Map<string, SVGPathElement | null>());
+  const ringFrontEls = useRef(new Map<string, SVGPathElement | null>());
+  const ringBackEls = useRef(new Map<string, SVGPathElement | null>());
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -206,6 +207,9 @@ export function SolarSystem({
           String(pos.front ? 0.38 : 0.08),
         );
       }
+      const { front, back } = orbitPathPair(b, spin);
+      ringFrontEls.current.get(b.id)?.setAttribute("d", front);
+      ringBackEls.current.get(b.id)?.setAttribute("d", back);
     }
     for (const e of visibleEdges) {
       const a = nowPos.get(e.from);
@@ -404,6 +408,35 @@ export function SolarSystem({
           }
         }}
       >
+        {/* Far-side orbits sit behind Earth so the disc occults them. */}
+        <svg
+          viewBox="0 0 400 400"
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+          aria-hidden
+        >
+          {bodies.map((b) => {
+            const status = statusById.get(b.id) ?? "empty";
+            const hex = STATUS_HEX[status];
+            const { back } = orbitPathPair(b, 0);
+            const lit = active === b.id;
+            return (
+              <path
+                key={`orbit-back-${b.id}`}
+                ref={(el) => {
+                  ringBackEls.current.set(b.id, el);
+                }}
+                d={back}
+                fill="none"
+                stroke={hex}
+                strokeWidth={lit ? 1.3 : 0.85}
+                strokeOpacity={lit ? 0.4 : 0.22}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            );
+          })}
+        </svg>
+
         <EarthGlobe
           ref={earthRef}
           className="pointer-events-none absolute inset-0 size-full"
@@ -413,22 +446,28 @@ export function SolarSystem({
           viewBox="0 0 400 400"
           className="absolute inset-0 size-full overflow-visible"
         >
-          {/* Altitude shells: TTFB as height above Earth. */}
-          {[EARTH_R + ALT_MIN, EARTH_R + (ALT_MIN + ALT_MAX) / 2, EARTH_R + ALT_MAX].map(
-            (r, i) => (
-              <circle
-                key={r}
-                cx={SOLAR_C}
-                cy={SOLAR_C}
-                r={r}
+          {bodies.map((b) => {
+            const status = statusById.get(b.id) ?? "empty";
+            const hex = STATUS_HEX[status];
+            const { front } = orbitPathPair(b, 0);
+            const lit = active === b.id;
+            return (
+              <path
+                key={`orbit-front-${b.id}`}
+                ref={(el) => {
+                  ringFrontEls.current.set(b.id, el);
+                }}
+                d={front}
                 fill="none"
-                stroke="#7dd3fc"
-                strokeWidth={0.6}
-                strokeOpacity={i === 1 ? 0.1 : 0.06}
-                strokeDasharray="2 7"
+                stroke={hex}
+                strokeWidth={lit ? 1.9 : 1.2}
+                strokeOpacity={lit ? 0.9 : 0.55}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                data-orbit-ring={b.id}
               />
-            ),
-          )}
+            );
+          })}
 
           {bodies.map((b) => {
             const pos = positions.get(b.id);
@@ -642,7 +681,7 @@ export function SolarSystem({
               {ringOrder.length ? ringOrder.join(" · ") : "promotion rings"}
             </span>
             <span className="text-neutral-600">·</span>
-            <span>closer = lower TTFB</span>
+            <span>each ring is an app · closer = lower TTFB</span>
           </span>
         </div>
       </div>
