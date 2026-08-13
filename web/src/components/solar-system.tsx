@@ -1,25 +1,31 @@
 "use client";
 
-import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Link2, X } from "lucide-react";
+import { EarthGlobe, type EarthGlobeHandle } from "@/components/earth-globe";
 import { RelativeTime } from "@/components/relative-time";
 import { STATUS_HEX, type NodeStatus } from "@/components/group-ring";
 import { DIAL_SIZE, OrbitDial, ringSegments } from "@/components/orbit-body";
 import { Button } from "@/components/ui/button";
 import { summarizeRings } from "@/lib/app-health";
-import { useApps, useAppTitle, type GroupAppRings } from "@/lib/queries";
 import {
-  appLatencyMs,
-  buildOrbitPlanets,
-  latencyToRadius,
-  ORBIT_BANDS,
-  planetPosition,
-  SOLAR_C,
-  SOLAR_R_MAX,
-} from "@/lib/solar-layout";
+  ALT_MAX,
+  ALT_MIN,
+  bodyPoint,
+  buildGlobeBodies,
+  EARTH_R,
+  earthSpin,
+  estimateRttMs,
+  formatLocation,
+  haversineKm,
+  surfacePoint,
+  type GlobeBody,
+} from "@/lib/globe-layout";
+import { appLatencyMs, appTtfbMs, SOLAR_C } from "@/lib/solar-layout";
+import { useApps, useAppTitle, type GroupAppRings } from "@/lib/queries";
 import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
-import type { AppGroup, TopologyEdge } from "@/lib/types";
+import type { AppGroup, AppLocation, TopologyEdge } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const STATUS_WORD: Record<NodeStatus, string> = {
@@ -43,6 +49,8 @@ export type SolarSystemProps = {
   mode?: "apps" | "groups";
   subtitles?: Record<string, string>;
   latencyById?: Record<string, number | null>;
+  ttfbById?: Record<string, number | null>;
+  locations?: Record<string, AppLocation | null | undefined>;
   editable?: boolean;
   onAddEdge?: (from: string, to: string) => void;
   onRemoveEdge?: (from: string, to: string) => void;
@@ -61,6 +69,8 @@ export function SolarSystem({
   mode = "apps",
   subtitles,
   latencyById,
+  ttfbById,
+  locations,
   editable = false,
   onAddEdge,
   onRemoveEdge,
@@ -69,8 +79,11 @@ export function SolarSystem({
 }: SolarSystemProps) {
   const appTitle = useAppTitle();
   const title = resolveTitle ?? appTitle;
-  const hubGrad = useId();
   const hex = STATUS_HEX[aggregate];
+  const earthRef = useRef<EarthGlobeHandle>(null);
+  const markerEls = useRef(new Map<string, HTMLElement | null>());
+  const stemEls = useRef(new Map<string, SVGLineElement | null>());
+  const chordEls = useRef(new Map<string, SVGPathElement | null>());
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -99,6 +112,24 @@ export function SolarSystem({
     return m;
   }, [members, results, latencyById]);
 
+  const ttfbByMember = useMemo(() => {
+    const m = new Map<string, number | null>();
+    members.forEach((id, i) => {
+      if (ttfbById && id in ttfbById) {
+        m.set(id, ttfbById[id] ?? null);
+      } else {
+        m.set(id, appTtfbMs(results[i]?.rings));
+      }
+    });
+    return m;
+  }, [members, results, ttfbById]);
+
+  const locationByMember = useMemo(() => {
+    const m = new Map<string, AppLocation | null>();
+    for (const id of members) m.set(id, locations?.[id] ?? null);
+    return m;
+  }, [members, locations]);
+
   const statusById = useMemo(() => {
     const m = new Map<string, NodeStatus>();
     members.forEach((id, i) => m.set(id, statuses[i] ?? "empty"));
@@ -113,41 +144,100 @@ export function SolarSystem({
     return m;
   }, [members, results]);
 
-  const orbits = useMemo(
+  const bodies = useMemo(
     () =>
-      buildOrbitPlanets(members, (id) =>
-        latencyToRadius(latencyByMember.get(id) ?? null),
+      buildGlobeBodies(
+        members,
+        (id) => locationByMember.get(id),
+        (id) => ttfbByMember.get(id) ?? latencyByMember.get(id) ?? null,
       ),
-    [members, latencyByMember],
+    [members, locationByMember, ttfbByMember, latencyByMember],
   );
 
-  // Bodies hold station. Motion is reserved for things that mean something —
-  // a deploy running, a service failing — so movement on this stage is always
-  // worth looking at. Positions therefore resolve once, at t=0.
+  const fleetCentroid = useMemo(() => {
+    const pins = [...locationByMember.values()].filter((l): l is AppLocation => !!l);
+    if (pins.length < 2) return pins[0] ?? null;
+    return {
+      lat: pins.reduce((s, p) => s + p.lat, 0) / pins.length,
+      lng: pins.reduce((s, p) => s + p.lng, 0) / pins.length,
+    };
+  }, [locationByMember]);
+
+  const restPoint = (body: GlobeBody) => bodyPoint(body, 0, 0);
+
   const positions = useMemo(() => {
-    const m = new Map<string, { x: number; y: number; angle: number }>();
-    for (const p of orbits) m.set(p.id, planetPosition(p, 0));
+    const m = new Map<string, { x: number; y: number; z: number; front: boolean }>();
+    for (const b of bodies) m.set(b.id, restPoint(b));
     return m;
-  }, [orbits]);
+  }, [bodies]);
 
   const visibleEdges = useMemo(
     () => edges.filter((e) => members.includes(e.from) && members.includes(e.to)),
     [edges, members],
   );
 
-  const occupiedTracks = useMemo(
-    () => new Set(orbits.map((o) => o.track)),
-    [orbits],
-  );
-
-  // ── Name decluttering ──────────────────────────────────────────────────
-  // Bodies bunch up near the top and bottom of a track, where the names are
-  // far wider than the gap between them. Overlapping names are hidden rather
-  // than left to overprint into mush — the dial always stays, because losing
-  // a body would lose information, whereas a name comes back on hover.
-  // Layout is static, so this runs on data/size changes only, never per frame.
   const stageEl = useRef<HTMLDivElement>(null);
   const nameEls = useRef(new Map<string, HTMLElement | null>());
+  const frame = useRef({ elapsed: 0, spin: 0 });
+
+  const applyFrame = (elapsed: number, spin: number) => {
+    frame.current = { elapsed, spin };
+    const nowPos = new Map<string, ReturnType<typeof bodyPoint>>();
+    for (const b of bodies) {
+      const pos = bodyPoint(b, elapsed, spin);
+      nowPos.set(b.id, pos);
+      const el = markerEls.current.get(b.id);
+      if (el) {
+        el.style.left = `${(pos.x / 400) * 100}%`;
+        el.style.top = `${(pos.y / 400) * 100}%`;
+        el.style.opacity = pos.front ? "1" : "0.22";
+        el.style.zIndex = String(pos.front ? 20 + Math.round(pos.z) : 2);
+        el.style.pointerEvents = pos.front || active === b.id ? "auto" : "none";
+      }
+      const stem = stemEls.current.get(b.id);
+      if (stem) {
+        const ground = surfacePoint(b, elapsed, spin);
+        stem.setAttribute("x1", String(ground.x));
+        stem.setAttribute("y1", String(ground.y));
+        stem.setAttribute("x2", String(pos.x));
+        stem.setAttribute("y2", String(pos.y));
+        stem.setAttribute(
+          "stroke-opacity",
+          String(pos.front ? 0.38 : 0.08),
+        );
+      }
+    }
+    for (const e of visibleEdges) {
+      const a = nowPos.get(e.from);
+      const b = nowPos.get(e.to);
+      const path = chordEls.current.get(`${e.from}->${e.to}`);
+      if (!a || !b || !path) continue;
+      path.setAttribute("d", chordPath(a, b));
+      path.setAttribute(
+        "stroke-opacity",
+        String(a.front || b.front ? (editMode ? 0.5 : 0.22) : 0.06),
+      );
+    }
+  };
+
+  useEffect(() => {
+    earthRef.current?.setSpin(0);
+    applyFrame(0, 0);
+    if (reduceMotion) return;
+    const start = performance.now();
+    let id = 0;
+    const loop = (now: number) => {
+      const elapsed = (now - start) / 1000;
+      const spin = earthSpin(elapsed, false);
+      earthRef.current?.setSpin(spin);
+      applyFrame(elapsed, spin);
+      id = requestAnimationFrame(loop);
+    };
+    id = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(id);
+    // Marker refs are populated after commit; bodies/edges are the inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodies, visibleEdges, reduceMotion, editMode, active]);
 
   useLayoutEffect(() => {
     const stage = stageEl.current;
@@ -155,7 +245,9 @@ export function SolarSystem({
 
     const run = () => {
       const scale = stage.clientWidth / 400 || 1;
-      const ordered = [...orbits].sort((x, y) => {
+      const spin = frame.current.spin;
+      const elapsed = frame.current.elapsed;
+      const ordered = [...bodies].sort((x, y) => {
         const rank = (id: string) => {
           if (id === active) return 0;
           const st = statusById.get(id) ?? "empty";
@@ -166,26 +258,22 @@ export function SolarSystem({
         return rank(x.id) - rank(y.id);
       });
 
-      // Only names are deconflicted against each other. Seeding this with the
-      // dials as well was tried and is far too strict: past ~20 bodies every
-      // name box grazes somebody's dial and the entire stage goes anonymous.
-      // Names carry their own backdrop instead, so crossing an orbit line or
-      // clipping a neighbouring dial stays readable.
       const kept: { l: number; r: number; t: number; b: number }[] = [];
       for (const p of ordered) {
         const el = nameEls.current.get(p.id);
-        const pos = positions.get(p.id);
+        const pos = bodyPoint(p, elapsed, spin);
         if (!el || !pos) continue;
+        if (!pos.front && p.id !== active) {
+          el.style.opacity = "0";
+          el.style.pointerEvents = "none";
+          continue;
+        }
         el.style.opacity = "1";
 
-        // Boxes are derived from layout size plus the body's known position
-        // rather than read back with getBoundingClientRect: the entrance
-        // spring is still scaling these nodes when this first runs, and
-        // measured rects would be snapshots of a mid-animation frame.
         const w = el.offsetWidth;
         const h = el.offsetHeight;
         const nameRight =
-          pos.x > 300 ? false : pos.x < 100 ? true : Math.cos(pos.angle) >= 0;
+          pos.x > 300 ? false : pos.x < 100 ? true : pos.x >= SOLAR_C;
         const offset = DIAL_SIZE / 2 + 4 + w / 2;
         const cx = pos.x * scale + (nameRight ? offset : -offset);
         const cy = pos.y * scale;
@@ -198,7 +286,7 @@ export function SolarSystem({
         const clash = kept.some(
           (k) => !(box.r < k.l || box.l > k.r || box.b < k.t || box.t > k.b),
         );
-        if (clash) {
+        if (clash && p.id !== active) {
           el.style.opacity = "0";
           el.style.pointerEvents = "none";
         } else {
@@ -209,12 +297,15 @@ export function SolarSystem({
     };
 
     run();
-    // Widths depend on the webfont, so redo it once that has actually landed.
     document.fonts?.ready.then(run).catch(() => {});
     const ro = new ResizeObserver(run);
     ro.observe(stage);
-    return () => ro.disconnect();
-  }, [orbits, positions, statusById, active, title]);
+    const id = window.setInterval(run, 280);
+    return () => {
+      ro.disconnect();
+      window.clearInterval(id);
+    };
+  }, [bodies, statusById, active, title]);
 
   const hoverIn = (id: string) => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -259,7 +350,7 @@ export function SolarSystem({
           and heavy glow competed with the data for attention. */}
       <div
         aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(245,185,66,0.05)_0%,transparent_55%)]"
+        className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(56,189,248,0.06)_0%,transparent_55%)]"
       />
 
       <div className="pointer-events-none absolute left-4 top-3 z-40">
@@ -313,69 +404,64 @@ export function SolarSystem({
           }
         }}
       >
+        <EarthGlobe
+          ref={earthRef}
+          className="pointer-events-none absolute inset-0 size-full"
+        />
+
         <svg
           viewBox="0 0 400 400"
           className="absolute inset-0 size-full overflow-visible"
         >
-          <defs>
-            <radialGradient id={hubGrad} cx="42%" cy="36%" r="70%">
-              <stop offset="0%" stopColor="#2a2417" />
-              <stop offset="100%" stopColor="#131316" />
-            </radialGradient>
-          </defs>
-
-          {/* Latency bands. Each occupied track is a real axis now, not a
-              decorative circle — the "inner = faster" rule is finally
-              something you can read off the chart instead of a footnote. */}
-          {ORBIT_BANDS.map(({ r }) => {
-            const occupied = occupiedTracks.has(r);
-            return (
+          {/* Altitude shells: TTFB as height above Earth. */}
+          {[EARTH_R + ALT_MIN, EARTH_R + (ALT_MIN + ALT_MAX) / 2, EARTH_R + ALT_MAX].map(
+            (r, i) => (
               <circle
                 key={r}
                 cx={SOLAR_C}
                 cy={SOLAR_C}
                 r={r}
                 fill="none"
-                stroke="#ffffff"
-                strokeWidth={occupied ? 0.9 : 0.6}
-                strokeOpacity={occupied ? 0.14 : 0.05}
-                strokeDasharray={occupied ? undefined : "2 8"}
+                stroke="#7dd3fc"
+                strokeWidth={0.6}
+                strokeOpacity={i === 1 ? 0.1 : 0.06}
+                strokeDasharray="2 7"
+              />
+            ),
+          )}
+
+          {bodies.map((b) => {
+            const pos = positions.get(b.id);
+            if (!pos) return null;
+            const ground = surfacePoint(b, 0, 0);
+            return (
+              <line
+                key={`stem-${b.id}`}
+                ref={(el) => {
+                  stemEls.current.set(b.id, el);
+                }}
+                x1={ground.x}
+                y1={ground.y}
+                x2={pos.x}
+                y2={pos.y}
+                stroke="#7dd3fc"
+                strokeWidth={0.7}
+                strokeOpacity={0.38}
               />
             );
           })}
 
-          {/* The radial axis itself, drawn straight up; bodies are angled off
-              it (AXIS_CLEARANCE) so the scale stays readable. */}
-          <line
-            x1={SOLAR_C}
-            y1={SOLAR_C}
-            x2={SOLAR_C}
-            y2={SOLAR_C - SOLAR_R_MAX - 6}
-            stroke="#ffffff"
-            strokeOpacity={0.1}
-            strokeWidth={0.8}
-          />
-          {ORBIT_BANDS.map(({ r }) => (
-            <line
-              key={`tick-${r}`}
-              x1={SOLAR_C - 2.5}
-              y1={SOLAR_C - r}
-              x2={SOLAR_C + 2.5}
-              y2={SOLAR_C - r}
-              stroke="#ffffff"
-              strokeOpacity={0.22}
-              strokeWidth={0.9}
-            />
-          ))}
-
-          {/* Dependency chords */}
           {visibleEdges.map((e) => {
             const a = positions.get(e.from);
             const b = positions.get(e.to);
             if (!a || !b) return null;
+            const key = `${e.from}->${e.to}`;
             return (
-              <g key={`${e.from}->${e.to}`} data-edge>
+              <g key={key} data-edge>
                 <path
+                  ref={(el) => {
+                    chordEls.current.set(key, el);
+                  }}
                   d={chordPath(a, b)}
                   fill="none"
                   stroke={e.source === "config" ? "#a3a3a3" : "#737373"}
@@ -395,86 +481,38 @@ export function SolarSystem({
               </g>
             );
           })}
-
-          {/* Hub: a machined centre, not a sun. Deliberately quiet so the
-              bodies carry the eye. */}
-          <circle
-            cx={SOLAR_C}
-            cy={SOLAR_C}
-            r={42}
-            fill={`url(#${hubGrad})`}
-            stroke="#f5b942"
-            strokeOpacity={0.28}
-            strokeWidth={1}
-          />
-          <circle
-            cx={SOLAR_C}
-            cy={SOLAR_C}
-            r={35}
-            fill="none"
-            stroke="#f5b942"
-            strokeOpacity={0.12}
-            strokeWidth={0.6}
-          />
         </svg>
 
-        {/* Axis scale. Rendered as HTML, not SVG <text>: inside a 400-unit
-            viewBox that stretches to the container, any font-size is scaled by
-            the viewport and these came out roughly twice the size of every
-            other label on the stage. */}
-        {ORBIT_BANDS.map(({ r, label }) => (
-          <span
-            key={`band-${r}`}
-            aria-hidden
-            className="pointer-events-none absolute -translate-x-full -translate-y-1/2 pr-2 font-mono text-[10px] leading-none tabular-nums text-neutral-600"
-            style={{
-              left: "50%",
-              top: `${((SOLAR_C - r) / 400) * 100}%`,
-            }}
-          >
-            {label}
-          </span>
-        ))}
-
-        {/* Hub label */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="flex w-[7.5rem] flex-col items-center text-center">
-            <p className="font-display text-[12px] font-semibold uppercase tracking-[0.12em] text-[#f5b942]">
-              Rings
-            </p>
-            <p className="mt-1 font-mono text-[15px] font-medium tabular-nums leading-none text-neutral-100">
-              {members.length}
-            </p>
-            <p className="mt-0.5 font-mono text-[9px] uppercase tracking-wider text-neutral-500">
-              {members.length === 1 ? bodyWord : bodyWordPlural}
-            </p>
-          </div>
-        </div>
-
         {/* Bodies */}
-        {orbits.map((p, i) => {
+        {bodies.map((p, i) => {
           const pos = positions.get(p.id);
           if (!pos) return null;
           const status = statusById.get(p.id) ?? "empty";
           const expanded = active === p.id && !editMode;
           const linking = editMode && linkFrom === p.id;
           const lat = latencyByMember.get(p.id);
+          const ttfb = ttfbByMember.get(p.id);
+          const loc = locationByMember.get(p.id);
           const rings = resultById.get(p.id);
           const segs = ringSegments(rings?.rings, ringOrder);
           const { latest } = summarizeRings(rings?.rings);
           const left = (pos.x / 400) * 100;
           const top = (pos.y / 400) * 100;
-          // Names normally sit on the outward side so they never point back
-          // through the hub — but near the left and right extremes "outward"
-          // runs straight off the stage, so those flip inward instead.
-          const outwardRight = Math.cos(pos.angle) >= 0;
           const nameRight =
-            pos.x > 300 ? false : pos.x < 100 ? true : outwardRight;
-          const below = Math.sin(pos.angle) >= 0;
+            pos.x > 300 ? false : pos.x < 100 ? true : pos.x >= SOLAR_C;
+          const below = pos.y >= SOLAR_C;
+          const estMs =
+            loc && fleetCentroid
+              ? estimateRttMs(haversineKm(loc, fleetCentroid))
+              : null;
+          const shownMs = ttfb ?? lat ?? estMs;
 
           return (
             <div
               key={p.id}
+              ref={(el) => {
+                markerEls.current.set(p.id, el);
+              }}
               className="absolute z-10"
               style={{ left: `${left}%`, top: `${top}%` }}
               onMouseEnter={() => hoverIn(p.id)}
@@ -536,10 +574,11 @@ export function SolarSystem({
                       {mode === "groups"
                         ? (subtitles?.[p.id] ?? "")
                         : (latest?.current_version ?? "—")}
-                      {lat != null && (
+                      {shownMs != null && (
                         <span className="text-neutral-600">
                           {" · "}
-                          {Math.round(lat)}ms
+                          {ttfb == null && lat == null ? "~" : ""}
+                          {Math.round(shownMs)}ms TTFB
                         </span>
                       )}
                     </span>
@@ -564,6 +603,9 @@ export function SolarSystem({
                           status={status}
                           rings={rings}
                           latencyMs={lat ?? null}
+                          ttfbMs={ttfb ?? null}
+                          estimatedMs={estMs}
+                          location={loc}
                           mode={mode}
                           subtitle={subtitles?.[p.id]}
                           pinned={focused === p.id}
@@ -600,7 +642,7 @@ export function SolarSystem({
               {ringOrder.length ? ringOrder.join(" · ") : "promotion rings"}
             </span>
             <span className="text-neutral-600">·</span>
-            <span>ring = latency</span>
+            <span>closer = lower TTFB</span>
           </span>
         </div>
       </div>
@@ -633,7 +675,7 @@ function chordPath(
   // The closer the midpoint sits to the hub, the harder it needs to bow. The
   // threshold is comfortably wider than the hub radius (42) so chords clear
   // its edge rather than grazing it.
-  const bow = Math.max(0, 88 - dist) * 1.35;
+  const bow = Math.max(0, EARTH_R + 46 - dist) * 1.35;
   const cx = mx + (dx / dist) * bow;
   const cy = my + (dy / dist) * bow;
   return `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`;
@@ -673,6 +715,9 @@ function NodeCard({
   status,
   rings,
   latencyMs,
+  ttfbMs,
+  estimatedMs,
+  location,
   mode,
   subtitle,
   pinned,
@@ -686,6 +731,9 @@ function NodeCard({
   status: NodeStatus;
   rings: GroupAppRings | undefined;
   latencyMs: number | null;
+  ttfbMs: number | null;
+  estimatedMs: number | null;
+  location: AppLocation | null | undefined;
   mode: "apps" | "groups";
   subtitle?: string;
   pinned: boolean;
@@ -738,7 +786,26 @@ function NodeCard({
             {STATUS_WORD[status]}
           </span>
         </Row>
-        <Row label="Latency">
+        {formatLocation(location) && (
+          <Row label="Location">
+            <span className="text-neutral-100">{formatLocation(location)}</span>
+          </Row>
+        )}
+        <Row label="TTFB">
+          {ttfbMs != null ? (
+            <span className="font-mono tabular-nums text-neutral-100">
+              {Math.round(ttfbMs)}ms
+            </span>
+          ) : estimatedMs != null ? (
+            <span className="font-mono tabular-nums text-neutral-300">
+              ~{estimatedMs}ms
+              <span className="text-neutral-500"> est.</span>
+            </span>
+          ) : (
+            <span className="text-neutral-400">—</span>
+          )}
+        </Row>
+        <Row label="Check">
           {latencyMs != null ? (
             <span className="font-mono tabular-nums text-neutral-100">
               {Math.round(latencyMs)}ms

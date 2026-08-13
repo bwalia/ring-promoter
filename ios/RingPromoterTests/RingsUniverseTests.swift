@@ -220,6 +220,65 @@ struct RingsUniverseTests {
         #expect(without.latencyMs == nil)
     }
 
+    @Test("a body at lat 0 lng 0 faces the camera at the disc centre")
+    func globeNadirIsCentre() {
+        let p = SolarLayout.projectOrtho(latDeg: 0, lngDeg: 0, radius: SolarLayout.earthR, spin: 0)
+        #expect(abs(p.x - SolarLayout.center) < 0.001)
+        #expect(abs(p.y - SolarLayout.center) < 0.001)
+        #expect(p.front)
+        #expect(abs(p.z - SolarLayout.earthR) < 0.001)
+    }
+
+    @Test("north pole projects to the top of the disc")
+    func globeNorthPole() {
+        let p = SolarLayout.projectOrtho(latDeg: 90, lngDeg: 0, radius: SolarLayout.earthR, spin: 0)
+        #expect(abs(p.x - SolarLayout.center) < 0.001)
+        #expect(p.y < SolarLayout.center)
+        #expect(abs(p.y - (SolarLayout.center - SolarLayout.earthR)) < 0.001)
+    }
+
+    @Test("earth spin hides a point that started on the front")
+    func globeSpinMovesPointToBack() {
+        let front = SolarLayout.projectOrtho(latDeg: 0, lngDeg: 0, radius: SolarLayout.earthR, spin: 0)
+        let back = SolarLayout.projectOrtho(latDeg: 0, lngDeg: 0, radius: SolarLayout.earthR, spin: .pi)
+        #expect(front.front)
+        #expect(!back.front)
+    }
+
+    @Test("haversine London–New York is in the expected band")
+    func haversineLondonNY() {
+        let london = AppLocation(lat: 51.5074, lng: -0.1278, city: "London", region: "GB")
+        let ny = AppLocation(lat: 40.7128, lng: -74.0060, city: "New York", region: "US")
+        let km = SolarLayout.haversineKm(london, ny)
+        #expect(km > 5_000 && km < 6_500)
+        #expect(SolarLayout.estimateRttMs(km: km) > 40)
+    }
+
+    @Test("placed bodies keep their geography; unplaced ones still appear")
+    func globeBodiesPlacement() {
+        let london = AppLocation(lat: 51.5, lng: -0.1, city: "London", region: "GB")
+        let placed = FleetNode(
+            summary: AppSummary(
+                name: "web-frontend", title: "Web Frontend",
+                rings: PreviewData.healthyRings, latestJob: nil, loadError: nil,
+                location: london
+            )
+        )
+        let unplaced = FleetNode(
+            summary: AppSummary(
+                name: "batch-worker", title: "batch-worker",
+                rings: PreviewData.healthyRings, latestJob: nil, loadError: nil
+            )
+        )
+        let bodies = SolarLayout.globeBodies(for: [placed, unplaced])
+        #expect(bodies.count == 2)
+        let pin = bodies.first { $0.id == "web-frontend" }
+        let sat = bodies.first { $0.id == "batch-worker" }
+        #expect(pin?.placed == true)
+        #expect(sat?.placed == false)
+        #expect(abs((pin?.lat ?? 0) - 51.5) < 2)
+    }
+
     @Test("the Rings tab exists and sits between Overview and Activity")
     @MainActor
     func ringsTabRegistered() {

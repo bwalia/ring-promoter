@@ -208,9 +208,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Freeze every ambient loop on the stage. Planet positions are pinned to
-     their t=0 angles by the component, so the layout stays fully legible —
-     users still get the shape of the system, just without the motion. */
+  /* Freeze every ambient loop on the stage. Earth spin and satellite drift
+     are pinned to t=0 by the component; this only kills leftover CSS loops. */
   [data-testid="solar-system"] *,
   [data-solar-ambient] {
     animation: none !important;

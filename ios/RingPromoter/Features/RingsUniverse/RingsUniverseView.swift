@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The Rings of Applications screen: the whole fleet as a solar system, ported
-/// from the web console. Services orbit a central "Rings" sun — inner orbits
-/// mean lower production latency — and each body's colour, symbol and motion
-/// say how that service is doing right now.
+/// The Rings of Applications screen: the whole fleet around a spinning Earth,
+/// ported from the web console. Apps with a config location sit on the globe;
+/// height above the surface is TTFB. Colour, symbol and motion still say how
+/// each service is doing right now.
 ///
 /// Reuses `OverviewStore` for data: the same summaries, jobs and groups the
 /// Overview list shows, so the two screens can never disagree about health.
@@ -182,7 +182,7 @@ private struct RingsUniverseContent: View {
             Label(summaryLine(for: aggregate), systemImage: aggregate.systemImage)
                 .foregroundStyle(aggregate.tint)
             Spacer()
-            Text("Inner orbits = lower latency")
+            Text("Closer to Earth = lower TTFB")
                 .foregroundStyle(.secondary)
         }
         .font(.caption2)
@@ -231,7 +231,7 @@ private struct FilterChip: View {
 
 // MARK: - The stage
 
-/// The sky itself: stars, orbit tracks, the sun, and the orbiting bodies.
+/// The sky itself: Earth, altitude shells, and the orbiting bodies.
 /// A pure function of (nodes, elapsed time) — all state lives in the parent.
 private struct SolarStage: View {
     let nodes: [FleetNode]
@@ -240,44 +240,35 @@ private struct SolarStage: View {
     let onOpen: (FleetNode) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// t=0 for the orbital clock. Bodies drift from their seeded positions.
+    /// t=0 for the orbital clock. Earth spin and satellite drift start here.
     @State private var start = Date()
     /// Entrance reveal: bodies spring in once the stage appears.
     @State private var revealed = false
 
-    private var planets: [SolarLayout.Planet] {
-        SolarLayout.planets(
-            for: nodes.map { ($0.id, SolarLayout.radius(forLatencyMs: $0.latencyMs)) }
-        )
+    private var bodies: [SolarLayout.GlobeBody] {
+        SolarLayout.globeBodies(for: nodes)
     }
 
     var body: some View {
-        let planets = planets
+        let bodies = bodies
         let byID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
-        let occupied = Set(planets.map(\.track))
 
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
             let elapsed = reduceMotion ? 0 : timeline.date.timeIntervalSince(start)
+            let spin = SolarLayout.earthSpin(elapsed: elapsed, reduceMotion: reduceMotion)
             GeometryReader { geo in
                 let side = min(geo.size.width, geo.size.height)
                 let scale = side / SolarLayout.canvasSize
                 ZStack {
                     StarField(elapsed: elapsed)
-                    latencyAxis(scale: scale)
-                    orbitTracks(occupied: occupied, scale: scale)
-                    orbitBandLabels(scale: scale)
-                    sun(scale: scale)
-                    ForEach(Array(planets.enumerated()), id: \.element.id) { index, planet in
-                        if let node = byID[planet.id] {
-                            let pos = SolarLayout.position(of: planet, at: elapsed)
-                            let angle = SolarLayout.angle(of: planet, at: elapsed)
+                    EarthGlobe(spin: spin, scale: scale)
+                    altitudeShells(scale: scale)
+                    stems(bodies: bodies, elapsed: elapsed, spin: spin, scale: scale)
+                    ForEach(Array(bodies.enumerated()), id: \.element.id) { index, body in
+                        if let node = byID[body.id] {
+                            let pos = SolarLayout.point(of: body, elapsed: elapsed, spin: spin)
                             let point = CGPoint(x: pos.x * scale, y: pos.y * scale)
-                            // Name plates sit radially outward of the body,
-                            // flipping inward near the left/right edges so they
-                            // stay on stage (matches the web console).
-                            let outwardBelow = sin(angle) >= 0
-                            let nearEdge = pos.x > 300 || pos.x < 100
-                            let plateBelow = nearEdge ? !outwardBelow : outwardBelow
+                            let plateBelow = pos.y >= SolarLayout.center
                             PlanetView(
                                 node: node, elapsed: elapsed,
                                 isSelected: selectedID == node.id,
@@ -288,9 +279,15 @@ private struct SolarStage: View {
                                     selectedID = selectedID == node.id ? nil : node.id
                                 }
                             }
+                            .opacity(pos.front || selectedID == node.id ? 1 : 0.22)
+                            .zIndex(pos.front ? 20 + pos.z : 2)
+                            .allowsHitTesting(pos.front || selectedID == node.id)
                             .position(point)
                             NamePlate(node: node, emphasized: selectedID == node.id)
-                                .opacity(revealed || reduceMotion ? 1 : 0)
+                                .opacity(
+                                    (revealed || reduceMotion) && (pos.front || selectedID == node.id)
+                                        ? 1 : 0
+                                )
                                 .position(
                                     x: point.x,
                                     y: point.y + (plateBelow ? 24 : -24)
@@ -308,7 +305,11 @@ private struct SolarStage: View {
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.black.opacity(0.2)))
         .overlay(alignment: .bottom) {
             if let node = selectedID.flatMap({ id in nodes.first { $0.id == id } }) {
-                NodeCard(node: node, mode: mode, onOpen: onOpen) {
+                NodeCard(
+                    node: node, mode: mode,
+                    estimatedMs: estimatedTTFB(for: node),
+                    onOpen: onOpen
+                ) {
                     withAnimation(.spring(duration: 0.28, bounce: 0.2)) {
                         selectedID = nil
                     }
@@ -354,130 +355,159 @@ private struct SolarStage: View {
         }
     }
 
-    /// Near-black space with a restrained warm glow at the centre — quiet
-    /// enough that the latency rings and bodies carry the eye.
+    /// Near-black space with a restrained atmosphere at the centre.
     private var spaceBackground: some View {
         ZStack {
             Color(red: 0.027, green: 0.027, blue: 0.039)
             RadialGradient(
-                colors: [Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.05), .clear],
+                colors: [Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0.06), .clear],
                 center: .center, startRadius: 0, endRadius: 220
             )
         }
     }
 
-    /// Radial latency axis drawn straight up; tick marks at each track.
-    private func latencyAxis(scale: CGFloat) -> some View {
-        let maxR = (SolarLayout.tracks.last ?? SolarLayout.defaultRadius) + 6
-        return ZStack {
-            Path { path in
-                path.move(to: CGPoint(x: SolarLayout.center * scale, y: SolarLayout.center * scale))
-                path.addLine(
-                    to: CGPoint(
-                        x: SolarLayout.center * scale,
-                        y: (SolarLayout.center - maxR) * scale
-                    )
-                )
-            }
-            .stroke(.white.opacity(0.1), lineWidth: 0.8)
-            ForEach(SolarLayout.tracks, id: \.self) { track in
-                Path { path in
-                    let y = (SolarLayout.center - track) * scale
-                    let cx = SolarLayout.center * scale
-                    path.move(to: CGPoint(x: cx - 2.5 * scale, y: y))
-                    path.addLine(to: CGPoint(x: cx + 2.5 * scale, y: y))
-                }
-                .stroke(.white.opacity(0.22), lineWidth: 0.9)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    /// Latency band labels along the axis so "inner = faster" is readable.
-    private func orbitBandLabels(scale: CGFloat) -> some View {
-        ForEach(SolarLayout.orbitBands, id: \.r) { band in
-            Text(band.label)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.38))
-                .position(
-                    x: (SolarLayout.center - 28) * scale,
-                    y: (SolarLayout.center - band.r) * scale
-                )
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    /// All four tracks are always drawn; occupied ones take a slightly stronger
-    /// stroke so the latency bands read as an axis, not decoration.
-    private func orbitTracks(occupied: Set<Double>, scale: CGFloat) -> some View {
-        ForEach(SolarLayout.tracks, id: \.self) { track in
-            let isOccupied = occupied.contains(track)
+    private func altitudeShells(scale: CGFloat) -> some View {
+        let radii = [
+            SolarLayout.earthR + SolarLayout.altMin,
+            SolarLayout.earthR + (SolarLayout.altMin + SolarLayout.altMax) / 2,
+            SolarLayout.earthR + SolarLayout.altMax,
+        ]
+        return ForEach(Array(radii.enumerated()), id: \.offset) { index, radius in
             Circle()
                 .stroke(
-                    .white.opacity(isOccupied ? 0.14 : 0.05),
-                    style: StrokeStyle(
-                        lineWidth: isOccupied ? 0.9 : 0.6,
-                        dash: isOccupied ? [] : [2, 8]
-                    )
+                    Color(red: 0.49, green: 0.83, blue: 0.99).opacity(index == 1 ? 0.1 : 0.06),
+                    style: StrokeStyle(lineWidth: 0.6, dash: [2, 7])
                 )
-                .frame(width: track * 2 * scale, height: track * 2 * scale)
+                .frame(width: radius * 2 * scale, height: radius * 2 * scale)
         }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
-    private func sun(scale: CGFloat) -> some View {
-        ZStack {
-            Circle()
-                .fill(
-                    RadialGradient(
-                        stops: [
-                            .init(color: Color(red: 0.16, green: 0.14, blue: 0.09), location: 0),
-                            .init(color: Color(red: 0.07, green: 0.07, blue: 0.09), location: 1),
-                        ],
-                        center: .init(x: 0.42, y: 0.36),
-                        startRadius: 0, endRadius: 42 * scale
-                    )
+    private func stems(
+        bodies: [SolarLayout.GlobeBody], elapsed: TimeInterval, spin: Double, scale: CGFloat
+    ) -> some View {
+        Canvas { context, _ in
+            for body in bodies {
+                let sat = SolarLayout.point(of: body, elapsed: elapsed, spin: spin)
+                let ground = SolarLayout.surface(of: body, elapsed: elapsed, spin: spin)
+                var path = Path()
+                path.move(to: CGPoint(x: ground.x * scale, y: ground.y * scale))
+                path.addLine(to: CGPoint(x: sat.x * scale, y: sat.y * scale))
+                context.stroke(
+                    path,
+                    with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(sat.front ? 0.38 : 0.08)),
+                    lineWidth: 0.7
                 )
-                .overlay(
-                    Circle().strokeBorder(
-                        Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.28),
-                        lineWidth: 1
-                    )
-                )
-                .frame(width: 84 * scale, height: 84 * scale)
-            Circle()
-                .strokeBorder(
-                    Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.12),
-                    lineWidth: 0.6
-                )
-                .frame(width: 70 * scale, height: 70 * scale)
-            VStack(spacing: 1) {
-                Text("Rings")
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(1.2)
-                    .textCase(.uppercase)
-                    .foregroundStyle(Color(red: 0.96, green: 0.73, blue: 0.26))
-                Text("\(nodes.count)")
-                    .font(.system(size: 15, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.92))
-                Text(bodyWord)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .textCase(.uppercase)
-                    .tracking(0.8)
-                    .foregroundStyle(.white.opacity(0.45))
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Rings. \(nodes.count) \(bodyWord).")
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
-    private var bodyWord: String {
-        switch mode {
-        case .apps: nodes.count == 1 ? "service" : "services"
-        case .rings: nodes.count == 1 ? "ring" : "rings"
-        }
+    private func estimatedTTFB(for node: FleetNode) -> Int? {
+        guard let loc = node.location,
+              let centroid = SolarLayout.centroid(of: nodes.compactMap(\.location))
+        else { return nil }
+        return SolarLayout.estimateRttMs(km: SolarLayout.haversineKm(loc, centroid))
     }
+}
+
+/// Orthographic Earth — ocean, graticule, coarse land, atmosphere. Spin is
+/// the only input that moves; reduced-motion callers pass 0.
+private struct EarthGlobe: View {
+    let spin: Double
+    let scale: CGFloat
+
+    var body: some View {
+        Canvas { context, size in
+            let s = scale
+            let c = CGPoint(x: SolarLayout.center * s, y: SolarLayout.center * s)
+            let r = SolarLayout.earthR * s
+
+            // Atmosphere
+            context.fill(
+                Path(ellipseIn: CGRect(x: c.x - r * 1.28, y: c.y - r * 1.28, width: r * 2.56, height: r * 2.56)),
+                with: .radialGradient(
+                    Gradient(colors: [
+                        Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0),
+                        Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0.08),
+                        .clear,
+                    ]),
+                    center: c, startRadius: r * 0.92, endRadius: r * 1.28
+                )
+            )
+
+            let earth = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+            context.fill(
+                earth,
+                with: .radialGradient(
+                    Gradient(stops: [
+                        .init(color: Color(red: 0.11, green: 0.29, blue: 0.43), location: 0),
+                        .init(color: Color(red: 0.05, green: 0.16, blue: 0.27), location: 0.45),
+                        .init(color: Color(red: 0.03, green: 0.08, blue: 0.12), location: 1),
+                    ]),
+                    center: CGPoint(x: c.x - r * 0.28, y: c.y - r * 0.34),
+                    startRadius: r * 0.08, endRadius: r
+                )
+            )
+
+            context.drawLayer { ctx in
+                ctx.clip(to: earth)
+                var grid = Path()
+                for lng in stride(from: -180.0, to: 180.0, by: 30) {
+                    var started = false
+                    for lat in stride(from: -90.0, through: 90.0, by: 4) {
+                        let p = SolarLayout.projectOrtho(latDeg: lat, lngDeg: lng, radius: SolarLayout.earthR, spin: spin)
+                        guard p.front else { started = false; continue }
+                        let pt = CGPoint(x: p.x * s, y: p.y * s)
+                        if started { grid.addLine(to: pt) } else { grid.move(to: pt); started = true }
+                    }
+                }
+                for lat in stride(from: -60.0, through: 60.0, by: 30) {
+                    var started = false
+                    for lng in stride(from: -180.0, through: 180.0, by: 5) {
+                        let p = SolarLayout.projectOrtho(latDeg: lat, lngDeg: lng, radius: SolarLayout.earthR, spin: spin)
+                        guard p.front else { started = false; continue }
+                        let pt = CGPoint(x: p.x * s, y: p.y * s)
+                        if started { grid.addLine(to: pt) } else { grid.move(to: pt); started = true }
+                    }
+                }
+                ctx.stroke(grid, with: .color(.white.opacity(0.11)), lineWidth: 0.55)
+
+                for poly in SolarLayout.landPolys {
+                    var path = Path()
+                    var started = false
+                    var frontCount = 0
+                    for pt in poly {
+                        let p = SolarLayout.projectOrtho(latDeg: pt.lat, lngDeg: pt.lng, radius: SolarLayout.earthR, spin: spin)
+                        guard p.front else { started = false; continue }
+                        frontCount += 1
+                        let cg = CGPoint(x: p.x * s, y: p.y * s)
+                        if started { path.addLine(to: cg) } else { path.move(to: cg); started = true }
+                    }
+                    guard frontCount >= 3 else { continue }
+                    path.closeSubpath()
+                    ctx.fill(path, with: .color(Color(red: 0.53, green: 0.66, blue: 0.50).opacity(0.78)))
+                }
+            }
+
+            context.stroke(
+                Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
+                with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(0.28)),
+                lineWidth: 1.1
+            )
+            context.stroke(
+                Path(ellipseIn: CGRect(x: c.x - r - 1.6 * s, y: c.y - r - 1.6 * s, width: (r + 1.6 * s) * 2, height: (r + 1.6 * s) * 2)),
+                with: .color(Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.12)),
+                lineWidth: 0.7
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Earth. \(nodesCaption)")
+    }
+
+    private var nodesCaption: String { "Applications orbit Earth." }
 }
 
 /// Sparse star field — quiet atmosphere so latency rings and bodies dominate.
@@ -592,8 +622,8 @@ private struct NamePlate: View {
         HStack(spacing: 3) {
             Text(node.title)
                 .lineLimit(1)
-            if let ms = node.latencyMs {
-                Text("\(ms)ms")
+            if let ms = node.ttfbMs ?? node.latencyMs {
+                Text("\(ms)ms TTFB")
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.45))
             }
@@ -615,6 +645,7 @@ private struct NamePlate: View {
 private struct NodeCard: View {
     let node: FleetNode
     let mode: FleetMode
+    var estimatedMs: Int? = nil
     let onOpen: (FleetNode) -> Void
     let onClose: () -> Void
 
@@ -649,7 +680,19 @@ private struct NodeCard: View {
                     Label(node.status.label, systemImage: node.status.systemImage)
                         .foregroundStyle(node.status.tint)
                 }
-                row("Latency") {
+                if let loc = node.location {
+                    row("Location") { Text(loc.label) }
+                }
+                row("TTFB") {
+                    if let ms = node.ttfbMs {
+                        Text("\(ms)ms").monospacedDigit()
+                    } else if let est = estimatedMs {
+                        Text("~\(est)ms est.").monospacedDigit()
+                    } else {
+                        Text("—")
+                    }
+                }
+                row("Check") {
                     Text(node.latencyMs.map { "\($0)ms" } ?? "—").monospacedDigit()
                 }
                 if mode == .apps {
@@ -707,6 +750,7 @@ private struct NodeCard: View {
             value().lineLimit(1)
         }
     }
+
 }
 
 // MARK: - Accessibility fallback

@@ -93,6 +93,10 @@ struct FleetNode: Identifiable, Hashable, Sendable {
     let status: FleetStatus
     /// Drives the orbit radius; nil parks the body on the default track.
     let latencyMs: Int?
+    /// Time to first byte, when the live check reported it.
+    let ttfbMs: Int?
+    /// Config geographic pin; nil parks the body on a satellite belt.
+    let location: AppLocation?
     /// Deployed-and-healthy over deployed, across every ring this node covers.
     let healthyCount: Int
     let activeCount: Int
@@ -113,6 +117,8 @@ struct FleetNode: Identifiable, Hashable, Sendable {
             ringsUnknown: summary.rings.isEmpty && summary.loadError != nil
         )
         latencyMs = SolarLayout.latency(for: summary.rings)
+        ttfbMs = SolarLayout.ttfb(for: summary.rings)
+        location = summary.location
         healthyCount = active.count(where: \.isHealthy)
         activeCount = active.count
         // Rings arrive ordered dev → prod, so the last active ring is the
@@ -138,6 +144,8 @@ struct FleetNode: Identifiable, Hashable, Sendable {
         // The slowest member sets the orbit: a ring is only as close as its
         // farthest service.
         latencyMs = members.compactMap { SolarLayout.latency(for: $0.rings) }.max()
+        ttfbMs = members.compactMap { SolarLayout.ttfb(for: $0.rings) }.max()
+        location = SolarLayout.centroid(of: members.compactMap(\.location))
         healthyCount = active.count(where: \.isHealthy)
         activeCount = active.count
         latestVersion = nil
@@ -306,4 +314,185 @@ enum SolarLayout {
     static func angle(of planet: Planet, at elapsed: TimeInterval) -> Double {
         planet.angle0 + (elapsed / planet.period) * 2 * .pi
     }
+
+    // MARK: - Globe (ported from web `globe-layout.ts`)
+
+    static let earthR: Double = 58
+    static let earthSpinPeriod: Double = 96
+    static let altMin: Double = 14
+    static let altMax: Double = 78
+
+    struct GlobePoint: Sendable {
+        let x: Double
+        let y: Double
+        let z: Double
+        var front: Bool { z >= -0.5 }
+        var cgPoint: CGPoint { CGPoint(x: x, y: y) }
+    }
+
+    struct GlobeBody: Hashable, Sendable {
+        let id: String
+        let r: Double
+        let track: Double
+        let lat: Double
+        let lng0: Double
+        let driftDegPerSec: Double
+        let placed: Bool
+    }
+
+    static func ttfb(for rings: [RingStatus]) -> Int? {
+        let configured = rings.filter(\.configured)
+        if let prod = configured.first(where: { $0.ring.name == "prod" }),
+           let ms = prod.ttfbMs {
+            return ms
+        }
+        return configured.reversed().lazy.compactMap(\.ttfbMs).first
+    }
+
+    static func altitude(forLatencyMs ms: Int?) -> Double {
+        let track = radius(forLatencyMs: ms)
+        let low = tracks.first ?? defaultRadius
+        let high = tracks.last ?? defaultRadius
+        let t = (track - low) / max(high - low, 1)
+        return altMin + t * (altMax - altMin)
+    }
+
+    static func earthSpin(elapsed: TimeInterval, reduceMotion: Bool) -> Double {
+        if reduceMotion { return 0 }
+        return (elapsed / earthSpinPeriod) * 2 * .pi
+    }
+
+    static func projectOrtho(latDeg: Double, lngDeg: Double, radius: Double, spin: Double) -> GlobePoint {
+        let lat = latDeg * .pi / 180
+        let lng = lngDeg * .pi / 180 + spin
+        let cosLat = cos(lat)
+        let x = radius * cosLat * sin(lng)
+        let y = -radius * sin(lat)
+        let z = radius * cosLat * cos(lng)
+        return GlobePoint(x: center + x, y: center + y, z: z)
+    }
+
+    static func point(of body: GlobeBody, elapsed: TimeInterval, spin: Double) -> GlobePoint {
+        let lng = body.lng0 + body.driftDegPerSec * elapsed
+        return projectOrtho(latDeg: body.lat, lngDeg: lng, radius: body.r, spin: spin)
+    }
+
+    static func surface(of body: GlobeBody, elapsed: TimeInterval, spin: Double) -> GlobePoint {
+        let lng = body.lng0 + body.driftDegPerSec * elapsed
+        return projectOrtho(latDeg: body.lat, lngDeg: lng, radius: earthR, spin: spin)
+    }
+
+    static func globeBodies(for nodes: [FleetNode]) -> [GlobeBody] {
+        var placed: [(id: String, loc: AppLocation, alt: Double, track: Double)] = []
+        var unplaced: [(id: String, alt: Double, track: Double)] = []
+        for node in nodes {
+            let ms = node.ttfbMs ?? node.latencyMs
+            let track = radius(forLatencyMs: ms)
+            let alt = altitude(forLatencyMs: ms)
+            if let loc = node.location {
+                placed.append((node.id, loc, alt, track))
+            } else {
+                unplaced.append((node.id, alt, track))
+            }
+        }
+        var out: [GlobeBody] = []
+        for p in placed {
+            let jitterLat = (hash01(p.id + ":lat") - 0.5) * 1.6
+            let jitterLng = (hash01(p.id + ":lng") - 0.5) * 2.2
+            out.append(
+                GlobeBody(
+                    id: p.id, r: earthR + p.alt, track: p.track,
+                    lat: min(80, max(-80, p.loc.lat + jitterLat)),
+                    lng0: wrapLng(p.loc.lng + jitterLng),
+                    driftDegPerSec: 0, placed: true
+                )
+            )
+        }
+        let sorted = unplaced.sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+        let n = Double(max(sorted.count, 1))
+        let maxTrack = tracks.last ?? defaultRadius
+        for (index, p) in sorted.enumerated() {
+            let lat = -18 + hash01(p.id) * 36
+            let lng0 = (Double(index) / n) * 360 - 180
+            let period = 72 + (p.track / maxTrack) * 50
+            out.append(
+                GlobeBody(
+                    id: p.id, r: earthR + p.alt, track: p.track,
+                    lat: lat, lng0: lng0, driftDegPerSec: 360 / period, placed: false
+                )
+            )
+        }
+        return out
+    }
+
+    static func centroid(of pins: [AppLocation]) -> AppLocation? {
+        guard let first = pins.first else { return nil }
+        if pins.count == 1 { return first }
+        var x = 0.0, y = 0.0, z = 0.0
+        for p in pins {
+            let lat = p.lat * .pi / 180
+            let lng = p.lng * .pi / 180
+            x += cos(lat) * cos(lng)
+            y += cos(lat) * sin(lng)
+            z += sin(lat)
+        }
+        let n = Double(pins.count)
+        x /= n; y /= n; z /= n
+        let hyp = hypot(x, y)
+        return AppLocation(
+            lat: atan2(z, hyp) * 180 / .pi,
+            lng: atan2(y, x) * 180 / .pi,
+            city: first.city, region: first.region
+        )
+    }
+
+    static func haversineKm(_ a: AppLocation, _ b: AppLocation) -> Double {
+        let R = 6371.0
+        let dLat = (b.lat - a.lat) * .pi / 180
+        let dLng = (b.lng - a.lng) * .pi / 180
+        let s = sin(dLat / 2) * sin(dLat / 2)
+            + cos(a.lat * .pi / 180) * cos(b.lat * .pi / 180)
+            * sin(dLng / 2) * sin(dLng / 2)
+        return 2 * R * asin(min(1, sqrt(s)))
+    }
+
+    static func estimateRttMs(km: Double) -> Int {
+        Int((2 * (km / 200) + 18).rounded())
+    }
+
+    private static func wrapLng(_ lng: Double) -> Double {
+        var x = lng
+        while x > 180 { x -= 360 }
+        while x < -180 { x += 360 }
+        return x
+    }
+
+    /// Coarse continent outlines (lng, lat) matching the web globe.
+    static let landPolys: [[(lng: Double, lat: Double)]] = [
+        [(-168, 65), (-141, 70), (-128, 71), (-105, 68), (-89, 68), (-80, 62),
+         (-70, 58), (-60, 47), (-67, 44), (-74, 40), (-81, 25), (-97, 26),
+         (-106, 22), (-110, 24), (-117, 32), (-124, 40), (-124, 48), (-130, 55),
+         (-153, 57), (-166, 54), (-168, 65)],
+        [(-73, 76), (-60, 82), (-20, 81), (-22, 70), (-44, 60), (-58, 61), (-73, 76)],
+        [(-81, 12), (-60, 8), (-50, 0), (-35, -8), (-38, -20), (-54, -35),
+         (-68, -55), (-75, -50), (-73, -18), (-81, -5), (-81, 12)],
+        [(-10, 52), (-9, 43), (-1, 43), (3, 42), (10, 44), (16, 40), (29, 41),
+         (30, 46), (24, 60), (12, 58), (5, 61), (-5, 59), (-10, 52)],
+        [(-17, 21), (-10, 12), (8, 5), (10, -4), (14, -12), (40, -16),
+         (32, -28), (20, -35), (18, -32), (12, -17), (-5, -5), (-14, 4),
+         (-17, 14), (-6, 36), (10, 37), (25, 32), (32, 31), (11, 33),
+         (-5, 36), (-17, 28), (-17, 21)],
+        [(27, 40), (36, 36), (44, 40), (60, 37), (67, 25), (77, 8), (80, 15),
+         (88, 22), (73, 25), (62, 25), (48, 30), (36, 21), (32, 31), (27, 40)],
+        [(30, 60), (40, 68), (70, 72), (90, 75), (130, 71), (160, 66), (180, 65),
+         (170, 60), (142, 46), (130, 43), (122, 30), (105, 20), (100, 10),
+         (104, 1), (98, 8), (94, 18), (78, 28), (74, 40), (80, 50), (60, 50),
+         (45, 55), (30, 60)],
+        [(95, 6), (104, -6), (119, -8), (131, -8), (120, 5), (105, 7), (95, 6)],
+        [(113, -22), (114, -34), (137, -35), (153, -28), (153, -12),
+         (142, -11), (129, -14), (113, -22)],
+        [(166, -41), (178, -37), (178, -46), (166, -47), (166, -41)],
+        [(-180, -72), (-90, -70), (0, -70), (90, -72), (180, -72), (180, -90),
+         (-180, -90), (-180, -72)],
+    ]
 }

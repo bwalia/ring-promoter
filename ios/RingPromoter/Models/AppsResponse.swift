@@ -1,5 +1,26 @@
 import Foundation
 
+/// Geographic pin from config `location`. Apps without one are omitted.
+struct AppLocation: Codable, Hashable, Sendable {
+    let lat: Double
+    let lng: Double
+    var city: String?
+    var region: String?
+
+    var label: String {
+        switch (city?.nilIfEmpty, region?.nilIfEmpty) {
+        case let (city?, region?): "\(city), \(region)"
+        case let (city?, nil): city
+        case let (nil, region?): region
+        default: String(format: "%.1f°, %.1f°", lat, lng)
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 /// `GET /api/apps` — the control plane's shape: which apps exist, the ring
 /// pipeline they all share, and two capability flags the UI must respect.
 struct AppsResponse: Codable, Hashable, Sendable {
@@ -8,6 +29,8 @@ struct AppsResponse: Codable, Hashable, Sendable {
     /// Display titles per app (config `display_name`, falling back to the name).
     /// Purely cosmetic.
     let titles: [String: String]
+    /// Config `location` pins. Missing key means the app is unplaced.
+    var locations: [String: AppLocation] = [:]
     /// The ordered ring pipeline, lowest environment first.
     let rings: [Ring]
     /// The server was started with a production password, so any action that
@@ -17,7 +40,7 @@ struct AppsResponse: Codable, Hashable, Sendable {
     let aiEnabled: Bool
 
     enum CodingKeys: String, CodingKey {
-        case apps, titles, rings
+        case apps, titles, locations, rings
         case prodProtected = "prod_protected"
         case aiEnabled = "ai_enabled"
     }

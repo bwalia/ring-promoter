@@ -6,10 +6,20 @@ export interface Ring {
   label: string;
 }
 
+/** Geographic pin from config `location`. Apps without one are omitted. */
+export interface AppLocation {
+  lat: number;
+  lng: number;
+  city?: string;
+  region?: string;
+}
+
 export interface AppsResponse {
   apps: string[];
   /** Display title per app (config display_name), falling back to the name. */
   titles?: Record<string, string>;
+  /** Config `location` pins, keyed by app name. Missing means unplaced. */
+  locations?: Record<string, AppLocation>;
   rings: Ring[];
   /** True when the server requires a password for production deployments. */
   prod_protected?: boolean;
@@ -88,6 +98,8 @@ export interface RingView {
   live_health_error?: string;
   /** Live health-check RTT in milliseconds, when measured. */
   latency_ms?: number;
+  /** Time to first byte of the live health check, when the transport reported it. */
+  ttfb_ms?: number;
   auto_promote: boolean;
   /** Config owns this ring's auto-promote switch, so the API toggle returns 409. */
   auto_promote_managed: boolean;

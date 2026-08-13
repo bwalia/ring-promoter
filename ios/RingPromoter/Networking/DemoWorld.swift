@@ -330,6 +330,7 @@ extension RingStatus {
             liveHealthy: liveHealthy ?? self.liveHealthy,
             liveHealthError: liveHealthError ?? self.liveHealthError,
             latencyMs: latencyMs,
+            ttfbMs: ttfbMs,
             autoPromote: autoPromote ?? self.autoPromote,
             autoPromoteManaged: autoPromoteManaged,
             updatedAt: updatedAt ?? self.updatedAt,
