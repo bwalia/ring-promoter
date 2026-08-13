@@ -253,7 +253,7 @@ private struct SolarStage: View {
         let bodies = bodies
         let byID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
 
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion)) { timeline in
             let elapsed = reduceMotion ? 0 : timeline.date.timeIntervalSince(start)
             let spin = SolarLayout.earthSpin(elapsed: elapsed, reduceMotion: reduceMotion)
             GeometryReader { geo in
@@ -273,7 +273,8 @@ private struct SolarStage: View {
                                 node: node, elapsed: elapsed,
                                 isSelected: selectedID == node.id,
                                 appearDelay: Double(min(index, 12)) * 0.04,
-                                revealed: revealed
+                                revealed: revealed,
+                                placed: body.placed
                             ) {
                                 withAnimation(.spring(duration: 0.32, bounce: 0.28)) {
                                     selectedID = selectedID == node.id ? nil : node.id
@@ -399,6 +400,21 @@ private struct SolarStage: View {
                     with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(sat.front ? 0.38 : 0.08)),
                     lineWidth: 0.7
                 )
+                // Map pin on the surface so placed apps read as geography, not just altitude.
+                if body.placed, ground.front {
+                    let pinR = 2.1 * scale
+                    let origin = CGPoint(x: ground.x * scale, y: ground.y * scale)
+                    let rect = CGRect(
+                        x: origin.x - pinR, y: origin.y - pinR,
+                        width: pinR * 2, height: pinR * 2
+                    )
+                    context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.9)))
+                    context.stroke(
+                        Path(ellipseIn: rect),
+                        with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(0.7)),
+                        lineWidth: 0.6
+                    )
+                }
             }
         }
         .allowsHitTesting(false)
@@ -413,52 +429,61 @@ private struct SolarStage: View {
     }
 }
 
-/// Orthographic Earth — ocean, graticule, coarse land, atmosphere. Spin is
-/// the only input that moves; reduced-motion callers pass 0.
+/// Orthographic Earth matching the web console canvas: ocean, graticule,
+/// coarse land, camera-fixed terminator and specular. Continents rotating
+/// under that lighting is what reads as a sphere instead of a flat disc.
+/// Spin is the only input that moves; reduced-motion callers pass 0.
 private struct EarthGlobe: View {
     let spin: Double
     let scale: CGFloat
 
     var body: some View {
-        Canvas { context, size in
+        Canvas { context, _ in
             let s = scale
             let c = CGPoint(x: SolarLayout.center * s, y: SolarLayout.center * s)
             let r = SolarLayout.earthR * s
+            let earth = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
 
             // Atmosphere
             context.fill(
-                Path(ellipseIn: CGRect(x: c.x - r * 1.28, y: c.y - r * 1.28, width: r * 2.56, height: r * 2.56)),
+                Path(ellipseIn: CGRect(
+                    x: c.x - r * 1.28, y: c.y - r * 1.28,
+                    width: r * 2.56, height: r * 2.56
+                )),
                 with: .radialGradient(
-                    Gradient(colors: [
-                        Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0),
-                        Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0.08),
-                        .clear,
+                    Gradient(stops: [
+                        .init(color: Color(red: 56 / 255, green: 189 / 255, blue: 248 / 255).opacity(0), location: 0),
+                        .init(color: Color(red: 56 / 255, green: 189 / 255, blue: 248 / 255).opacity(0.07), location: 0.72),
+                        .init(color: .clear, location: 1),
                     ]),
                     center: c, startRadius: r * 0.92, endRadius: r * 1.28
                 )
             )
 
-            let earth = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
-            context.fill(
-                earth,
-                with: .radialGradient(
-                    Gradient(stops: [
-                        .init(color: Color(red: 0.11, green: 0.29, blue: 0.43), location: 0),
-                        .init(color: Color(red: 0.05, green: 0.16, blue: 0.27), location: 0.45),
-                        .init(color: Color(red: 0.03, green: 0.08, blue: 0.12), location: 1),
-                    ]),
-                    center: CGPoint(x: c.x - r * 0.28, y: c.y - r * 0.34),
-                    startRadius: r * 0.08, endRadius: r
-                )
-            )
-
             context.drawLayer { ctx in
                 ctx.clip(to: earth)
+
+                // Ocean — lighting is camera-fixed so the globe reads as a sphere.
+                ctx.fill(
+                    earth,
+                    with: .radialGradient(
+                        Gradient(stops: [
+                            .init(color: Color(red: 28 / 255, green: 74 / 255, blue: 110 / 255), location: 0),
+                            .init(color: Color(red: 13 / 255, green: 42 / 255, blue: 68 / 255), location: 0.45),
+                            .init(color: Color(red: 7 / 255, green: 20 / 255, blue: 31 / 255), location: 1),
+                        ]),
+                        center: CGPoint(x: c.x - r * 0.28, y: c.y - r * 0.34),
+                        startRadius: r * 0.08, endRadius: r
+                    )
+                )
+
                 var grid = Path()
                 for lng in stride(from: -180.0, to: 180.0, by: 30) {
                     var started = false
                     for lat in stride(from: -90.0, through: 90.0, by: 4) {
-                        let p = SolarLayout.projectOrtho(latDeg: lat, lngDeg: lng, radius: SolarLayout.earthR, spin: spin)
+                        let p = SolarLayout.projectOrtho(
+                            latDeg: lat, lngDeg: lng, radius: SolarLayout.earthR, spin: spin
+                        )
                         guard p.front else { started = false; continue }
                         let pt = CGPoint(x: p.x * s, y: p.y * s)
                         if started { grid.addLine(to: pt) } else { grid.move(to: pt); started = true }
@@ -467,20 +492,30 @@ private struct EarthGlobe: View {
                 for lat in stride(from: -60.0, through: 60.0, by: 30) {
                     var started = false
                     for lng in stride(from: -180.0, through: 180.0, by: 5) {
-                        let p = SolarLayout.projectOrtho(latDeg: lat, lngDeg: lng, radius: SolarLayout.earthR, spin: spin)
+                        let p = SolarLayout.projectOrtho(
+                            latDeg: lat, lngDeg: lng, radius: SolarLayout.earthR, spin: spin
+                        )
                         guard p.front else { started = false; continue }
                         let pt = CGPoint(x: p.x * s, y: p.y * s)
                         if started { grid.addLine(to: pt) } else { grid.move(to: pt); started = true }
                     }
                 }
-                ctx.stroke(grid, with: .color(.white.opacity(0.11)), lineWidth: 0.55)
+                ctx.stroke(
+                    grid,
+                    with: .color(Color(red: 186 / 255, green: 230 / 255, blue: 253 / 255).opacity(0.11)),
+                    lineWidth: 0.55
+                )
 
+                let landFill = Color(red: 134 / 255, green: 168 / 255, blue: 128 / 255).opacity(0.78)
+                let landStroke = Color(red: 190 / 255, green: 210 / 255, blue: 170 / 255).opacity(0.18)
                 for poly in SolarLayout.landPolys {
                     var path = Path()
                     var started = false
                     var frontCount = 0
                     for pt in poly {
-                        let p = SolarLayout.projectOrtho(latDeg: pt.lat, lngDeg: pt.lng, radius: SolarLayout.earthR, spin: spin)
+                        let p = SolarLayout.projectOrtho(
+                            latDeg: pt.lat, lngDeg: pt.lng, radius: SolarLayout.earthR, spin: spin
+                        )
                         guard p.front else { started = false; continue }
                         frontCount += 1
                         let cg = CGPoint(x: p.x * s, y: p.y * s)
@@ -488,18 +523,55 @@ private struct EarthGlobe: View {
                     }
                     guard frontCount >= 3 else { continue }
                     path.closeSubpath()
-                    ctx.fill(path, with: .color(Color(red: 0.53, green: 0.66, blue: 0.50).opacity(0.78)))
+                    ctx.fill(path, with: .color(landFill))
+                    ctx.stroke(path, with: .color(landStroke), lineWidth: 0.4)
                 }
+
+                // Terminator / night side — the cue that this is a globe, not a disc.
+                let night = Color(red: 2 / 255, green: 6 / 255, blue: 12 / 255)
+                ctx.fill(
+                    earth,
+                    with: .linearGradient(
+                        Gradient(stops: [
+                            .init(color: night.opacity(0.22), location: 0),
+                            .init(color: night.opacity(0), location: 0.42),
+                            .init(color: night.opacity(0), location: 0.62),
+                            .init(color: night.opacity(0.55), location: 1),
+                        ]),
+                        startPoint: CGPoint(x: c.x - r, y: c.y),
+                        endPoint: CGPoint(x: c.x + r, y: c.y)
+                    )
+                )
+
+                // Specular highlight on the ocean.
+                let specCenter = CGPoint(x: c.x - r * 0.32, y: c.y - r * 0.4)
+                ctx.fill(
+                    Path(ellipseIn: CGRect(
+                        x: specCenter.x - r * 0.55, y: specCenter.y - r * 0.55,
+                        width: r * 1.1, height: r * 1.1
+                    )),
+                    with: .radialGradient(
+                        Gradient(stops: [
+                            .init(color: .white.opacity(0.22), location: 0),
+                            .init(color: Color(red: 186 / 255, green: 230 / 255, blue: 253 / 255).opacity(0.06), location: 0.35),
+                            .init(color: .clear, location: 1),
+                        ]),
+                        center: specCenter, startRadius: 0, endRadius: r * 0.55
+                    )
+                )
             }
 
             context.stroke(
-                Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
-                with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(0.28)),
+                earth,
+                with: .color(Color(red: 125 / 255, green: 211 / 255, blue: 252 / 255).opacity(0.28)),
                 lineWidth: 1.1
             )
             context.stroke(
-                Path(ellipseIn: CGRect(x: c.x - r - 1.6 * s, y: c.y - r - 1.6 * s, width: (r + 1.6 * s) * 2, height: (r + 1.6 * s) * 2)),
-                with: .color(Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.12)),
+                Path(ellipseIn: CGRect(
+                    x: c.x - r - 1.6 * s, y: c.y - r - 1.6 * s,
+                    width: (r + 1.6 * s) * 2, height: (r + 1.6 * s) * 2
+                )),
+                with: .color(Color(red: 245 / 255, green: 185 / 255, blue: 66 / 255).opacity(0.12)),
                 lineWidth: 0.7
             )
         }
@@ -546,6 +618,7 @@ private struct PlanetView: View {
     let isSelected: Bool
     let appearDelay: Double
     let revealed: Bool
+    var placed: Bool = false
     let onTap: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -607,9 +680,16 @@ private struct PlanetView: View {
             value: revealed
         )
         .animation(.spring(duration: 0.32, bounce: 0.28), value: isSelected)
-        .accessibilityLabel("\(node.title): \(node.status.label)")
+        .accessibilityLabel(placedLabel)
         .accessibilityHint("Shows details")
         .accessibilityIdentifier("planet-\(node.id)")
+    }
+
+    private var placedLabel: String {
+        if placed, let loc = node.location {
+            return "\(node.title) in \(loc.label): \(node.status.label)"
+        }
+        return "\(node.title): \(node.status.label)"
     }
 }
 
@@ -776,8 +856,13 @@ private struct FleetNodeList: View {
                                 systemImage: node.status.systemImage,
                                 tint: node.status.tint
                             )
-                            if let ms = node.latencyMs {
-                                Text("\(ms)ms")
+                            if let loc = node.location {
+                                Text(loc.label)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let ms = node.ttfbMs ?? node.latencyMs {
+                                Text("\(ms)ms TTFB")
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
