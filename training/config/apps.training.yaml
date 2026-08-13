@@ -42,7 +42,7 @@ apps:
   #    Feature focus: seed/promote/rollback, auto_promote, health_version_field.
   - name: hello-world
     display_name: "Hello World"
-    location: { lat: 37.7749, lng: -122.4194, city: "San Francisco", region: US }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     rings:
       int:  { namespace: hello-world-int,  deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-int.svc.cluster.local/healthz",  health_version_field: version }
       test: { namespace: hello-world-test, deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-test.svc.cluster.local/healthz", health_version_field: version }
@@ -55,7 +55,7 @@ apps:
   #    health, blue/green.
   - name: kuard
     display_name: "KUARD Demo"
-    location: { lat: 40.7128, lng: -74.0060, city: "New York", region: US }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     rings:
       int:  { namespace: kuard-int,  deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-int.svc.cluster.local/healthy" }
       test: { namespace: kuard-test, deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-test.svc.cluster.local/healthy" }
@@ -80,7 +80,7 @@ apps:
   #    the exact version + a valid change-request code (validated against JIRA).
   - name: bank-api
     display_name: "Bank API"
-    location: { lat: 50.1109, lng: 8.6821, city: Frankfurt, region: DE }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     promotion_policy:
       maintenance_window:
         rings: [prod]
@@ -111,7 +111,7 @@ apps:
   #    k8sjob deployer, async worker scaling, health_version_header.
   - name: image-proc
     display_name: "Image Processing"
-    location: { lat: 1.3521, lng: 103.8198, city: Singapore, region: SG }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: k8sjob
     k8sjob:
       namespace: ring-exec
@@ -151,7 +151,7 @@ apps:
   #    GPU deployment, health_version_field.
   - name: ai-chat
     display_name: "AI Chat Service"
-    location: { lat: 35.6762, lng: 139.6503, city: Tokyo, region: JP }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     rings:
       int:  { namespace: ai-chat-int,  deployment: ai-chat, container: ai-chat, image: docker.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-int.svc.cluster.local/healthz",  health_version_field: version }
       test: { namespace: ai-chat-test, deployment: ai-chat, container: ai-chat, image: docker.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-test.svc.cluster.local/healthz", health_version_field: version }
@@ -165,7 +165,7 @@ apps:
   #    github deployer + version_as_ref, operator/CRD lifecycle, maintenance gate.
   - name: operator
     display_name: "Greeting Operator"
-    location: { lat: -33.8688, lng: 151.2093, city: Sydney, region: AU }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: github
     github:
       owner: bwalia
@@ -190,7 +190,7 @@ apps:
   #    one-shot seed-core-platform.yml workflow.
   - name: api-gateway
     display_name: "API Gateway"
-    location: { lat: 53.3498, lng: -6.2603, city: Dublin, region: IE }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
@@ -200,7 +200,7 @@ apps:
 
   - name: identity-service
     display_name: "Identity Service"
-    location: { lat: 52.3676, lng: 4.9041, city: Amsterdam, region: NL }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
@@ -210,7 +210,7 @@ apps:
 
   - name: billing-engine
     display_name: "Billing Engine"
-    location: { lat: -23.5505, lng: -46.6333, city: "São Paulo", region: BR }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
@@ -220,7 +220,7 @@ apps:
 
   - name: data-pipeline
     display_name: "Data Pipeline"
-    location: { lat: 12.9716, lng: 77.5946, city: Bengaluru, region: IN }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
@@ -230,7 +230,7 @@ apps:
 
   - name: notification-service
     display_name: "Notification Service"
-    location: { lat: 45.5017, lng: -73.5673, city: Montreal, region: CA }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
@@ -246,7 +246,7 @@ apps:
   #    the one-shot seed-core-platform.yml workflow.
   - name: search-service
     display_name: "Search Service"
-    location: { lat: 47.6062, lng: -122.3321, city: Seattle, region: US }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
@@ -256,7 +256,7 @@ apps:
 
   - name: feature-flags
     display_name: "Feature Flags"
-    location: { lat: 59.3293, lng: 18.0686, city: Stockholm, region: SE }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
@@ -266,7 +266,7 @@ apps:
 
   - name: audit-log
     display_name: "Audit Log"
-    location: { lat: 25.2048, lng: 55.2708, city: Dubai, region: AE }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
@@ -276,7 +276,7 @@ apps:
 
   - name: event-bus
     display_name: "Event Bus"
-    location: { lat: 19.4326, lng: -99.1332, city: "Mexico City", region: MX }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
@@ -286,7 +286,7 @@ apps:
 
   - name: analytics-service
     display_name: "Analytics Service"
-    location: { lat: -26.2041, lng: 28.0473, city: Johannesburg, region: ZA }
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     deployer: log
     rings:
       int:  { health_url: "http://ring-promoter.fictionally-ring-promoter.svc.cluster.local/healthz" }
