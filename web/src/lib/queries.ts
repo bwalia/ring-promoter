@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useNow } from "@/lib/use-now";
 import { useAuthStore, useJobsStore, usePrefsStore } from "@/lib/stores";
-import type { HistoryEntry, Job, RingView } from "@/lib/types";
+import type { AppLocation, HistoryEntry, Job, RingView } from "@/lib/types";
 
 // Polling cadence. The UI never asks the user to refresh: server state is
 // re-fetched on these intervals (and instantly after a job finishes).
@@ -53,6 +53,12 @@ export function useAppTitle(): (app: string) => string {
   const { data } = useApps();
   const titles = data?.titles;
   return useCallback((app: string) => titles?.[app] ?? app, [titles]);
+}
+
+/** Lookup from app name to its config `location` pin, or undefined. */
+export function useAppLocations(): Record<string, AppLocation> {
+  const { data } = useApps();
+  return data?.locations ?? {};
 }
 
 export function useRings(app: string | null) {

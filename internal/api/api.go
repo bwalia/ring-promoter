@@ -228,7 +228,9 @@ func (s *Server) handleListApps(w http.ResponseWriter, _ *http.Request) {
 		// Display titles per app (config display_name, falling back to the
 		// name). Purely cosmetic: every API path still uses the app name.
 		"titles": s.prom.AppTitles(),
-		"rings":  ring.All(),
+		// Geographic pins from config `location`. Apps without a pin are omitted.
+		"locations": s.prom.AppLocations(),
+		"rings":     ring.All(),
 		// Tells the UI to ask for the production password where needed.
 		"prod_protected": s.prodPass != "",
 		// Tells the UI to offer "Diagnose with AI" on failed jobs.

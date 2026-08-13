@@ -389,6 +389,7 @@ in production in the `ring-promoter-config` ConfigMap:
 ```yaml
 apps:
   - name: billing-worker
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     rings:
       int:
         namespace: int

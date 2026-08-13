@@ -154,8 +154,25 @@ type AppConfig struct {
 	// valid change-request code) that must be satisfied before a version may be
 	// deployed into a sensitive ring. Optional; nil means no extra gating.
 	PromotionPolicy *PromotionPolicy `yaml:"promotion_policy"`
+	// Location is the geographic home of this application (where it actually
+	// runs). Optional: existing configs without it keep working, and the Rings
+	// globe then parks the body on a latency orbit instead of a map pin.
+	Location *AppLocation `yaml:"location"`
 	// Rings maps a ring name (see package ring) to its deploy target.
 	Rings map[string]RingConfig `yaml:"rings"`
+}
+
+// AppLocation is a geographic pin for an application. Lat/lng place it on the
+// Rings globe; city/region are labels the UI shows next to TTFB.
+type AppLocation struct {
+	// Lat is WGS84 latitude in degrees (−90…90).
+	Lat float64 `yaml:"lat" json:"lat"`
+	// Lng is WGS84 longitude in degrees (−180…180).
+	Lng float64 `yaml:"lng" json:"lng"`
+	// City is a human label (e.g. "London"). Optional.
+	City string `yaml:"city" json:"city,omitempty"`
+	// Region is a country/region code or name (e.g. "GB", "eu-west-2"). Optional.
+	Region string `yaml:"region" json:"region,omitempty"`
 }
 
 // GitHubDeployConfig configures the "github" deployer for one application: it
@@ -612,6 +629,14 @@ func (c *Config) Validate() error {
 		seen[a.Name] = true
 		if len(a.Rings) == 0 {
 			return fmt.Errorf("application %q has no rings configured", a.Name)
+		}
+		if loc := a.Location; loc != nil {
+			if loc.Lat < -90 || loc.Lat > 90 {
+				return fmt.Errorf("application %q location lat %v is out of range [-90, 90]", a.Name, loc.Lat)
+			}
+			if loc.Lng < -180 || loc.Lng > 180 {
+				return fmt.Errorf("application %q location lng %v is out of range [-180, 180]", a.Name, loc.Lng)
+			}
 		}
 		for rname, rc := range a.Rings {
 			if !ring.IsValid(rname) {

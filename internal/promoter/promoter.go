@@ -74,7 +74,10 @@ type RingView struct {
 	LiveHealthy     bool      `json:"live_healthy"` // fresh check at read time
 	LiveHealthError string    `json:"live_health_error,omitempty"`
 	LatencyMs       *int64    `json:"latency_ms,omitempty"`
-	AutoPromote     bool      `json:"auto_promote"` // continue onward automatically
+	// TTFBms is time-to-first-byte of the live health check, when the
+	// transport reported it. Distinct from LatencyMs (full request duration).
+	TTFBms      *int64 `json:"ttfb_ms,omitempty"`
+	AutoPromote bool   `json:"auto_promote"` // continue onward automatically
 	// AutoPromoteManaged reports that config owns this ring's auto-promote
 	// switch, so the API toggle returns 409 and the UI must render its control
 	// disabled rather than offer one that cannot work.
@@ -216,6 +219,19 @@ func (p *Promoter) AppTitles() map[string]string {
 	return titles
 }
 
+// AppLocations maps each app that declared a geographic pin in config to that
+// pin. Apps without a location are omitted so existing clients treat them as
+// unplaced.
+func (p *Promoter) AppLocations() map[string]config.AppLocation {
+	out := make(map[string]config.AppLocation)
+	for _, a := range p.cfg.Apps {
+		if a.Location != nil {
+			out[a.Name] = *a.Location
+		}
+	}
+	return out
+}
+
 // History returns an application's history, newest first.
 func (p *Promoter) History(ctx context.Context, app string) ([]store.HistoryEntry, error) {
 	if _, ok := p.cfg.App(app); !ok {
@@ -283,18 +299,12 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			// the stored deploy outcome speak.
 			if rc.HealthURL == "" {
 				views[idx].LiveHealthy = true
-			} else if latency, err := health.CheckTimed(p.checker, cctx, probe(rc, "")); err != nil {
-				if latency > 0 {
-					ms := latency.Milliseconds()
-					views[idx].LatencyMs = &ms
-				}
+			} else if timing, err := health.CheckTimed(p.checker, cctx, probe(rc, "")); err != nil {
+				applyTiming(&views[idx], timing)
 				views[idx].LiveHealthy = false
 				views[idx].LiveHealthError = err.Error()
 			} else {
-				if latency > 0 {
-					ms := latency.Milliseconds()
-					views[idx].LatencyMs = &ms
-				}
+				applyTiming(&views[idx], timing)
 				views[idx].LiveHealthy = true
 			}
 			if lv, ok := p.deployerFor(app).(deployer.LiveVersioner); ok {
@@ -306,6 +316,17 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 	}
 	wg.Wait()
 	return views, nil
+}
+
+func applyTiming(v *RingView, timing health.Timing) {
+	if timing.Latency > 0 {
+		ms := timing.Latency.Milliseconds()
+		v.LatencyMs = &ms
+	}
+	if timing.TTFB > 0 {
+		ms := timing.TTFB.Milliseconds()
+		v.TTFBms = &ms
+	}
 }
 
 // Versions returns the deployable versions known to the application's source

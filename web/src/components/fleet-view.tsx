@@ -7,9 +7,11 @@ import { GroupDialog } from "@/components/group-dialog";
 import { SolarSystem } from "@/components/solar-system";
 import { Button } from "@/components/ui/button";
 import { summarizeRings } from "@/lib/app-health";
-import { appLatencyMs } from "@/lib/solar-layout";
+import { centroidLocation } from "@/lib/globe-layout";
+import { appLatencyMs, appTtfbMs } from "@/lib/solar-layout";
 import {
   useAddTopologyEdge,
+  useAppLocations,
   useApps,
   useDeployingApps,
   useGroupRings,
@@ -87,6 +89,7 @@ function groupEdges(
 export function FleetView() {
   const { data } = useApps();
   const known = data?.apps ?? [];
+  const appLocations = useAppLocations();
   const groups = useGroups().data ?? [];
   const { data: appEdges = [] } = useTopology();
   const addEdge = useAddTopologyEdge();
@@ -143,12 +146,19 @@ export function FleetView() {
     return aggregateStatuses(memberStatuses);
   });
   const ringLatency: Record<string, number | null> = {};
+  const ringTtfb: Record<string, number | null> = {};
+  const ringLocations: Record<string, ReturnType<typeof centroidLocation>> = {};
   const ringSubtitles: Record<string, string> = {};
   for (const p of ringPlanets) {
     const lats = p.apps
       .map((a) => appLatencyMs(appResultByName.get(a)?.rings))
       .filter((n): n is number => n != null);
+    const ttfbs = p.apps
+      .map((a) => appTtfbMs(appResultByName.get(a)?.rings))
+      .filter((n): n is number => n != null);
     ringLatency[p.id] = lats.length ? Math.max(...lats) : null;
+    ringTtfb[p.id] = ttfbs.length ? Math.max(...ttfbs) : null;
+    ringLocations[p.id] = centroidLocation(p.apps.map((a) => appLocations[a]));
     ringSubtitles[p.id] =
       p.apps.length === 1 ? "1 app" : `${p.apps.length} apps`;
   }
@@ -170,8 +180,8 @@ export function FleetView() {
           <h2 className="font-display text-lg font-semibold tracking-tight">Rings of Apps</h2>
           <p className="text-sm text-muted-foreground">
             {view === "apps"
-              ? "Each body is an app. Its dial shows promotion state across the rings; distance from the centre is health latency."
-              : "Each orbiting body is a ring (a group of apps). Switch to All apps to see every app."}
+              ? "Earth is the hub. Apps sit on their config location; height above the surface is TTFB."
+              : "Each body is a ring (a group of apps), placed at the centroid of its members."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -240,6 +250,7 @@ export function FleetView() {
             editable
             onAddEdge={(from, to) => addEdge.mutate({ from, to })}
             onRemoveEdge={(from, to) => removeEdge.mutate({ from, to })}
+            locations={appLocations}
             onOpen={openApp}
             onSeed={seedApp}
           />
@@ -274,6 +285,8 @@ export function FleetView() {
             resolveTitle={ringTitles}
             subtitles={ringSubtitles}
             latencyById={ringLatency}
+            ttfbById={ringTtfb}
+            locations={ringLocations}
             onOpen={(id) => {
               if (id === UNGROUPED_ID) {
                 setView("apps");

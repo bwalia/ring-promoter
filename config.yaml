@@ -56,6 +56,11 @@ ollama:
 # The endpoint must report the exact deployed version string (image tag /
 # branch). Leave both unset to keep the plain status-only check.
 #
+# Optional geographic pin (per app, via `location`). The Rings globe places the
+# app on Earth at this lat/lng; omit it and the app still appears, parked on a
+# latency orbit instead of a map pin. city/region are labels only.
+#   location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+#
 # Optional promotion gates (per app, via `promotion_policy`). Each gate is
 # independent and guards a set of target rings (default: acc + prod). A version
 # may only enter a guarded ring once the gate is satisfied — before any deploy.
@@ -123,6 +128,7 @@ ollama:
 apps:
   - name: wslproxy
     display_name: "diytaxreturn proxy"
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     depends_on: [diytaxreturn-opsapi]
     # Grafana go/no-go gate, reading the NIGHTLY E2E suite. Promotion time
     # itself is guarded by fast checks only (the ring health_url check here plus
@@ -172,6 +178,7 @@ apps:
   # opsapi is a dependency, so it is deployed first and read first in the UI.
   - name: diytaxreturn-opsapi
     display_name: "diytaxreturn OpsAPI"
+    location: { lat: 51.5155, lng: -0.0922, city: London, region: GB }
     rings:
       int:  { target_env: int,  health_url: "https://int-api.diytaxreturn.co.uk/opsapi/health?detailed=true" }
       test: { target_env: test, health_url: "https://test-api.diytaxreturn.co.uk/opsapi/health?detailed=true" }
@@ -186,6 +193,7 @@ apps:
   # its rings pin health_expect_status: 401 instead of the default "any 2xx".
   - name: spectoncr
     display_name: "diytaxreturn registry"
+    location: { lat: 51.5033, lng: -0.1195, city: London, region: GB }
     rings:
       int:  { target_env: int,  health_url: "https://int-spectoncr.diytaxreturn.co.uk/v2/",  health_expect_status: 401 }
       test: { target_env: test, health_url: "https://test-spectoncr.diytaxreturn.co.uk/v2/", health_expect_status: 401 }

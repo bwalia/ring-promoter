@@ -33,6 +33,7 @@ data:
       # the images pushed by jobshout's deploy-k3s.yml workflow.
       - name: jobshout
         display_name: "JobShout"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
         deployer: k8sjob
         k8sjob:
           namespace: ring-exec

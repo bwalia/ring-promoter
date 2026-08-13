@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"strconv"
 	"strings"
 	"time"
@@ -53,21 +54,29 @@ type Checker interface {
 	Check(ctx context.Context, p Probe) error
 }
 
-// TimedChecker is an optional Checker capability that reports how long the
-// underlying health request took. A duration is returned even when the
-// endpoint responds unhealthy.
-type TimedChecker interface {
-	CheckTimed(ctx context.Context, p Probe) (latency time.Duration, err error)
+// Timing is how long a health probe took. Latency is always the full request
+// (start → response or transport error). TTFB is time-to-first-byte when the
+// transport reported it; zero means the checker could not measure it.
+type Timing struct {
+	Latency time.Duration
+	TTFB    time.Duration
 }
 
-// CheckTimed runs a health check and returns its latency when the checker can
+// TimedChecker is an optional Checker capability that reports how long the
+// underlying health request took. Timings are returned even when the
+// endpoint responds unhealthy.
+type TimedChecker interface {
+	CheckTimed(ctx context.Context, p Probe) (Timing, error)
+}
+
+// CheckTimed runs a health check and returns its timing when the checker can
 // measure one. Checkers that do not implement TimedChecker retain their
-// existing behavior and report zero latency.
-func CheckTimed(c Checker, ctx context.Context, p Probe) (time.Duration, error) {
+// existing behavior and report a zero Timing.
+func CheckTimed(c Checker, ctx context.Context, p Probe) (Timing, error) {
 	if timed, ok := c.(TimedChecker); ok {
 		return timed.CheckTimed(ctx, p)
 	}
-	return 0, c.Check(ctx, p)
+	return Timing{}, c.Check(ctx, p)
 }
 
 // VersionReporter is an optional Checker capability: fetching the version the
@@ -88,7 +97,7 @@ type AlwaysHealthy struct{}
 func (AlwaysHealthy) Check(context.Context, Probe) error { return nil }
 
 // CheckTimed implements TimedChecker.
-func (AlwaysHealthy) CheckTimed(context.Context, Probe) (time.Duration, error) { return 0, nil }
+func (AlwaysHealthy) CheckTimed(context.Context, Probe) (Timing, error) { return Timing{}, nil }
 
 // HTTPChecker performs an HTTP GET and treats the response as healthy when it
 // matches the expected status (any 2xx by default) and — when the probe asks
@@ -112,28 +121,33 @@ func (c *HTTPChecker) Check(ctx context.Context, p Probe) error {
 }
 
 // CheckTimed implements TimedChecker, measuring the HTTP request through the
-// point a response or transport error is received. This means unhealthy status
-// responses still have useful RTT data.
-func (c *HTTPChecker) CheckTimed(ctx context.Context, p Probe) (time.Duration, error) {
+// point a response or transport error is received, and TTFB via httptrace when
+// the transport reports the first response byte. Unhealthy status responses
+// still have useful RTT data.
+func (c *HTTPChecker) CheckTimed(ctx context.Context, p Probe) (Timing, error) {
 	start := time.Now()
-	resp, err := c.fetch(ctx, p)
-	latency := time.Since(start)
+	var ttfb time.Duration
+	trace := &httptrace.ClientTrace{
+		GotFirstResponseByte: func() { ttfb = time.Since(start) },
+	}
+	resp, err := c.fetch(httptrace.WithClientTrace(ctx, trace), p)
+	timing := Timing{Latency: time.Since(start), TTFB: ttfb}
 	if err != nil {
-		return latency, err
+		return timing, err
 	}
 	defer resp.Body.Close()
 	if !p.wantsVersion() {
-		return latency, nil
+		return timing, nil
 	}
 
 	got, err := reportedVersion(resp, p)
 	if err != nil {
-		return latency, fmt.Errorf("verify running version: %w", err)
+		return timing, fmt.Errorf("verify running version: %w", err)
 	}
 	if got != p.WantVersion {
-		return latency, fmt.Errorf("wrong version live: endpoint reports %q, want %q", got, p.WantVersion)
+		return timing, fmt.Errorf("wrong version live: endpoint reports %q, want %q", got, p.WantVersion)
 	}
-	return latency, nil
+	return timing, nil
 }
 
 // ReportedVersion implements VersionReporter: a healthy-status GET whose

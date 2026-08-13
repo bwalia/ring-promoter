@@ -219,3 +219,50 @@ func TestTopology_UserEdgeRoundTrip(t *testing.T) {
 		t.Fatalf("restore config edge: %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestListApps_IncludesLocations(t *testing.T) {
+	rings := map[string]config.RingConfig{}
+	for _, r := range ring.Names() {
+		rings[r] = config.RingConfig{
+			Namespace: r, Deployment: "web", Container: "web",
+			Image: "repo/web", HealthURL: "health://web/" + r,
+		}
+	}
+	zero := 0
+	delay := config.Duration(time.Millisecond)
+	cfg := &config.Config{
+		APIToken: "tok",
+		Retry:    config.RetryConfig{Count: &zero, Delay: &delay},
+		Apps: []config.AppConfig{
+			{
+				Name: "web", Rings: rings,
+				Location: &config.AppLocation{Lat: 51.5, Lng: -0.12, City: "London", Region: "GB"},
+			},
+			{Name: "worker", Rings: rings},
+		},
+	}
+	st := store.NewMemory()
+	prom := promoter.New(cfg, st, nil, deployer.NewLogDeployer(nil), health.AlwaysHealthy{}, nil)
+	h := NewServer(prom, "tok", "", http.NotFoundHandler(), time.Minute, nil, BuildInfo{}, nil).Handler()
+
+	rec := doJSON(t, h, "GET", "/api/apps", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body)
+	}
+	var body struct {
+		Locations map[string]config.AppLocation `json:"locations"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	loc, ok := body.Locations["web"]
+	if !ok {
+		t.Fatalf("web pin missing: %s", rec.Body)
+	}
+	if loc.City != "London" || loc.Lat != 51.5 || loc.Lng != -0.12 {
+		t.Fatalf("web pin = %+v", loc)
+	}
+	if _, present := body.Locations["worker"]; present {
+		t.Fatal("apps without a config location must be omitted from locations")
+	}
+}
