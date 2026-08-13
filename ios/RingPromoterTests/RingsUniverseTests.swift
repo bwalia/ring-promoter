@@ -245,6 +245,17 @@ struct RingsUniverseTests {
         #expect(!back.front)
     }
 
+    @Test("Earth completes one revolution every 96 seconds")
+    func earthSpinPeriodMatchesWeb() {
+        #expect(SolarLayout.earthSpinPeriod == 96)
+        #expect(SolarLayout.earthSpinPeriodReduced == 20 * 60)
+        #expect(abs(SolarLayout.earthSpin(elapsed: 48, reduceMotion: false) - .pi) < 0.001)
+        #expect(abs(SolarLayout.earthSpin(elapsed: 96, reduceMotion: false)) < 0.001)
+        // Reduce Motion: freeze (elapsed 0) or a 20-minute crawl.
+        #expect(SolarLayout.earthSpin(elapsed: 0, reduceMotion: true) == 0)
+        #expect(SolarLayout.earthSpin(elapsed: 96, reduceMotion: true) < 0.6)
+    }
+
     @Test("haversine London–New York is in the expected band")
     func haversineLondonNY() {
         let london = AppLocation(lat: 51.5074, lng: -0.1278, city: "London", region: "GB")

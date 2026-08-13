@@ -176,14 +176,15 @@ struct FleetNode: Identifiable, Hashable, Sendable {
     }
 }
 
-/// The geometry of the solar system, ported number-for-number from the web
-/// console's `solar-layout.ts` so both clients draw the same sky.
+/// The geometry of the Rings stage, ported number-for-number from the web
+/// console's `solar-layout.ts` / `globe-layout.ts` so both clients draw the
+/// same sky.
 ///
-/// Everything is expressed on a fixed 400×400 canvas with the sun at the
+/// Everything is expressed on a fixed 400×400 canvas with Earth at the
 /// centre; the view scales positions to its actual size. All functions are
 /// pure and deterministic — the only input that moves is elapsed time.
 enum SolarLayout {
-    /// The logical canvas. Positions are fractions of this, sun at the centre.
+    /// The logical canvas. Positions are fractions of this, Earth at the centre.
     static let canvasSize: Double = 400
     static let center = 200.0
 
@@ -319,6 +320,8 @@ enum SolarLayout {
 
     static let earthR: Double = 58
     static let earthSpinPeriod: Double = 96
+    /// Reduce Motion: one revolution per 20 minutes, matching web.
+    static let earthSpinPeriodReduced: Double = 20 * 60
     static let altMin: Double = 14
     static let altMax: Double = 78
 
@@ -358,8 +361,9 @@ enum SolarLayout {
     }
 
     static func earthSpin(elapsed: TimeInterval, reduceMotion: Bool) -> Double {
-        if reduceMotion { return 0 }
-        return (elapsed / earthSpinPeriod) * 2 * .pi
+        let period = reduceMotion ? earthSpinPeriodReduced : earthSpinPeriod
+        let turns = elapsed / period
+        return (turns - turns.rounded(.down)) * 2 * .pi
     }
 
     static func projectOrtho(latDeg: Double, lngDeg: Double, radius: Double, spin: Double) -> GlobePoint {
