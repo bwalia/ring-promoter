@@ -180,8 +180,8 @@ export function FleetView() {
           <h2 className="font-display text-lg font-semibold tracking-tight">Rings of Apps</h2>
           <p className="text-sm text-muted-foreground">
             {view === "apps"
-              ? "Earth is the hub. Apps sit on their config location; height above the surface is TTFB."
-              : "Each body is a ring (a group of apps), placed at the centroid of its members."}
+              ? "Earth is the hub. Each app rides its own orbital ring; height is TTFB. Config locations sit on the ring at that longitude."
+              : "Each body is a group of apps on its own orbital ring, placed at the centroid of its members."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

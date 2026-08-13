@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// The Rings of Applications screen: the whole fleet around a spinning Earth,
-/// ported from the web console. Apps with a config location sit on the globe;
-/// height above the surface is TTFB. Colour, symbol and motion still say how
-/// each service is doing right now.
+/// ported from the web console. Each app rides its own orbital ring; height
+/// is TTFB. Config locations sit on that ring at the city's longitude.
+/// Colour, symbol and motion still say how each service is doing right now.
 ///
 /// Reuses `OverviewStore` for data: the same summaries, jobs and groups the
 /// Overview list shows, so the two screens can never disagree about health.
@@ -182,7 +182,7 @@ private struct RingsUniverseContent: View {
             Label(summaryLine(for: aggregate), systemImage: aggregate.systemImage)
                 .foregroundStyle(aggregate.tint)
             Spacer()
-            Text("Closer to Earth = lower TTFB")
+            Text("Each ring is an app · closer = lower TTFB")
                 .foregroundStyle(.secondary)
         }
         .font(.caption2)
@@ -231,7 +231,7 @@ private struct FilterChip: View {
 
 // MARK: - The stage
 
-/// The sky itself: Earth, altitude shells, and the orbiting bodies.
+/// The sky itself: Earth, one orbital ring per app, and the orbiting bodies.
 /// A pure function of (nodes, elapsed time) — all state lives in the parent.
 private struct SolarStage: View {
     let nodes: [FleetNode]
@@ -261,8 +261,15 @@ private struct SolarStage: View {
                 let scale = side / SolarLayout.canvasSize
                 ZStack {
                     StarField(elapsed: elapsed)
+                    orbitRings(
+                        bodies: bodies, spin: spin, scale: scale, front: false,
+                        byID: byID, selectedID: selectedID
+                    )
                     EarthGlobe(spin: spin, scale: scale)
-                    altitudeShells(scale: scale)
+                    orbitRings(
+                        bodies: bodies, spin: spin, scale: scale, front: true,
+                        byID: byID, selectedID: selectedID
+                    )
                     stems(bodies: bodies, elapsed: elapsed, spin: spin, scale: scale)
                     ForEach(Array(bodies.enumerated()), id: \.element.id) { index, body in
                         if let node = byID[body.id] {
@@ -367,19 +374,44 @@ private struct SolarStage: View {
         }
     }
 
-    private func altitudeShells(scale: CGFloat) -> some View {
-        let radii = [
-            SolarLayout.earthR + SolarLayout.altMin,
-            SolarLayout.earthR + (SolarLayout.altMin + SolarLayout.altMax) / 2,
-            SolarLayout.earthR + SolarLayout.altMax,
-        ]
-        return ForEach(Array(radii.enumerated()), id: \.offset) { index, radius in
-            Circle()
-                .stroke(
-                    Color(red: 0.49, green: 0.83, blue: 0.99).opacity(index == 1 ? 0.1 : 0.06),
-                    style: StrokeStyle(lineWidth: 0.6, dash: [2, 7])
+    private func orbitRings(
+        bodies: [SolarLayout.GlobeBody],
+        spin: Double,
+        scale: CGFloat,
+        front: Bool,
+        byID: [String: FleetNode],
+        selectedID: String?
+    ) -> some View {
+        Canvas { context, _ in
+            for body in bodies {
+                let pts = SolarLayout.sampleOrbit(body, spin: spin)
+                let lit = selectedID == body.id
+                let tint = byID[body.id]?.status.tint ?? Color(white: 0.5)
+                var path = Path()
+                var started = false
+                for p in pts {
+                    guard p.front == front else {
+                        started = false
+                        continue
+                    }
+                    let pt = CGPoint(x: p.x * scale, y: p.y * scale)
+                    if started {
+                        path.addLine(to: pt)
+                    } else {
+                        path.move(to: pt)
+                        started = true
+                    }
+                }
+                context.stroke(
+                    path,
+                    with: .color(tint.opacity(front ? (lit ? 0.9 : 0.55) : (lit ? 0.4 : 0.22))),
+                    style: StrokeStyle(
+                        lineWidth: front ? (lit ? 1.9 : 1.2) : (lit ? 1.3 : 0.85),
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
                 )
-                .frame(width: radius * 2 * scale, height: radius * 2 * scale)
+            }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -579,7 +611,7 @@ private struct EarthGlobe: View {
         .accessibilityLabel("Earth. \(nodesCaption)")
     }
 
-    private var nodesCaption: String { "Applications orbit Earth." }
+    private var nodesCaption: String { "Applications ride orbital rings around Earth." }
 }
 
 /// Sparse star field — quiet atmosphere so latency rings and bodies dominate.

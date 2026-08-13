@@ -22,6 +22,16 @@ export const EARTH_SPIN_PERIOD_REDUCED = 20 * 60;
 export const ALT_MIN = 14;
 export const ALT_MAX = 78;
 
+/**
+ * Floor on orbital inclination. This camera looks from the equator, so a
+ * 0° orbit is edge-on (a line through the disc). A little tilt keeps every
+ * ring readable as an ellipse.
+ */
+export const MIN_INCLINATION = 22;
+
+/** Samples around one orbital ring. Shared with iOS. */
+export const ORBIT_SAMPLES = 80;
+
 export type { AppLocation };
 
 export type GlobeBody = {
@@ -33,10 +43,19 @@ export type GlobeBody = {
   lat: number;
   /** Geographic (or synthetic) longitude at t=0, degrees. */
   lng0: number;
-  /** Extra eastward drift in degrees/second. Geo pins stay with Earth (0). */
+  /**
+   * Motion along the ring in degrees/second (argument of latitude).
+   * Geo pins stay fixed on their ring (0); unplaced apps drift.
+   */
   driftDegPerSec: number;
   /** True when this body came from a config `location` pin. */
   placed: boolean;
+  /** Orbital-plane tilt from the equator, degrees. */
+  inclination: number;
+  /** Longitude of the ascending node at t=0, degrees. */
+  raan0: number;
+  /** Argument of latitude at t=0, degrees — where the satellite sits on the ring. */
+  arg0: number;
 };
 
 export type GlobePoint = {
@@ -77,13 +96,42 @@ export function projectOrtho(
   return { x: SOLAR_C + x, y: SOLAR_C + y, z, front: z >= -0.5 };
 }
 
+/**
+ * Circular orbit in the Earth's equatorial frame, then into the same canvas
+ * coordinates as `projectOrtho` (X east, −Y north, Z toward the camera).
+ *
+ * `spinRad` is added to the ascending node so rings ride with Earth.
+ */
+export function projectOrbit(
+  radius: number,
+  inclinationDeg: number,
+  raanDeg: number,
+  argDeg: number,
+  spinRad: number,
+): GlobePoint {
+  const i = rad(inclinationDeg);
+  const Ω = rad(raanDeg) + spinRad;
+  const u = rad(argDeg);
+  const cosI = Math.cos(i);
+  const sinI = Math.sin(i);
+  const cosO = Math.cos(Ω);
+  const sinO = Math.sin(Ω);
+  const cosU = Math.cos(u);
+  const sinU = Math.sin(u);
+  // Standard ECI: X through lng 0, Z north.
+  const x = radius * (cosO * cosU - sinO * sinU * cosI);
+  const y = radius * (sinO * cosU + cosO * sinU * cosI);
+  const z = radius * (sinU * sinI);
+  return { x: SOLAR_C + y, y: SOLAR_C - z, z: x, front: x >= -0.5 };
+}
+
 export function bodyPoint(
   body: GlobeBody,
   elapsedSec: number,
   spinRad: number,
 ): GlobePoint {
-  const lng = body.lng0 + body.driftDegPerSec * elapsedSec;
-  return projectOrtho(body.lat, lng, body.r, spinRad);
+  const arg = body.arg0 + body.driftDegPerSec * elapsedSec;
+  return projectOrbit(body.r, body.inclination, body.raan0, arg, spinRad);
 }
 
 export function surfacePoint(
@@ -91,8 +139,58 @@ export function surfacePoint(
   elapsedSec: number,
   spinRad: number,
 ): GlobePoint {
-  const lng = body.lng0 + body.driftDegPerSec * elapsedSec;
-  return projectOrtho(body.lat, lng, EARTH_R, spinRad);
+  const arg = body.arg0 + body.driftDegPerSec * elapsedSec;
+  return projectOrbit(EARTH_R, body.inclination, body.raan0, arg, spinRad);
+}
+
+export function sampleOrbit(
+  body: GlobeBody,
+  spinRad: number,
+  samples = ORBIT_SAMPLES,
+): GlobePoint[] {
+  const pts: GlobePoint[] = [];
+  for (let k = 0; k <= samples; k++) {
+    pts.push(
+      projectOrbit(
+        body.r,
+        body.inclination,
+        body.raan0,
+        (k / samples) * 360,
+        spinRad,
+      ),
+    );
+  }
+  return pts;
+}
+
+/** SVG path `d` for the visible (front) and far (back) halves of a ring. */
+export function orbitPathPair(
+  body: GlobeBody,
+  spinRad: number,
+): { front: string; back: string } {
+  const pts = sampleOrbit(body, spinRad);
+  return { front: pathForHemisphere(pts, true), back: pathForHemisphere(pts, false) };
+}
+
+function pathForHemisphere(pts: GlobePoint[], front: boolean): string {
+  const parts: string[] = [];
+  let run: GlobePoint[] = [];
+  const flush = () => {
+    if (run.length >= 2) {
+      parts.push(
+        run
+          .map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`)
+          .join(" "),
+      );
+    }
+    run = [];
+  };
+  for (const p of pts) {
+    if (p.front === front) run.push(p);
+    else flush();
+  }
+  flush();
+  return parts.join(" ");
 }
 
 function hash01(s: string): number {
@@ -105,9 +203,13 @@ function hash01(s: string): number {
 }
 
 /**
- * Place bodies on the globe. Config locations become map pins (they rotate
- * with Earth). Apps without a pin park on a mid-latitude satellite belt and
- * drift slowly so they still read as orbiting. Altitude is TTFB/latency.
+ * Place bodies on orbital rings around Earth. One ring per app:
+ * radius is TTFB, colour is applied by the renderer from health.
+ *
+ * Config locations sit on their ring at that longitude (the plane is tilted
+ * to pass through the pin). Apps without a pin get a unique inclination /
+ * node / phase and drift along the ring. Same-city apps fan out by radius
+ * and inclination so the rings don't collapse onto one equator.
  */
 export function buildGlobeBodies(
   ids: string[],
@@ -135,14 +237,20 @@ export function buildGlobeBodies(
     // Tiny deterministic nudge so two apps in the same city don't stack.
     const jitterLat = (hash01(p.id + ":lat") - 0.5) * 1.6;
     const jitterLng = (hash01(p.id + ":lng") - 0.5) * 2.2;
+    const lat = clamp(p.loc.lat + jitterLat, -80, 80);
+    const lng0 = wrapLng(p.loc.lng + jitterLng);
+    const orbit = orbitThrough(lat, lng0, p.id);
     out.push({
       id: p.id,
-      r: EARTH_R + p.alt,
+      r: ringRadius(p.id, p.alt),
       track: p.track,
-      lat: clamp(p.loc.lat + jitterLat, -80, 80),
-      lng0: wrapLng(p.loc.lng + jitterLng),
+      lat,
+      lng0,
       driftDegPerSec: 0,
       placed: true,
+      inclination: orbit.inclination,
+      raan0: orbit.raan,
+      arg0: orbit.arg,
     });
   }
 
@@ -151,21 +259,75 @@ export function buildGlobeBodies(
     .slice()
     .sort((a, b) => a.id.localeCompare(b.id))
     .forEach((p, i) => {
-      const lat = -18 + hash01(p.id) * 36;
-      const lng0 = n === 0 ? 0 : (i / n) * 360 - 180;
+      const inclination = MIN_INCLINATION + hash01(p.id) * 50;
+      const raan0 = n === 0 ? 0 : (i / n) * 360 - 180;
+      const arg0 = hash01(p.id + ":arg") * 360;
       const period = 72 + (p.track / SOLAR_R_MAX) * 50;
+      const geo = latLngOnOrbit(inclination, raan0, arg0);
       out.push({
         id: p.id,
-        r: EARTH_R + p.alt,
+        r: ringRadius(p.id, p.alt),
         track: p.track,
-        lat,
-        lng0,
+        lat: geo.lat,
+        lng0: geo.lng,
         driftDegPerSec: 360 / period,
         placed: false,
+        inclination,
+        raan0,
+        arg0,
       });
     });
 
   return out;
+}
+
+/** TTFB altitude plus a per-app stagger so equal-latency rings don't coincide. */
+function ringRadius(id: string, alt: number): number {
+  const nudge = (hash01(id + ":r") - 0.5) * 12;
+  return Math.max(EARTH_R + 10, EARTH_R + alt + nudge);
+}
+
+/**
+ * Inclination / node / anomaly so the satellite sits at (lat, lng). Extra
+ * tilt (from the id hash) opens the ellipse without leaving the city.
+ */
+function orbitThrough(
+  lat: number,
+  lng: number,
+  id: string,
+): { inclination: number; raan: number; arg: number } {
+  const absLat = Math.abs(lat);
+  const extra = 6 + hash01(id + ":i") * 20;
+  let inclination = clamp(
+    Math.max(absLat, MIN_INCLINATION) + extra * 0.45,
+    MIN_INCLINATION,
+    78,
+  );
+  if (inclination <= absLat + 0.25) {
+    inclination = clamp(absLat + 0.5, MIN_INCLINATION, 80);
+  }
+  const i = rad(inclination);
+  const sinU = clamp(Math.sin(rad(lat)) / Math.max(Math.sin(i), 1e-6), -1, 1);
+  const u = Math.asin(sinU);
+  const raan = rad(lng) - Math.atan2(Math.cos(i) * Math.sin(u), Math.cos(u));
+  return {
+    inclination,
+    raan: wrapLng((raan * 180) / Math.PI),
+    arg: (u * 180) / Math.PI,
+  };
+}
+
+function latLngOnOrbit(
+  inclination: number,
+  raan: number,
+  arg: number,
+): { lat: number; lng: number } {
+  const i = rad(inclination);
+  const u = rad(arg);
+  return {
+    lat: (Math.asin(Math.sin(i) * Math.sin(u)) * 180) / Math.PI,
+    lng: wrapLng(raan + (Math.atan2(Math.cos(i) * Math.sin(u), Math.cos(u)) * 180) / Math.PI),
+  };
 }
 
 export function centroidLocation(
