@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The Rings of Applications screen: the whole fleet around a spinning Earth,
-/// ported from the web console. Each app rides its own orbital ring; height
-/// is TTFB. Config locations sit on that ring at the city's longitude.
-/// Colour, symbol and motion still say how each service is doing right now.
+/// The Rings of Applications screen: Sun (control plane) and a spinning Earth,
+/// with one isolated orbital ring per app — unique radius so a busy fleet
+/// stays readable. TTFB only orders inner vs outer; two apps never share
+/// an ellipse. A persistent roster identifies every service by name.
 ///
 /// Reuses `OverviewStore` for data: the same summaries, jobs and groups the
 /// Overview list shows, so the two screens can never disagree about health.
@@ -129,6 +129,10 @@ private struct RingsUniverseContent: View {
                         nodes: nodes, mode: mode, selectedID: $selectedID,
                         onOpen: open(node:)
                     )
+                    FleetRoster(
+                        nodes: rosterNodes, mode: mode, selectedID: $selectedID,
+                        onOpen: open(node:)
+                    )
                     legend
                 }
 
@@ -161,6 +165,23 @@ private struct RingsUniverseContent: View {
         }
     }
 
+    /// Inner (faster TTFB) first, matching isolated ring order.
+    private var rosterNodes: [FleetNode] {
+        nodes.sorted { a, b in
+            let ma = a.ttfbMs ?? a.latencyMs
+            let mb = b.ttfbMs ?? b.latencyMs
+            switch (ma, mb) {
+            case (nil, nil):
+                return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+            case (nil, _): return false
+            case (_, nil): return true
+            case let (x?, y?) where x != y: return x < y
+            default:
+                return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+            }
+        }
+    }
+
     /// The card's primary action: open a service, or drill a ring open into
     /// its member services.
     private func open(node: FleetNode) {
@@ -182,7 +203,7 @@ private struct RingsUniverseContent: View {
             Label(summaryLine(for: aggregate), systemImage: aggregate.systemImage)
                 .foregroundStyle(aggregate.tint)
             Spacer()
-            Text("Each ring is an app · closer = lower TTFB")
+            Text("Sun + Earth · one ring per \(mode == .apps ? "app" : "group") · closer = lower TTFB")
                 .foregroundStyle(.secondary)
         }
         .font(.caption2)
@@ -249,6 +270,8 @@ private struct SolarStage: View {
         SolarLayout.globeBodies(for: nodes)
     }
 
+    private var crowded: Bool { nodes.count > SolarLayout.densityCap }
+
     var body: some View {
         let bodies = bodies
         let byID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
@@ -259,23 +282,31 @@ private struct SolarStage: View {
             GeometryReader { geo in
                 let side = min(geo.size.width, geo.size.height)
                 let scale = side / SolarLayout.canvasSize
+                let focusBody = selectedID.flatMap { id in bodies.first { $0.id == id } }
+                let focusPos = focusBody.map { SolarLayout.point(of: $0, elapsed: elapsed, spin: spin) }
+                let camScale: CGFloat = (selectedID != nil && !reduceMotion) ? 1.12 : 1
+                let camX = (focusPos.map { (SolarLayout.center - $0.x) / 400 * 18 } ?? 0)
+                let camY = (focusPos.map { (SolarLayout.center - $0.y) / 400 * 18 } ?? 0)
                 ZStack {
                     StarField(elapsed: elapsed)
                     orbitRings(
                         bodies: bodies, spin: spin, scale: scale, front: false,
-                        byID: byID, selectedID: selectedID
+                        byID: byID, selectedID: selectedID, crowded: crowded
                     )
                     EarthGlobe(spin: spin, scale: scale)
+                    SunHub(scale: scale)
                     orbitRings(
                         bodies: bodies, spin: spin, scale: scale, front: true,
-                        byID: byID, selectedID: selectedID
+                        byID: byID, selectedID: selectedID, crowded: crowded
                     )
-                    stems(bodies: bodies, elapsed: elapsed, spin: spin, scale: scale)
+                    stems(bodies: bodies, elapsed: elapsed, spin: spin, scale: scale, selectedID: selectedID)
                     ForEach(Array(bodies.enumerated()), id: \.element.id) { index, body in
                         if let node = byID[body.id] {
                             let pos = SolarLayout.point(of: body, elapsed: elapsed, spin: spin)
                             let point = CGPoint(x: pos.x * scale, y: pos.y * scale)
                             let plateBelow = pos.y >= SolarLayout.center
+                            let dim = selectedID != nil && selectedID != node.id
+                            let showPlate = !crowded || selectedID == node.id
                             PlanetView(
                                 node: node, elapsed: elapsed,
                                 isSelected: selectedID == node.id,
@@ -287,13 +318,15 @@ private struct SolarStage: View {
                                     selectedID = selectedID == node.id ? nil : node.id
                                 }
                             }
-                            .opacity(pos.front || selectedID == node.id ? 1 : 0.22)
+                            .opacity(dim ? (pos.front ? 0.28 : 0.1) : (pos.front || selectedID == node.id ? 1 : 0.28))
                             .zIndex(pos.front ? 20 + pos.z : 2)
                             .allowsHitTesting(pos.front || selectedID == node.id)
                             .position(point)
                             NamePlate(node: node, emphasized: selectedID == node.id)
                                 .opacity(
-                                    (revealed || reduceMotion) && (pos.front || selectedID == node.id)
+                                    (revealed || reduceMotion)
+                                        && (pos.front || selectedID == node.id)
+                                        && showPlate
                                         ? 1 : 0
                                 )
                                 .position(
@@ -303,6 +336,12 @@ private struct SolarStage: View {
                         }
                     }
                 }
+                .scaleEffect(camScale)
+                .offset(x: camX, y: camY)
+                .animation(
+                    reduceMotion ? nil : .easeOut(duration: 0.55),
+                    value: selectedID
+                )
                 .frame(width: side, height: side)
                 .frame(maxWidth: .infinity)
             }
@@ -380,12 +419,14 @@ private struct SolarStage: View {
         scale: CGFloat,
         front: Bool,
         byID: [String: FleetNode],
-        selectedID: String?
+        selectedID: String?,
+        crowded: Bool
     ) -> some View {
         Canvas { context, _ in
             for body in bodies {
                 let pts = SolarLayout.sampleOrbit(body, spin: spin)
                 let lit = selectedID == body.id
+                let dim = selectedID != nil && selectedID != body.id
                 let tint = byID[body.id]?.status.tint ?? Color(white: 0.5)
                 var path = Path()
                 var started = false
@@ -402,11 +443,23 @@ private struct SolarStage: View {
                         started = true
                     }
                 }
+                let opacity: Double
+                if front {
+                    opacity = dim ? (crowded ? 0.1 : 0.18) : (lit ? 0.95 : (crowded ? 0.4 : 0.58))
+                } else {
+                    opacity = dim ? 0.05 : (lit ? 0.42 : 0.18)
+                }
+                let width: CGFloat
+                if front {
+                    width = lit ? 2.2 : (crowded ? 1.05 : 1.25)
+                } else {
+                    width = lit ? 1.3 : 0.85
+                }
                 context.stroke(
                     path,
-                    with: .color(tint.opacity(front ? (lit ? 0.9 : 0.55) : (lit ? 0.4 : 0.22))),
+                    with: .color(tint.opacity(opacity)),
                     style: StrokeStyle(
-                        lineWidth: front ? (lit ? 1.9 : 1.2) : (lit ? 1.3 : 0.85),
+                        lineWidth: width,
                         lineCap: .round,
                         lineJoin: .round
                     )
@@ -418,35 +471,24 @@ private struct SolarStage: View {
     }
 
     private func stems(
-        bodies: [SolarLayout.GlobeBody], elapsed: TimeInterval, spin: Double, scale: CGFloat
+        bodies: [SolarLayout.GlobeBody], elapsed: TimeInterval, spin: Double, scale: CGFloat,
+        selectedID: String?
     ) -> some View {
         Canvas { context, _ in
             for body in bodies {
                 let sat = SolarLayout.point(of: body, elapsed: elapsed, spin: spin)
                 let ground = SolarLayout.surface(of: body, elapsed: elapsed, spin: spin)
+                let dim = selectedID != nil && selectedID != body.id
                 var path = Path()
                 path.move(to: CGPoint(x: ground.x * scale, y: ground.y * scale))
                 path.addLine(to: CGPoint(x: sat.x * scale, y: sat.y * scale))
                 context.stroke(
                     path,
-                    with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(sat.front ? 0.38 : 0.08)),
+                    with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(
+                        dim ? 0.04 : (sat.front ? 0.28 : 0.06)
+                    )),
                     lineWidth: 0.7
                 )
-                // Map pin on the surface so placed apps read as geography, not just altitude.
-                if body.placed, ground.front {
-                    let pinR = 2.1 * scale
-                    let origin = CGPoint(x: ground.x * scale, y: ground.y * scale)
-                    let rect = CGRect(
-                        x: origin.x - pinR, y: origin.y - pinR,
-                        width: pinR * 2, height: pinR * 2
-                    )
-                    context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.9)))
-                    context.stroke(
-                        Path(ellipseIn: rect),
-                        with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(0.7)),
-                        lineWidth: 0.6
-                    )
-                }
             }
         }
         .allowsHitTesting(false)
@@ -611,7 +653,36 @@ private struct EarthGlobe: View {
         .accessibilityLabel("Earth. \(nodesCaption)")
     }
 
-    private var nodesCaption: String { "Applications ride orbital rings around Earth." }
+    private var nodesCaption: String { "Applications ride isolated orbital rings around Earth." }
+}
+
+/// Control-plane hub to Earth's left — the second body in this two-body sky.
+private struct SunHub: View {
+    let scale: CGFloat
+
+    var body: some View {
+        let r = 18 * scale
+        Circle()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        Color(red: 1, green: 0.97, blue: 0.84),
+                        Color(red: 0.96, green: 0.73, blue: 0.26),
+                        Color(red: 0.76, green: 0.25, blue: 0.05),
+                    ],
+                    center: .init(x: 0.35, y: 0.32),
+                    startRadius: 0, endRadius: r
+                )
+            )
+            .frame(width: r * 2, height: r * 2)
+            .shadow(color: Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.45), radius: 12)
+            .position(
+                x: (SolarLayout.center + SolarLayout.sunOffsetX) * scale,
+                y: SolarLayout.center * scale
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
 }
 
 /// Sparse star field — quiet atmosphere so latency rings and bodies dominate.
@@ -824,6 +895,12 @@ private struct NodeCard: View {
                     }
                 } else {
                     row("Apps") { Text(node.subtitle ?? "—") }
+                    if node.apps.count > 1 {
+                        Text(node.apps.joined(separator: " · "))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     row("Health") {
                         Text(
                             node.activeCount > 0
@@ -863,6 +940,84 @@ private struct NodeCard: View {
         }
     }
 
+}
+
+// MARK: - Persistent roster
+
+/// Always-visible identification: name, health, TTFB, location. Tap focuses
+/// that ring; the globe is never the only way to tell apps apart.
+private struct FleetRoster: View {
+    let nodes: [FleetNode]
+    let mode: FleetMode
+    @Binding var selectedID: String?
+    let onOpen: (FleetNode) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(mode == .rings ? "Rings" : "Applications")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            VStack(spacing: 4) {
+                ForEach(nodes) { node in
+                    Button {
+                        withAnimation(.spring(duration: 0.32, bounce: 0.22)) {
+                            selectedID = selectedID == node.id ? nil : node.id
+                        }
+                    } label: {
+                        HStack(alignment: .top, spacing: 8) {
+                            Circle()
+                                .fill(node.status.tint)
+                                .frame(width: 8, height: 8)
+                                .padding(.top, 5)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(node.title)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                HStack(spacing: 8) {
+                                    Text(node.status.label)
+                                        .foregroundStyle(node.status.tint)
+                                    if let ms = node.ttfbMs ?? node.latencyMs {
+                                        Text("\(ms)ms TTFB").monospacedDigit()
+                                    } else {
+                                        Text("—")
+                                    }
+                                    if let loc = node.location {
+                                        Text(loc.label).lineLimit(1)
+                                    }
+                                    if let subtitle = node.subtitle {
+                                        Text(subtitle)
+                                    }
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                if selectedID == node.id, mode == .rings, node.apps.count > 1 {
+                                    Text(node.apps.joined(separator: " · "))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(selectedID == node.id ? Color.white.opacity(0.08) : Color.white.opacity(0.03))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Focuses this ring. Opens details from the card.")
+                    .accessibilityIdentifier("roster-\(node.id)")
+                    .simultaneousGesture(
+                        TapGesture(count: 2).onEnded { onOpen(node) }
+                    )
+                }
+            }
+        }
+        .environment(\.colorScheme, .dark)
+    }
 }
 
 // MARK: - Accessibility fallback
