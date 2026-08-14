@@ -82,69 +82,123 @@ private struct RingsUniverseContent: View {
     @State private var selectedID: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if let error = store.error, store.summaries.isEmpty {
-                    ErrorRow(error: error) { Task { await store.refresh() } }
-                }
-
-                if store.isStale {
-                    Label(
-                        "Showing the last data this app was able to load.",
-                        systemImage: "wifi.exclamationmark"
+        Group {
+            if let error = store.error, store.summaries.isEmpty {
+                ErrorRow(error: error) { Task { await store.refresh() } }
+                    .padding()
+            } else if nodes.isEmpty {
+                if store.isLoading {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if store.error == nil {
+                    CalmEmptyState(
+                        title: "No applications",
+                        message: "This control plane has no applications configured.",
+                        systemImage: "circle.dotted",
+                        tint: .rpNeutral
                     )
-                    .font(.subheadline)
-                    .foregroundStyle(Color.rpGate)
                 }
-
-                Picker("View", selection: $mode) {
-                    ForEach(FleetMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
+            } else if typeSize.isAccessibilitySize {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        modePicker
+                        if let group = filterGroup, mode == .apps {
+                            FilterChip(name: group.name) {
+                                filterGroupID = nil
+                                selectedID = nil
+                            }
+                        }
+                        FleetNodeList(nodes: nodes, mode: mode, onOpen: open(node:))
                     }
+                    .padding()
                 }
-                .pickerStyle(.segmented)
-
-                if let group = filterGroup, mode == .apps {
-                    FilterChip(name: group.name) {
-                        filterGroupID = nil
-                        selectedID = nil
-                    }
-                }
-
-                if nodes.isEmpty {
-                    if store.error == nil, !store.isLoading {
-                        CalmEmptyState(
-                            title: "No applications",
-                            message: "This control plane has no applications configured.",
-                            systemImage: "circle.dotted",
-                            tint: .rpNeutral
-                        )
-                    }
-                } else if typeSize.isAccessibilitySize {
-                    // A radial layout is unreadable at accessibility text sizes;
-                    // reflow to plain rows carrying the same information.
-                    FleetNodeList(nodes: nodes, mode: mode, onOpen: open(node:))
-                } else {
+                .refreshable { await store.refresh() }
+            } else {
+                ZStack {
                     SolarStage(
                         nodes: nodes, mode: mode, selectedID: $selectedID,
                         onOpen: open(node:)
                     )
-                    FleetRoster(
-                        nodes: rosterNodes, mode: mode, selectedID: $selectedID,
-                        onOpen: open(node:)
-                    )
-                    legend
+                    .ignoresSafeArea(edges: .bottom)
                 }
+                .overlay(alignment: .top) { topChrome }
+                .overlay(alignment: .bottom) { bottomChrome }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task { await store.refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityLabel("Refresh")
+            }
+        }
+        .onChange(of: mode) { _, _ in selectedID = nil }
+    }
 
-                if let lastUpdated = store.lastUpdated {
-                    RelativeTimestamp(date: lastUpdated, prefix: "Updated")
-                        .frame(maxWidth: .infinity, alignment: .center)
+    private var modePicker: some View {
+        Picker("View", selection: $mode) {
+            ForEach(FleetMode.allCases) { mode in
+                Text(mode.label).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var topChrome: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if store.isStale {
+                Label(
+                    "Showing the last data this app was able to load.",
+                    systemImage: "wifi.exclamationmark"
+                )
+                .font(.subheadline)
+                .foregroundStyle(Color.rpGate)
+            }
+            modePicker
+            if let group = filterGroup, mode == .apps {
+                FilterChip(name: group.name) {
+                    filterGroupID = nil
+                    selectedID = nil
                 }
             }
-            .padding()
         }
-        .refreshable { await store.refresh() }
-        .onChange(of: mode) { _, _ in selectedID = nil }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .background(
+            LinearGradient(
+                colors: [Color.black.opacity(0.55), Color.black.opacity(0)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+        )
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var bottomChrome: some View {
+        VStack(spacing: 8) {
+            FleetRoster(
+                nodes: rosterNodes, mode: mode, selectedID: $selectedID,
+                onOpen: open(node:)
+            )
+            .frame(maxHeight: 168)
+            legend
+            if let lastUpdated = store.lastUpdated {
+                RelativeTimestamp(date: lastUpdated, prefix: "Updated")
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.ultraThinMaterial, in: UnevenRoundedRectangle(
+            topLeadingRadius: 16, topTrailingRadius: 16
+        ))
+        .environment(\.colorScheme, .dark)
     }
 
     private var filterGroup: AppGroup? {
@@ -266,45 +320,51 @@ private struct SolarStage: View {
     /// Entrance reveal: bodies spring in once the stage appears.
     @State private var revealed = false
 
-    private var bodies: [SolarLayout.GlobeBody] {
-        SolarLayout.globeBodies(for: nodes)
+    private func bodies(metrics: SolarLayout.GlobeMetrics) -> [SolarLayout.GlobeBody] {
+        SolarLayout.globeBodies(for: nodes, metrics: metrics)
     }
 
     private var crowded: Bool { nodes.count > SolarLayout.densityCap }
 
     var body: some View {
-        let bodies = bodies
         let byID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
 
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion)) { timeline in
             let elapsed = reduceMotion ? 0 : timeline.date.timeIntervalSince(start)
             let spin = SolarLayout.earthSpin(elapsed: elapsed, reduceMotion: reduceMotion)
             GeometryReader { geo in
-                let side = min(geo.size.width, geo.size.height)
-                let scale = side / SolarLayout.canvasSize
+                let metrics = SolarLayout.GlobeMetrics(size: geo.size)
+                let bodies = bodies(metrics: metrics)
                 let focusBody = selectedID.flatMap { id in bodies.first { $0.id == id } }
-                let focusPos = focusBody.map { SolarLayout.point(of: $0, elapsed: elapsed, spin: spin) }
+                let focusPos = focusBody.map {
+                    SolarLayout.point(of: $0, elapsed: elapsed, spin: spin, metrics: metrics)
+                }
                 let camScale: CGFloat = (selectedID != nil && !reduceMotion) ? 1.12 : 1
-                let camX = (focusPos.map { (SolarLayout.center - $0.x) / 400 * 18 } ?? 0)
-                let camY = (focusPos.map { (SolarLayout.center - $0.y) / 400 * 18 } ?? 0)
+                let camX = (focusPos.map { (metrics.cx - $0.x) / metrics.width * 18 } ?? 0)
+                let camY = (focusPos.map { (metrics.cy - $0.y) / metrics.height * 18 } ?? 0)
                 ZStack {
                     StarField(elapsed: elapsed)
                     orbitRings(
-                        bodies: bodies, spin: spin, scale: scale, front: false,
+                        bodies: bodies, spin: spin, metrics: metrics, front: false,
                         byID: byID, selectedID: selectedID, crowded: crowded
                     )
-                    EarthGlobe(spin: spin, scale: scale)
-                    SunHub(scale: scale)
+                    EarthGlobe(spin: spin, metrics: metrics)
+                    SunHub(metrics: metrics)
                     orbitRings(
-                        bodies: bodies, spin: spin, scale: scale, front: true,
+                        bodies: bodies, spin: spin, metrics: metrics, front: true,
                         byID: byID, selectedID: selectedID, crowded: crowded
                     )
-                    stems(bodies: bodies, elapsed: elapsed, spin: spin, scale: scale, selectedID: selectedID)
+                    stems(
+                        bodies: bodies, elapsed: elapsed, spin: spin, metrics: metrics,
+                        selectedID: selectedID
+                    )
                     ForEach(Array(bodies.enumerated()), id: \.element.id) { index, body in
                         if let node = byID[body.id] {
-                            let pos = SolarLayout.point(of: body, elapsed: elapsed, spin: spin)
-                            let point = CGPoint(x: pos.x * scale, y: pos.y * scale)
-                            let plateBelow = pos.y >= SolarLayout.center
+                            let pos = SolarLayout.point(
+                                of: body, elapsed: elapsed, spin: spin, metrics: metrics
+                            )
+                            let point = CGPoint(x: pos.x, y: pos.y)
+                            let plateBelow = pos.y >= metrics.cy
                             let dim = selectedID != nil && selectedID != node.id
                             let showPlate = !crowded || selectedID == node.id
                             PlanetView(
@@ -342,15 +402,11 @@ private struct SolarStage: View {
                     reduceMotion ? nil : .easeOut(duration: 0.55),
                     value: selectedID
                 )
-                .frame(width: side, height: side)
-                .frame(maxWidth: .infinity)
+                .frame(width: geo.size.width, height: geo.size.height)
             }
-            .aspectRatio(1, contentMode: .fit)
         }
         .background(spaceBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.black.opacity(0.2)))
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .center) {
             if let node = selectedID.flatMap({ id in nodes.first { $0.id == id } }) {
                 NodeCard(
                     node: node, mode: mode,
@@ -374,7 +430,7 @@ private struct SolarStage: View {
         .animation(.spring(duration: 0.32, bounce: 0.22), value: selectedID)
         // Space is dark in both appearances, like the web console's stage.
         .environment(\.colorScheme, .dark)
-        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.spring(duration: 0.28, bounce: 0.2)) {
                 selectedID = nil
@@ -408,7 +464,7 @@ private struct SolarStage: View {
             Color(red: 0.027, green: 0.027, blue: 0.039)
             RadialGradient(
                 colors: [Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0.06), .clear],
-                center: .center, startRadius: 0, endRadius: 220
+                center: .center, startRadius: 0, endRadius: 420
             )
         }
     }
@@ -416,15 +472,16 @@ private struct SolarStage: View {
     private func orbitRings(
         bodies: [SolarLayout.GlobeBody],
         spin: Double,
-        scale: CGFloat,
+        metrics: SolarLayout.GlobeMetrics,
         front: Bool,
         byID: [String: FleetNode],
         selectedID: String?,
         crowded: Bool
     ) -> some View {
         Canvas { context, _ in
+            let sw = metrics.strokeScale
             for body in bodies {
-                let pts = SolarLayout.sampleOrbit(body, spin: spin)
+                let pts = SolarLayout.sampleOrbit(body, spin: spin, metrics: metrics)
                 let lit = selectedID == body.id
                 let dim = selectedID != nil && selectedID != body.id
                 let tint = byID[body.id]?.status.tint ?? Color(white: 0.5)
@@ -435,7 +492,7 @@ private struct SolarStage: View {
                         started = false
                         continue
                     }
-                    let pt = CGPoint(x: p.x * scale, y: p.y * scale)
+                    let pt = CGPoint(x: p.x, y: p.y)
                     if started {
                         path.addLine(to: pt)
                     } else {
@@ -451,9 +508,9 @@ private struct SolarStage: View {
                 }
                 let width: CGFloat
                 if front {
-                    width = lit ? 2.2 : (crowded ? 1.05 : 1.25)
+                    width = (lit ? 2.2 : (crowded ? 1.05 : 1.25)) * sw
                 } else {
-                    width = lit ? 1.3 : 0.85
+                    width = (lit ? 1.3 : 0.85) * sw
                 }
                 context.stroke(
                     path,
@@ -471,23 +528,23 @@ private struct SolarStage: View {
     }
 
     private func stems(
-        bodies: [SolarLayout.GlobeBody], elapsed: TimeInterval, spin: Double, scale: CGFloat,
-        selectedID: String?
+        bodies: [SolarLayout.GlobeBody], elapsed: TimeInterval, spin: Double,
+        metrics: SolarLayout.GlobeMetrics, selectedID: String?
     ) -> some View {
         Canvas { context, _ in
             for body in bodies {
-                let sat = SolarLayout.point(of: body, elapsed: elapsed, spin: spin)
-                let ground = SolarLayout.surface(of: body, elapsed: elapsed, spin: spin)
+                let sat = SolarLayout.point(of: body, elapsed: elapsed, spin: spin, metrics: metrics)
+                let ground = SolarLayout.surface(of: body, elapsed: elapsed, spin: spin, metrics: metrics)
                 let dim = selectedID != nil && selectedID != body.id
                 var path = Path()
-                path.move(to: CGPoint(x: ground.x * scale, y: ground.y * scale))
-                path.addLine(to: CGPoint(x: sat.x * scale, y: sat.y * scale))
+                path.move(to: CGPoint(x: ground.x, y: ground.y))
+                path.addLine(to: CGPoint(x: sat.x, y: sat.y))
                 context.stroke(
                     path,
                     with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(
                         dim ? 0.04 : (sat.front ? 0.28 : 0.06)
                     )),
-                    lineWidth: 0.7
+                    lineWidth: 0.7 * metrics.strokeScale
                 )
             }
         }
@@ -509,13 +566,13 @@ private struct SolarStage: View {
 /// Spin is the only input that moves; reduced-motion callers pass 0.
 private struct EarthGlobe: View {
     let spin: Double
-    let scale: CGFloat
+    let metrics: SolarLayout.GlobeMetrics
 
     var body: some View {
         Canvas { context, _ in
-            let s = scale
-            let c = CGPoint(x: SolarLayout.center * s, y: SolarLayout.center * s)
-            let r = SolarLayout.earthR * s
+            let s = metrics.strokeScale
+            let c = CGPoint(x: metrics.cx, y: metrics.cy)
+            let r = metrics.earthR
             let earth = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
 
             // Atmosphere
@@ -556,10 +613,11 @@ private struct EarthGlobe: View {
                     var started = false
                     for lat in stride(from: -90.0, through: 90.0, by: 4) {
                         let p = SolarLayout.projectOrtho(
-                            latDeg: lat, lngDeg: lng, radius: SolarLayout.earthR, spin: spin
+                            latDeg: lat, lngDeg: lng, radius: metrics.earthR, spin: spin,
+                            metrics: metrics
                         )
                         guard p.front else { started = false; continue }
-                        let pt = CGPoint(x: p.x * s, y: p.y * s)
+                        let pt = CGPoint(x: p.x, y: p.y)
                         if started { grid.addLine(to: pt) } else { grid.move(to: pt); started = true }
                     }
                 }
@@ -567,17 +625,18 @@ private struct EarthGlobe: View {
                     var started = false
                     for lng in stride(from: -180.0, through: 180.0, by: 5) {
                         let p = SolarLayout.projectOrtho(
-                            latDeg: lat, lngDeg: lng, radius: SolarLayout.earthR, spin: spin
+                            latDeg: lat, lngDeg: lng, radius: metrics.earthR, spin: spin,
+                            metrics: metrics
                         )
                         guard p.front else { started = false; continue }
-                        let pt = CGPoint(x: p.x * s, y: p.y * s)
+                        let pt = CGPoint(x: p.x, y: p.y)
                         if started { grid.addLine(to: pt) } else { grid.move(to: pt); started = true }
                     }
                 }
                 ctx.stroke(
                     grid,
                     with: .color(Color(red: 186 / 255, green: 230 / 255, blue: 253 / 255).opacity(0.11)),
-                    lineWidth: 0.55
+                    lineWidth: 0.55 * s
                 )
 
                 let landFill = Color(red: 134 / 255, green: 168 / 255, blue: 128 / 255).opacity(0.78)
@@ -588,17 +647,18 @@ private struct EarthGlobe: View {
                     var frontCount = 0
                     for pt in poly {
                         let p = SolarLayout.projectOrtho(
-                            latDeg: pt.lat, lngDeg: pt.lng, radius: SolarLayout.earthR, spin: spin
+                            latDeg: pt.lat, lngDeg: pt.lng, radius: metrics.earthR, spin: spin,
+                            metrics: metrics
                         )
                         guard p.front else { started = false; continue }
                         frontCount += 1
-                        let cg = CGPoint(x: p.x * s, y: p.y * s)
+                        let cg = CGPoint(x: p.x, y: p.y)
                         if started { path.addLine(to: cg) } else { path.move(to: cg); started = true }
                     }
                     guard frontCount >= 3 else { continue }
                     path.closeSubpath()
                     ctx.fill(path, with: .color(landFill))
-                    ctx.stroke(path, with: .color(landStroke), lineWidth: 0.4)
+                    ctx.stroke(path, with: .color(landStroke), lineWidth: 0.4 * s)
                 }
 
                 // Terminator / night side — the cue that this is a globe, not a disc.
@@ -638,7 +698,7 @@ private struct EarthGlobe: View {
             context.stroke(
                 earth,
                 with: .color(Color(red: 125 / 255, green: 211 / 255, blue: 252 / 255).opacity(0.28)),
-                lineWidth: 1.1
+                lineWidth: 1.1 * s
             )
             context.stroke(
                 Path(ellipseIn: CGRect(
@@ -646,7 +706,7 @@ private struct EarthGlobe: View {
                     width: (r + 1.6 * s) * 2, height: (r + 1.6 * s) * 2
                 )),
                 with: .color(Color(red: 245 / 255, green: 185 / 255, blue: 66 / 255).opacity(0.12)),
-                lineWidth: 0.7
+                lineWidth: 0.7 * s
             )
         }
         .accessibilityElement(children: .ignore)
@@ -658,10 +718,10 @@ private struct EarthGlobe: View {
 
 /// Control-plane hub to Earth's left — the second body in this two-body sky.
 private struct SunHub: View {
-    let scale: CGFloat
+    let metrics: SolarLayout.GlobeMetrics
 
     var body: some View {
-        let r = 18 * scale
+        let r = max(9, metrics.sunR)
         Circle()
             .fill(
                 RadialGradient(
@@ -677,8 +737,8 @@ private struct SunHub: View {
             .frame(width: r * 2, height: r * 2)
             .shadow(color: Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.45), radius: 12)
             .position(
-                x: (SolarLayout.center + SolarLayout.sunOffsetX) * scale,
-                y: SolarLayout.center * scale
+                x: metrics.cx + metrics.sunOffsetX,
+                y: metrics.cy
             )
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -958,7 +1018,8 @@ private struct FleetRoster: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
-            VStack(spacing: 4) {
+            ScrollView {
+                VStack(spacing: 4) {
                 ForEach(nodes) { node in
                     Button {
                         withAnimation(.spring(duration: 0.32, bounce: 0.22)) {
@@ -1013,6 +1074,7 @@ private struct FleetRoster: View {
                     .simultaneousGesture(
                         TapGesture(count: 2).onEnded { onOpen(node) }
                     )
+                }
                 }
             }
         }

@@ -1,11 +1,12 @@
 import type { AppLocation } from "@/lib/types";
-import { SOLAR_C, SOLAR_R_MAX, SOLAR_R_MIN, latencyToRadius } from "@/lib/solar-layout";
+import { SOLAR_R_MAX, SOLAR_R_MIN, latencyToRadius } from "@/lib/solar-layout";
 
 /**
  * Globe geometry, shared number-for-number with iOS `SolarLayout` globe
- * helpers. The stage is a 400×400 canvas: Sun (control plane) to Earth's
- * left, Earth at the centre, one isolated ring per app in the sky around
- * Earth.
+ * helpers. The design was authored on a 400×400 canvas; live stages pass
+ * their CSS pixel size into `globeMetrics` so Earth, the Sun, and the
+ * isolated ring band are recomputed from the real width and height instead
+ * of stretching a 400-unit world.
  *
  * Camera looks from +Z (towards the viewer). North is −Y (up on the canvas).
  * Earth spin is a rotation about the Y axis (longitude).
@@ -15,10 +16,13 @@ import { SOLAR_C, SOLAR_R_MAX, SOLAR_R_MIN, latencyToRadius } from "@/lib/solar-
  * ellipse — even 17 services on a training instance stay nested and separable.
  */
 
-/** Earth disc radius in canvas units. */
+/** Canonical design size the fractions below were authored against. */
+export const DESIGN_SIZE = 400;
+
+/** Earth disc radius on the 400×400 design. */
 export const EARTH_R = 58;
 
-/** Sun (control-plane hub) sits left of Earth, in canvas units from centre. */
+/** Sun (control-plane hub) sits left of Earth, in design-canvas units. */
 export const SUN_R = 16;
 export const SUN_OFFSET_X = -112;
 
@@ -52,6 +56,42 @@ export const SATURN_INCLINATION = 24;
 
 /** Samples around one orbital ring. Shared with iOS. */
 export const ORBIT_SAMPLES = 80;
+
+/**
+ * Live-canvas geometry. Earth stays circular (sized from the short side) so
+ * a rectangular viewport is not squashed; the stage itself still fills both
+ * axes and the extra long-side space is where the Sun and roster live.
+ */
+export type GlobeMetrics = {
+  width: number;
+  height: number;
+  cx: number;
+  cy: number;
+  earthR: number;
+  sunR: number;
+  sunOffsetX: number;
+  ringInnerPad: number;
+  ringOuter: number;
+};
+
+export function globeMetrics(width: number, height: number): GlobeMetrics {
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  const k = Math.min(w, h) / DESIGN_SIZE;
+  return {
+    width: w,
+    height: h,
+    cx: w / 2,
+    cy: h / 2,
+    earthR: EARTH_R * k,
+    sunR: SUN_R * k,
+    sunOffsetX: SUN_OFFSET_X * k,
+    ringInnerPad: RING_INNER_PAD * k,
+    ringOuter: RING_OUTER * k,
+  };
+}
+
+export const DEFAULT_METRICS: GlobeMetrics = globeMetrics(DESIGN_SIZE, DESIGN_SIZE);
 
 export type { AppLocation };
 
@@ -96,7 +136,7 @@ export function earthSpin(elapsedSec: number, reduceMotion: boolean): number {
 }
 
 /**
- * Orthographic projection of a lat/lng onto the 400×400 stage.
+ * Orthographic projection of a lat/lng onto the live stage.
  * `spin` is Earth's rotation in radians (added to longitude).
  */
 export function projectOrtho(
@@ -104,6 +144,7 @@ export function projectOrtho(
   lngDeg: number,
   radius: number,
   spinRad: number,
+  metrics: GlobeMetrics = DEFAULT_METRICS,
 ): GlobePoint {
   const lat = (latDeg * Math.PI) / 180;
   const lng = (lngDeg * Math.PI) / 180 + spinRad;
@@ -111,7 +152,7 @@ export function projectOrtho(
   const x = radius * cosLat * Math.sin(lng);
   const y = -radius * Math.sin(lat);
   const z = radius * cosLat * Math.cos(lng);
-  return { x: SOLAR_C + x, y: SOLAR_C + y, z, front: z >= -0.5 };
+  return { x: metrics.cx + x, y: metrics.cy + y, z, front: z >= -0.5 };
 }
 
 /**
@@ -126,6 +167,7 @@ export function projectOrbit(
   raanDeg: number,
   argDeg: number,
   spinRad: number,
+  metrics: GlobeMetrics = DEFAULT_METRICS,
 ): GlobePoint {
   const i = rad(inclinationDeg);
   const Ω = rad(raanDeg) + spinRad;
@@ -140,30 +182,40 @@ export function projectOrbit(
   const x = radius * (cosO * cosU - sinO * sinU * cosI);
   const y = radius * (sinO * cosU + cosO * sinU * cosI);
   const z = radius * (sinU * sinI);
-  return { x: SOLAR_C + y, y: SOLAR_C - z, z: x, front: x >= -0.5 };
+  return { x: metrics.cx + y, y: metrics.cy - z, z: x, front: x >= -0.5 };
 }
 
 export function bodyPoint(
   body: GlobeBody,
   elapsedSec: number,
   spinRad: number,
+  metrics: GlobeMetrics = DEFAULT_METRICS,
 ): GlobePoint {
   const arg = body.arg0 + body.driftDegPerSec * elapsedSec;
-  return projectOrbit(body.r, body.inclination, body.raan0, arg, spinRad);
+  return projectOrbit(body.r, body.inclination, body.raan0, arg, spinRad, metrics);
 }
 
 export function surfacePoint(
   body: GlobeBody,
   elapsedSec: number,
   spinRad: number,
+  metrics: GlobeMetrics = DEFAULT_METRICS,
 ): GlobePoint {
   const arg = body.arg0 + body.driftDegPerSec * elapsedSec;
-  return projectOrbit(EARTH_R, body.inclination, body.raan0, arg, spinRad);
+  return projectOrbit(
+    metrics.earthR,
+    body.inclination,
+    body.raan0,
+    arg,
+    spinRad,
+    metrics,
+  );
 }
 
 export function sampleOrbit(
   body: GlobeBody,
   spinRad: number,
+  metrics: GlobeMetrics = DEFAULT_METRICS,
   samples = ORBIT_SAMPLES,
 ): GlobePoint[] {
   const pts: GlobePoint[] = [];
@@ -175,6 +227,7 @@ export function sampleOrbit(
         body.raan0,
         (k / samples) * 360,
         spinRad,
+        metrics,
       ),
     );
   }
@@ -185,8 +238,9 @@ export function sampleOrbit(
 export function orbitPathPair(
   body: GlobeBody,
   spinRad: number,
+  metrics: GlobeMetrics = DEFAULT_METRICS,
 ): { front: string; back: string } {
-  const pts = sampleOrbit(body, spinRad);
+  const pts = sampleOrbit(body, spinRad, metrics);
   return { front: pathForHemisphere(pts, true), back: pathForHemisphere(pts, false) };
 }
 
@@ -225,10 +279,13 @@ function hash01(s: string): number {
  * Earth to the outer sky. A fleet of 1 parks on a comfortable inner-mid
  * ring; a fleet of 17 still gets 17 different sizes.
  */
-export function isolatedRadii(count: number): number[] {
+export function isolatedRadii(
+  count: number,
+  metrics: GlobeMetrics = DEFAULT_METRICS,
+): number[] {
   if (count <= 0) return [];
-  const inner = EARTH_R + RING_INNER_PAD;
-  const outer = RING_OUTER;
+  const inner = metrics.earthR + metrics.ringInnerPad;
+  const outer = metrics.ringOuter;
   if (count === 1) return [(inner * 2 + outer) / 3];
   const gap = (outer - inner) / (count - 1);
   return Array.from({ length: count }, (_, i) => inner + i * gap);
@@ -241,6 +298,7 @@ export function isolatedRadii(count: number): number[] {
 export function assignIsolatedRadii(
   ids: string[],
   radiusMsOf: (id: string) => number | null,
+  metrics: GlobeMetrics = DEFAULT_METRICS,
 ): Map<string, number> {
   const sorted = [...ids].sort((a, b) => {
     const ma = radiusMsOf(a);
@@ -251,7 +309,7 @@ export function assignIsolatedRadii(
     if (ma !== mb) return ma - mb;
     return a.localeCompare(b);
   });
-  const radii = isolatedRadii(sorted.length);
+  const radii = isolatedRadii(sorted.length, metrics);
   const out = new Map<string, number>();
   sorted.forEach((id, i) => out.set(id, radii[i]!));
   return out;
@@ -267,14 +325,15 @@ export function buildGlobeBodies(
   ids: string[],
   locationOf: (id: string) => AppLocation | null | undefined,
   radiusMsOf: (id: string) => number | null,
+  metrics: GlobeMetrics = DEFAULT_METRICS,
 ): GlobeBody[] {
-  const radii = assignIsolatedRadii(ids, radiusMsOf);
+  const radii = assignIsolatedRadii(ids, radiusMsOf, metrics);
   const n = ids.length || 1;
 
   return ids.map((id, i) => {
     const loc = locationOf(id);
     const ms = radiusMsOf(id);
-    const r = radii.get(id) ?? EARTH_R + RING_INNER_PAD;
+    const r = radii.get(id) ?? metrics.earthR + metrics.ringInnerPad;
     const track = latencyToRadius(ms);
     const placed = !!(loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng));
     const lat = placed ? clamp(loc!.lat, -80, 80) : 0;
@@ -284,7 +343,7 @@ export function buildGlobeBodies(
     const arg0 = placed
       ? wrapLng(lng0)
       : wrapLng((i / n) * 360 + hash01(id + ":arg") * 24);
-    const period = 56 + (r / RING_OUTER) * 48;
+    const period = 56 + (r / metrics.ringOuter) * 48;
     const geo = latLngOnOrbit(inclination, raan0, arg0);
     return {
       id,

@@ -13,17 +13,18 @@ import {
   bodyPoint,
   buildGlobeBodies,
   DENSITY_CAP,
-  EARTH_R,
+  DESIGN_SIZE,
   earthSpin,
   estimateRttMs,
   formatLocation,
+  globeMetrics,
   haversineKm,
   orbitPathPair,
-  SUN_OFFSET_X,
   surfacePoint,
   type GlobeBody,
+  type GlobeMetrics,
 } from "@/lib/globe-layout";
-import { appLatencyMs, appTtfbMs, SOLAR_C } from "@/lib/solar-layout";
+import { appLatencyMs, appTtfbMs } from "@/lib/solar-layout";
 import { useApps, useAppTitle, type GroupAppRings } from "@/lib/queries";
 import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
 import type { AppGroup, AppLocation, TopologyEdge } from "@/lib/types";
@@ -59,6 +60,7 @@ export type SolarSystemProps = {
   onRemoveEdge?: (from: string, to: string) => void;
   onOpen: (id: string) => void;
   onSeed?: (id: string) => void;
+  className?: string;
 };
 
 export function SolarSystem({
@@ -80,6 +82,7 @@ export function SolarSystem({
   onRemoveEdge,
   onOpen,
   onSeed,
+  className,
 }: SolarSystemProps) {
   const appTitle = useAppTitle();
   const title = resolveTitle ?? appTitle;
@@ -151,14 +154,23 @@ export function SolarSystem({
     return m;
   }, [members, results]);
 
+  const stageEl = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState({ w: DESIGN_SIZE, h: DESIGN_SIZE });
+  const metrics = useMemo(
+    () => globeMetrics(stageSize.w, stageSize.h),
+    [stageSize],
+  );
+  const strokeK = Math.min(metrics.width, metrics.height) / DESIGN_SIZE;
+
   const bodies = useMemo(
     () =>
       buildGlobeBodies(
         members,
         (id) => locationByMember.get(id),
         (id) => ttfbByMember.get(id) ?? latencyByMember.get(id) ?? null,
+        metrics,
       ),
-    [members, locationByMember, ttfbByMember, latencyByMember],
+    [members, locationByMember, ttfbByMember, latencyByMember, metrics],
   );
 
   const fleetCentroid = useMemo(() => {
@@ -170,20 +182,19 @@ export function SolarSystem({
     };
   }, [locationByMember]);
 
-  const restPoint = (body: GlobeBody) => bodyPoint(body, 0, 0);
+  const restPoint = (body: GlobeBody) => bodyPoint(body, 0, 0, metrics);
 
   const positions = useMemo(() => {
     const m = new Map<string, { x: number; y: number; z: number; front: boolean }>();
     for (const b of bodies) m.set(b.id, restPoint(b));
     return m;
-  }, [bodies]);
+  }, [bodies, metrics]);
 
   const visibleEdges = useMemo(
     () => edges.filter((e) => members.includes(e.from) && members.includes(e.to)),
     [edges, members],
   );
 
-  const stageEl = useRef<HTMLDivElement>(null);
   const nameEls = useRef(new Map<string, HTMLElement | null>());
   const frame = useRef({ elapsed: 0, spin: 0 });
 
@@ -191,21 +202,21 @@ export function SolarSystem({
     frame.current = { elapsed, spin };
     const nowPos = new Map<string, ReturnType<typeof bodyPoint>>();
     for (const b of bodies) {
-      const pos = bodyPoint(b, elapsed, spin);
+      const pos = bodyPoint(b, elapsed, spin, metrics);
       nowPos.set(b.id, pos);
       const dim = !!active && active !== b.id;
       const el = markerEls.current.get(b.id);
       if (el) {
         const vis = dim ? (pos.front ? 0.28 : 0.1) : pos.front ? 1 : 0.28;
-        el.style.left = `${(pos.x / 400) * 100}%`;
-        el.style.top = `${(pos.y / 400) * 100}%`;
+        el.style.left = `${(pos.x / metrics.width) * 100}%`;
+        el.style.top = `${(pos.y / metrics.height) * 100}%`;
         el.style.opacity = String(vis);
         el.style.zIndex = String(pos.front ? 20 + Math.round(pos.z) : 2);
         el.style.pointerEvents = pos.front || active === b.id ? "auto" : "none";
       }
       const stem = stemEls.current.get(b.id);
       if (stem) {
-        const ground = surfacePoint(b, elapsed, spin);
+        const ground = surfacePoint(b, elapsed, spin, metrics);
         stem.setAttribute("x1", String(ground.x));
         stem.setAttribute("y1", String(ground.y));
         stem.setAttribute("x2", String(pos.x));
@@ -215,7 +226,7 @@ export function SolarSystem({
           String(dim ? 0.04 : pos.front ? 0.28 : 0.06),
         );
       }
-      const { front, back } = orbitPathPair(b, spin);
+      const { front, back } = orbitPathPair(b, spin, metrics);
       const ringFront = ringFrontEls.current.get(b.id);
       const ringBack = ringBackEls.current.get(b.id);
       ringFront?.setAttribute("d", front);
@@ -236,7 +247,7 @@ export function SolarSystem({
       const b = nowPos.get(e.to);
       const path = chordEls.current.get(`${e.from}->${e.to}`);
       if (!a || !b || !path) continue;
-      path.setAttribute("d", chordPath(a, b));
+      path.setAttribute("d", chordPath(a, b, metrics));
       path.setAttribute(
         "stroke-opacity",
         String(a.front || b.front ? (editMode ? 0.5 : 0.22) : 0.06),
@@ -259,16 +270,30 @@ export function SolarSystem({
     };
     id = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(id);
-    // Marker refs are populated after commit; bodies/edges are the inputs.
+    // Marker refs are populated after commit; bodies/edges/metrics are the inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bodies, visibleEdges, reduceMotion, editMode, active, crowded]);
+  }, [bodies, visibleEdges, reduceMotion, editMode, active, crowded, metrics]);
+
+  useLayoutEffect(() => {
+    const stage = stageEl.current;
+    if (!stage) return;
+    const measure = () => {
+      const w = stage.clientWidth;
+      const h = stage.clientHeight;
+      if (w < 2 || h < 2) return;
+      setStageSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(stage);
+    return () => ro.disconnect();
+  }, []);
 
   useLayoutEffect(() => {
     const stage = stageEl.current;
     if (!stage) return;
 
     const run = () => {
-      const scale = stage.clientWidth / 400 || 1;
       const spin = frame.current.spin;
       const elapsed = frame.current.elapsed;
       const ordered = [...bodies].sort((x, y) => {
@@ -285,7 +310,7 @@ export function SolarSystem({
       const kept: { l: number; r: number; t: number; b: number }[] = [];
       for (const p of ordered) {
         const el = nameEls.current.get(p.id);
-        const pos = bodyPoint(p, elapsed, spin);
+        const pos = bodyPoint(p, elapsed, spin, metrics);
         if (!el || !pos) continue;
         if (!pos.front && p.id !== active) {
           el.style.opacity = "0";
@@ -304,10 +329,14 @@ export function SolarSystem({
         const w = el.offsetWidth;
         const h = el.offsetHeight;
         const nameRight =
-          pos.x > 300 ? false : pos.x < 100 ? true : pos.x >= SOLAR_C;
+          pos.x > metrics.width * 0.75
+            ? false
+            : pos.x < metrics.width * 0.25
+              ? true
+              : pos.x >= metrics.cx;
         const offset = DIAL_SIZE / 2 + 4 + w / 2;
-        const cx = pos.x * scale + (nameRight ? offset : -offset);
-        const cy = pos.y * scale;
+        const cx = pos.x + (nameRight ? offset : -offset);
+        const cy = pos.y;
         const box = {
           l: cx - w / 2 - 2,
           r: cx + w / 2 + 2,
@@ -336,7 +365,7 @@ export function SolarSystem({
       ro.disconnect();
       window.clearInterval(id);
     };
-  }, [bodies, statusById, active, title, crowded]);
+  }, [bodies, statusById, active, title, crowded, metrics]);
 
   const hoverIn = (id: string) => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -379,12 +408,21 @@ export function SolarSystem({
   const focusPos = focusBody ? positions.get(focusBody.id) : null;
   const camScale = focused && !reduceMotion ? 1.12 : 1;
   const camX =
-    focusPos && !reduceMotion ? ((SOLAR_C - focusPos.x) / 400) * 18 : 0;
+    focusPos && !reduceMotion
+      ? ((metrics.cx - focusPos.x) / metrics.width) * 18
+      : 0;
   const camY =
-    focusPos && !reduceMotion ? ((SOLAR_C - focusPos.y) / 400) * 18 : 0;
+    focusPos && !reduceMotion
+      ? ((metrics.cy - focusPos.y) / metrics.height) * 18
+      : 0;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-black/20 bg-[#07070a] dark:border-border">
+    <div
+      className={cn(
+        "relative h-full min-h-0 overflow-hidden bg-[#07070a]",
+        className,
+      )}
+    >
       <div
         aria-hidden
         className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(56,189,248,0.06)_0%,transparent_55%)]"
@@ -427,10 +465,9 @@ export function SolarSystem({
         </div>
       )}
 
-      <div className="flex flex-col lg:flex-row">
       <div
         ref={stageEl}
-        className="relative mx-auto aspect-square w-full max-w-[760px] p-3 sm:p-6 lg:flex-1"
+        className="absolute inset-0"
         data-testid="solar-system"
         data-status={aggregate}
         onClick={(e) => {
@@ -453,14 +490,14 @@ export function SolarSystem({
         >
         {/* Far-side orbits sit behind Earth so the disc occults them. */}
         <svg
-          viewBox="0 0 400 400"
+          viewBox={`0 0 ${metrics.width} ${metrics.height}`}
           className="pointer-events-none absolute inset-0 size-full overflow-visible"
           aria-hidden
         >
           {bodies.map((b) => {
             const status = statusById.get(b.id) ?? "empty";
             const hex = STATUS_HEX[status];
-            const { back } = orbitPathPair(b, 0);
+            const { back } = orbitPathPair(b, 0, metrics);
             const lit = active === b.id;
             return (
               <path
@@ -471,7 +508,7 @@ export function SolarSystem({
                 d={back}
                 fill="none"
                 stroke={hex}
-                strokeWidth={lit ? 1.3 : 0.85}
+                strokeWidth={(lit ? 1.3 : 0.85) * strokeK}
                 strokeOpacity={lit ? 0.4 : 0.22}
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -482,19 +519,20 @@ export function SolarSystem({
 
         <EarthGlobe
           ref={earthRef}
+          metrics={metrics}
           className="pointer-events-none absolute inset-0 size-full"
         />
 
-        <SunHub label={sunLabel} />
+        <SunHub label={sunLabel} metrics={metrics} />
 
         <svg
-          viewBox="0 0 400 400"
+          viewBox={`0 0 ${metrics.width} ${metrics.height}`}
           className="absolute inset-0 size-full overflow-visible"
         >
           {bodies.map((b) => {
             const status = statusById.get(b.id) ?? "empty";
             const hex = STATUS_HEX[status];
-            const { front } = orbitPathPair(b, 0);
+            const { front } = orbitPathPair(b, 0, metrics);
             const lit = active === b.id;
             return (
               <g key={`orbit-front-${b.id}`}>
@@ -502,7 +540,7 @@ export function SolarSystem({
                   d={front}
                   fill="none"
                   stroke="transparent"
-                  strokeWidth={10}
+                  strokeWidth={10 * strokeK}
                   strokeLinecap="round"
                   className="cursor-pointer"
                   data-orbit-ring={b.id}
@@ -518,7 +556,7 @@ export function SolarSystem({
                   d={front}
                   fill="none"
                   stroke={hex}
-                  strokeWidth={lit ? 2.2 : crowded ? 1.05 : 1.25}
+                  strokeWidth={(lit ? 2.2 : crowded ? 1.05 : 1.25) * strokeK}
                   strokeOpacity={lit ? 0.95 : crowded ? 0.4 : 0.58}
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -531,7 +569,7 @@ export function SolarSystem({
           {bodies.map((b) => {
             const pos = positions.get(b.id);
             if (!pos) return null;
-            const ground = surfacePoint(b, 0, 0);
+            const ground = surfacePoint(b, 0, 0, metrics);
             return (
               <line
                 key={`stem-${b.id}`}
@@ -543,7 +581,7 @@ export function SolarSystem({
                 x2={pos.x}
                 y2={pos.y}
                 stroke="#7dd3fc"
-                strokeWidth={0.7}
+                strokeWidth={0.7 * strokeK}
                 strokeOpacity={0.38}
               />
             );
@@ -560,10 +598,10 @@ export function SolarSystem({
                   ref={(el) => {
                     chordEls.current.set(key, el);
                   }}
-                  d={chordPath(a, b)}
+                  d={chordPath(a, b, metrics)}
                   fill="none"
                   stroke={e.source === "config" ? "#a3a3a3" : "#737373"}
-                  strokeWidth={editMode ? 1.6 : 0.9}
+                  strokeWidth={(editMode ? 1.6 : 0.9) * strokeK}
                   strokeOpacity={editMode ? 0.5 : 0.22}
                   className={cn(editMode && "cursor-pointer")}
                   onClick={(ev) => {
@@ -594,11 +632,15 @@ export function SolarSystem({
           const rings = resultById.get(p.id);
           const segs = ringSegments(rings?.rings, ringOrder);
           const { latest } = summarizeRings(rings?.rings);
-          const left = (pos.x / 400) * 100;
-          const top = (pos.y / 400) * 100;
+          const left = (pos.x / metrics.width) * 100;
+          const top = (pos.y / metrics.height) * 100;
           const nameRight =
-            pos.x > 300 ? false : pos.x < 100 ? true : pos.x >= SOLAR_C;
-          const below = pos.y >= SOLAR_C;
+            pos.x > metrics.width * 0.75
+              ? false
+              : pos.x < metrics.width * 0.25
+                ? true
+                : pos.x >= metrics.cx;
+          const below = pos.y >= metrics.cy;
           const estMs =
             loc && fleetCentroid
               ? estimateRttMs(haversineKm(loc, fleetCentroid))
@@ -727,8 +769,8 @@ export function SolarSystem({
         })}
         </div>
 
-        {/* Legend */}
-        <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-30 flex flex-wrap items-center justify-between gap-2 text-[11px] leading-none text-neutral-400">
+        {/* Legend — inset from the overlay roster so it stays readable. */}
+        <div className="pointer-events-none absolute bottom-[min(13.5rem,34vh)] left-2 right-2 z-30 flex flex-wrap items-center justify-between gap-2 text-[11px] leading-none text-neutral-400 lg:bottom-2 lg:right-[19.5rem]">
           <span className="inline-flex items-center gap-1.5 font-medium">
             <span
               aria-hidden
@@ -762,23 +804,26 @@ export function SolarSystem({
         onFocus={(id) => setFocused((f) => (f === id ? null : id))}
         onOpen={onOpen}
       />
-      </div>
     </div>
   );
 }
 
-function SunHub({ label }: { label: string }) {
-  const left = ((SOLAR_C + SUN_OFFSET_X) / 400) * 100;
+function SunHub({ label, metrics }: { label: string; metrics: GlobeMetrics }) {
+  const left = ((metrics.cx + metrics.sunOffsetX) / metrics.width) * 100;
+  const top = (metrics.cy / metrics.height) * 100;
+  const size = Math.max(18, metrics.sunR * 2);
   return (
     <div
       className="pointer-events-none absolute z-[8]"
-      style={{ left: `${left}%`, top: "50%" }}
+      style={{ left: `${left}%`, top: `${top}%` }}
       data-sun-hub
     >
       <div className="-translate-x-1/2 -translate-y-1/2">
         <div
-          className="relative size-9 rounded-full"
+          className="relative rounded-full"
           style={{
+            width: size,
+            height: size,
             background:
               "radial-gradient(circle at 35% 32%, #fff7d6 0%, #f5b942 42%, #c2410c 100%)",
             boxShadow:
@@ -836,7 +881,7 @@ function AppRoster({
     <div
       data-roster
       data-testid="app-roster"
-      className="relative z-30 max-h-[min(380px,46vh)] overflow-auto border-t border-white/10 lg:max-h-none lg:w-[19.5rem] lg:shrink-0 lg:border-l lg:border-t-0"
+      className="absolute inset-x-0 bottom-0 z-30 max-h-[min(200px,32vh)] overflow-auto border-t border-white/10 bg-[#07070a]/80 backdrop-blur-md lg:inset-y-0 lg:left-auto lg:right-0 lg:max-h-none lg:w-[19.5rem] lg:border-l lg:border-t-0"
     >
       <div className="sticky top-0 z-10 border-b border-white/10 bg-[#07070a]/90 px-3 py-2 backdrop-blur-md">
         <p className="font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
@@ -908,11 +953,12 @@ function AppRoster({
 function chordPath(
   a: { x: number; y: number },
   b: { x: number; y: number },
+  metrics: GlobeMetrics,
 ): string {
   const mx = (a.x + b.x) / 2;
   const my = (a.y + b.y) / 2;
-  let dx = mx - SOLAR_C;
-  let dy = my - SOLAR_C;
+  let dx = mx - metrics.cx;
+  let dy = my - metrics.cy;
   let dist = Math.hypot(dx, dy);
   if (dist < 1) {
     // Chord passes dead through the hub: bow along the segment's normal.
@@ -921,9 +967,9 @@ function chordPath(
     dist = Math.hypot(dx, dy) || 1;
   }
   // The closer the midpoint sits to the hub, the harder it needs to bow. The
-  // threshold is comfortably wider than the hub radius (42) so chords clear
+  // threshold is comfortably wider than the hub radius so chords clear
   // its edge rather than grazing it.
-  const bow = Math.max(0, EARTH_R + 46 - dist) * 1.35;
+  const bow = Math.max(0, metrics.earthR + 46 * (Math.min(metrics.width, metrics.height) / DESIGN_SIZE) - dist) * 1.35;
   const cx = mx + (dx / dist) * bow;
   const cy = my + (dy / dist) * bow;
   return `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`;
