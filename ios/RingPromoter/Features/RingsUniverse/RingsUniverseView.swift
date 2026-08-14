@@ -742,7 +742,7 @@ private struct SunHub: View {
                 Text("Promoter")
             }
             .font(.system(size: fontSize, weight: .semibold, design: .rounded))
-            .foregroundStyle(Color(red: 0.23, green: 0.1, blue: 0.015).opacity(0.9))
+            .foregroundStyle(.black)
             .multilineTextAlignment(.center)
             .lineSpacing(-1)
             .tracking(0.4)

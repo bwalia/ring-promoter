@@ -842,7 +842,7 @@ function SunHub({ label, metrics }: { label: string; metrics: GlobeMetrics }) {
           }}
         >
           <p
-            className="m-0 px-1 text-center font-display font-semibold uppercase leading-[1.05] tracking-[0.06em] text-[#3b1a04]/90]"
+            className="m-0 px-1 text-center font-display font-semibold uppercase leading-[1.05] tracking-[0.06em] text-black"
             style={{ fontSize: fontPx }}
           >
             {lines.map((line) => (
