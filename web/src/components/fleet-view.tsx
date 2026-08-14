@@ -231,7 +231,7 @@ export function FleetView() {
       ) : view === "apps" ? (
         <SolarSystem
           className="min-h-0 flex-1"
-          sunLabel="Rings of Apps"
+          sunLabel="Ring Promoter"
           members={known}
           results={appResults}
           statuses={appStatuses}
@@ -265,7 +265,7 @@ export function FleetView() {
       ) : (
         <SolarSystem
           className="min-h-0 flex-1"
-          sunLabel="Rings of Apps"
+          sunLabel="Ring Promoter"
           members={ringIds}
           results={ringResults}
           statuses={ringStatuses}

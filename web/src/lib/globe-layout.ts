@@ -22,8 +22,8 @@ export const DESIGN_SIZE = 400;
 /** Earth disc radius on the 400×400 design. */
 export const EARTH_R = 58;
 
-/** Sun (control-plane hub) sits left of Earth, in design-canvas units. */
-export const SUN_R = 16;
+/** Sun (= Ring Promoter) sits left of Earth, in design-canvas units. */
+export const SUN_R = 22;
 export const SUN_OFFSET_X = -112;
 
 /** Seconds for one full Earth revolution. Slow on purpose. */

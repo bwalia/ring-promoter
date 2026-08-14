@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The Rings of Applications screen: Sun (control plane) and a spinning Earth,
-/// with one isolated orbital ring per app — unique radius so a busy fleet
-/// stays readable. TTFB only orders inner vs outer; two apps never share
-/// an ellipse. A persistent roster identifies every service by name.
+/// The Rings of Applications screen: Sun (= Ring Promoter) and a spinning
+/// Earth, with one isolated orbital ring per app — unique radius so a busy
+/// fleet stays readable. TTFB only orders inner vs outer; two apps never
+/// share an ellipse. A persistent roster identifies every service by name.
 ///
 /// Reuses `OverviewStore` for data: the same summaries, jobs and groups the
 /// Overview list shows, so the two screens can never disagree about health.
@@ -257,7 +257,7 @@ private struct RingsUniverseContent: View {
             Label(summaryLine(for: aggregate), systemImage: aggregate.systemImage)
                 .foregroundStyle(aggregate.tint)
             Spacer()
-            Text("Sun + Earth · one ring per \(mode == .apps ? "app" : "group") · closer = lower TTFB")
+            Text("Ring Promoter · Earth · one ring per \(mode == .apps ? "app" : "group") · closer = lower TTFB")
                 .foregroundStyle(.secondary)
         }
         .font(.caption2)
@@ -716,32 +716,47 @@ private struct EarthGlobe: View {
     private var nodesCaption: String { "Applications ride isolated orbital rings around Earth." }
 }
 
-/// Control-plane hub to Earth's left — the second body in this two-body sky.
+/// Ring Promoter hub to Earth's left — the branded sun in this two-body sky.
 private struct SunHub: View {
     let metrics: SolarLayout.GlobeMetrics
 
     var body: some View {
-        let r = max(9, metrics.sunR)
-        Circle()
-            .fill(
-                RadialGradient(
-                    colors: [
-                        Color(red: 1, green: 0.97, blue: 0.84),
-                        Color(red: 0.96, green: 0.73, blue: 0.26),
-                        Color(red: 0.76, green: 0.25, blue: 0.05),
-                    ],
-                    center: .init(x: 0.35, y: 0.32),
-                    startRadius: 0, endRadius: r
+        let r = max(18, metrics.sunR)
+        let fontSize = max(7, min(11, r * 0.29))
+        ZStack {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color(red: 1, green: 0.97, blue: 0.84),
+                            Color(red: 0.96, green: 0.73, blue: 0.26),
+                            Color(red: 0.76, green: 0.25, blue: 0.05),
+                        ],
+                        center: .init(x: 0.35, y: 0.32),
+                        startRadius: 0, endRadius: r
+                    )
                 )
-            )
-            .frame(width: r * 2, height: r * 2)
-            .shadow(color: Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.45), radius: 12)
-            .position(
-                x: metrics.cx + metrics.sunOffsetX,
-                y: metrics.cy
-            )
+                .shadow(color: Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.45), radius: 12)
+            VStack(spacing: 0) {
+                Text("Ring")
+                Text("Promoter")
+            }
+            .font(.system(size: fontSize, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color(red: 0.23, green: 0.1, blue: 0.015).opacity(0.9))
+            .multilineTextAlignment(.center)
+            .lineSpacing(-1)
+            .tracking(0.4)
+            .textCase(.uppercase)
             .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        }
+        .frame(width: r * 2, height: r * 2)
+        .position(
+            x: metrics.cx + metrics.sunOffsetX,
+            y: metrics.cy
+        )
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ring Promoter")
     }
 }
 
