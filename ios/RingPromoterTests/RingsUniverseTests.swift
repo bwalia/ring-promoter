@@ -326,6 +326,30 @@ struct RingsUniverseTests {
         #expect(SolarLayout.sunOffsetX == -112)
     }
 
+    @Test("a larger stage grows Earth and the isolated ring band")
+    func stageMetricsScaleWithViewSize() {
+        let small = SolarLayout.GlobeMetrics.canonical
+        let large = SolarLayout.GlobeMetrics(width: 800, height: 800)
+        #expect(abs(large.earthR - small.earthR * 2) < 0.001)
+        #expect(abs(large.ringOuter - small.ringOuter * 2) < 0.001)
+        #expect(abs(large.sunOffsetX - small.sunOffsetX * 2) < 0.001)
+        let rSmall = SolarLayout.isolatedRadii(count: 5, metrics: small)
+        let rLarge = SolarLayout.isolatedRadii(count: 5, metrics: large)
+        #expect(rSmall.count == 5)
+        #expect(abs(rLarge[0] - rSmall[0] * 2) < 0.001)
+        #expect(abs(rLarge[4] - rSmall[4] * 2) < 0.001)
+
+        let wide = SolarLayout.GlobeMetrics(width: 1600, height: 800)
+        #expect(abs(wide.earthR - large.earthR) < 0.001)
+        #expect(abs(wide.cx - 800) < 0.001)
+        #expect(abs(wide.cy - 400) < 0.001)
+        let pin = SolarLayout.projectOrtho(
+            latDeg: 90, lngDeg: 0, radius: wide.earthR, spin: 0, metrics: wide
+        )
+        #expect(abs(pin.x - wide.cx) < 0.001)
+        #expect(abs(pin.y - (wide.cy - wide.earthR)) < 0.001)
+    }
+
     @Test("faster TTFB parks closer in; equal TTFB still gets different sizes")
     func ttfbOrdersRadiiButNeverShares() {
         func node(_ name: String, ms: Int) -> FleetNode {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import type { NodeStatus } from "@/components/group-ring";
 import { GroupDialog } from "@/components/group-dialog";
 import { SolarSystem } from "@/components/solar-system";
@@ -174,19 +173,11 @@ export function FleetView() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="font-display text-lg font-semibold tracking-tight">Rings of Apps</h2>
-          <p className="text-sm text-muted-foreground">
-            {view === "apps"
-              ? "Sun is the control plane; Earth spins in the hub. Each app has its own isolated ring — unique size, faster TTFB closer in. Select a ring or a row to focus."
-              : "One isolated ring per group, unique size. Select a ring to see its members."}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex justify-center p-3">
+        <div className="pointer-events-auto flex flex-wrap items-center gap-2">
           <div
-            className="inline-flex rounded-md border border-border bg-muted/40 p-0.5"
+            className="inline-flex rounded-md border border-white/15 bg-[#07070a]/70 p-0.5 backdrop-blur-md"
             role="group"
             aria-label="Rings of Apps view"
           >
@@ -196,8 +187,8 @@ export function FleetView() {
               className={cn(
                 "rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
                 view === "apps"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
+                  ? "bg-white/10 text-neutral-50 shadow-sm"
+                  : "text-neutral-400 hover:text-neutral-100",
               )}
               data-testid="solar-view-apps"
             >
@@ -209,8 +200,8 @@ export function FleetView() {
               className={cn(
                 "rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
                 view === "rings"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
+                  ? "bg-white/10 text-neutral-50 shadow-sm"
+                  : "text-neutral-400 hover:text-neutral-100",
               )}
               data-testid="solar-view-rings"
             >
@@ -221,6 +212,7 @@ export function FleetView() {
             <Button
               variant="outline"
               size="sm"
+              className="border-white/15 bg-[#07070a]/70 text-neutral-100 backdrop-blur-md hover:bg-white/10"
               onClick={() => setCreateOpen(true)}
             >
               New ring
@@ -230,34 +222,32 @@ export function FleetView() {
       </div>
 
       {known.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
           <p className="text-sm font-medium">No apps configured</p>
           <p className="text-sm text-muted-foreground">
             Add apps under <code>apps:</code> in the server config.
           </p>
         </div>
       ) : view === "apps" ? (
-        <>
-          <SolarSystem
-            sunLabel="Rings of Apps"
-            members={known}
-            results={appResults}
-            statuses={appStatuses}
-            aggregate={appAggregate}
-            edges={appEdges}
-            groups={groups}
-            mode="apps"
-            editable
-            onAddEdge={(from, to) => addEdge.mutate({ from, to })}
-            onRemoveEdge={(from, to) => removeEdge.mutate({ from, to })}
-            locations={appLocations}
-            onOpen={openApp}
-            onSeed={seedApp}
-          />
-          <ActivityFeed apps={known} />
-        </>
+        <SolarSystem
+          className="min-h-0 flex-1"
+          sunLabel="Rings of Apps"
+          members={known}
+          results={appResults}
+          statuses={appStatuses}
+          aggregate={appAggregate}
+          edges={appEdges}
+          groups={groups}
+          mode="apps"
+          editable
+          onAddEdge={(from, to) => addEdge.mutate({ from, to })}
+          onRemoveEdge={(from, to) => removeEdge.mutate({ from, to })}
+          locations={appLocations}
+          onOpen={openApp}
+          onSeed={seedApp}
+        />
       ) : ringPlanets.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
           <p className="text-sm font-medium">No rings yet</p>
           <p className="text-sm text-muted-foreground">
             Create a group of apps — or switch to All apps to see every app
@@ -273,31 +263,29 @@ export function FleetView() {
           </div>
         </div>
       ) : (
-        <>
-          <SolarSystem
-            sunLabel="Rings of Apps"
-            members={ringIds}
-            results={ringResults}
-            statuses={ringStatuses}
-            aggregate={aggregateStatuses(ringStatuses)}
-            edges={groupEdges(groups, appEdges, known)}
-            mode="groups"
-            resolveTitle={ringTitles}
-            subtitles={ringSubtitles}
-            latencyById={ringLatency}
-            ttfbById={ringTtfb}
-            locations={ringLocations}
-            groupMembers={Object.fromEntries(ringPlanets.map((p) => [p.id, p.apps]))}
-            onOpen={(id) => {
-              if (id === UNGROUPED_ID) {
-                setView("apps");
-                return;
-              }
-              selectGroup(id);
-            }}
-          />
-          <ActivityFeed apps={known} />
-        </>
+        <SolarSystem
+          className="min-h-0 flex-1"
+          sunLabel="Rings of Apps"
+          members={ringIds}
+          results={ringResults}
+          statuses={ringStatuses}
+          aggregate={aggregateStatuses(ringStatuses)}
+          edges={groupEdges(groups, appEdges, known)}
+          mode="groups"
+          resolveTitle={ringTitles}
+          subtitles={ringSubtitles}
+          latencyById={ringLatency}
+          ttfbById={ringTtfb}
+          locations={ringLocations}
+          groupMembers={Object.fromEntries(ringPlanets.map((p) => [p.id, p.apps]))}
+          onOpen={(id) => {
+            if (id === UNGROUPED_ID) {
+              setView("apps");
+              return;
+            }
+            selectGroup(id);
+          }}
+        />
       )}
 
       {createOpen && (

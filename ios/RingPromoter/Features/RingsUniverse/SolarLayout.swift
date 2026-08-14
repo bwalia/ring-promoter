@@ -180,11 +180,13 @@ struct FleetNode: Identifiable, Hashable, Sendable {
 /// console's `solar-layout.ts` / `globe-layout.ts` so both clients draw the
 /// same sky.
 ///
-/// Everything is expressed on a fixed 400×400 canvas with Earth at the
-/// centre; the view scales positions to its actual size. All functions are
-/// pure and deterministic — the only input that moves is elapsed time.
+/// Canonical constants are the 400×400 design. Live stages pass `GlobeMetrics`
+/// built from the actual view size so Earth, the Sun, and the isolated ring
+/// band grow with the screen instead of stretching a 400-unit world.
+/// All functions are pure and deterministic — the only input that moves is
+/// elapsed time.
 enum SolarLayout {
-    /// The logical canvas. Positions are fractions of this, Earth at the centre.
+    /// The logical design canvas. `GlobeMetrics.canonical` matches this.
     static let canvasSize: Double = 400
     static let center = 200.0
 
@@ -336,6 +338,37 @@ enum SolarLayout {
     static let saturnInclination: Double = 24
     static let orbitSamples: Int = 80
 
+    /// Live-canvas geometry. Earth stays circular (sized from the short side)
+    /// so a rectangular viewport is not squashed; the stage itself still fills
+    /// both axes.
+    struct GlobeMetrics: Equatable, Sendable {
+        var width: Double
+        var height: Double
+
+        var cx: Double { width / 2 }
+        var cy: Double { height / 2 }
+        var shortSide: Double { min(width, height) }
+        private var k: Double { shortSide / SolarLayout.canvasSize }
+
+        var earthR: Double { SolarLayout.earthR * k }
+        var sunR: Double { SolarLayout.sunR * k }
+        var sunOffsetX: Double { SolarLayout.sunOffsetX * k }
+        var ringInnerPad: Double { SolarLayout.ringInnerPad * k }
+        var ringOuter: Double { SolarLayout.ringOuter * k }
+        var strokeScale: Double { k }
+
+        static let canonical = GlobeMetrics(width: SolarLayout.canvasSize, height: SolarLayout.canvasSize)
+
+        init(width: Double, height: Double) {
+            self.width = max(width, 1)
+            self.height = max(height, 1)
+        }
+
+        init(size: CGSize) {
+            self.init(width: size.width, height: size.height)
+        }
+    }
+
     struct GlobePoint: Sendable {
         let x: Double
         let y: Double
@@ -381,21 +414,25 @@ enum SolarLayout {
         return (turns - turns.rounded(.down)) * 2 * .pi
     }
 
-    static func projectOrtho(latDeg: Double, lngDeg: Double, radius: Double, spin: Double) -> GlobePoint {
+    static func projectOrtho(
+        latDeg: Double, lngDeg: Double, radius: Double, spin: Double,
+        metrics: GlobeMetrics = .canonical
+    ) -> GlobePoint {
         let lat = latDeg * .pi / 180
         let lng = lngDeg * .pi / 180 + spin
         let cosLat = cos(lat)
         let x = radius * cosLat * sin(lng)
         let y = -radius * sin(lat)
         let z = radius * cosLat * cos(lng)
-        return GlobePoint(x: center + x, y: center + y, z: z)
+        return GlobePoint(x: metrics.cx + x, y: metrics.cy + y, z: z)
     }
 
     /// Circular orbit in the Earth's equatorial frame, then into the same
     /// canvas coordinates as `projectOrtho`. `spin` is added to the node so
     /// rings ride with Earth.
     static func projectOrbit(
-        radius: Double, inclinationDeg: Double, raanDeg: Double, argDeg: Double, spin: Double
+        radius: Double, inclinationDeg: Double, raanDeg: Double, argDeg: Double, spin: Double,
+        metrics: GlobeMetrics = .canonical
     ) -> GlobePoint {
         let i = inclinationDeg * .pi / 180
         let Ω = raanDeg * .pi / 180 + spin
@@ -406,41 +443,50 @@ enum SolarLayout {
         let x = radius * (cosO * cosU - sinO * sinU * cosI)
         let y = radius * (sinO * cosU + cosO * sinU * cosI)
         let z = radius * (sinU * sinI)
-        return GlobePoint(x: center + y, y: center - z, z: x)
+        return GlobePoint(x: metrics.cx + y, y: metrics.cy - z, z: x)
     }
 
-    static func point(of body: GlobeBody, elapsed: TimeInterval, spin: Double) -> GlobePoint {
+    static func point(
+        of body: GlobeBody, elapsed: TimeInterval, spin: Double,
+        metrics: GlobeMetrics = .canonical
+    ) -> GlobePoint {
         let arg = body.arg0 + body.driftDegPerSec * elapsed
         return projectOrbit(
             radius: body.r, inclinationDeg: body.inclination,
-            raanDeg: body.raan0, argDeg: arg, spin: spin
+            raanDeg: body.raan0, argDeg: arg, spin: spin, metrics: metrics
         )
     }
 
-    static func surface(of body: GlobeBody, elapsed: TimeInterval, spin: Double) -> GlobePoint {
+    static func surface(
+        of body: GlobeBody, elapsed: TimeInterval, spin: Double,
+        metrics: GlobeMetrics = .canonical
+    ) -> GlobePoint {
         let arg = body.arg0 + body.driftDegPerSec * elapsed
         return projectOrbit(
-            radius: earthR, inclinationDeg: body.inclination,
-            raanDeg: body.raan0, argDeg: arg, spin: spin
+            radius: metrics.earthR, inclinationDeg: body.inclination,
+            raanDeg: body.raan0, argDeg: arg, spin: spin, metrics: metrics
         )
     }
 
-    static func sampleOrbit(_ body: GlobeBody, spin: Double) -> [GlobePoint] {
+    static func sampleOrbit(
+        _ body: GlobeBody, spin: Double, metrics: GlobeMetrics = .canonical
+    ) -> [GlobePoint] {
         let n = orbitSamples
         return (0...n).map { k in
             projectOrbit(
                 radius: body.r, inclinationDeg: body.inclination,
-                raanDeg: body.raan0, argDeg: (Double(k) / Double(n)) * 360, spin: spin
+                raanDeg: body.raan0, argDeg: (Double(k) / Double(n)) * 360, spin: spin,
+                metrics: metrics
             )
         }
     }
 
     /// Distinct ring radii for `count` apps, equally stepped from just above
     /// Earth to the outer sky. A fleet of 17 still gets 17 different sizes.
-    static func isolatedRadii(count: Int) -> [Double] {
+    static func isolatedRadii(count: Int, metrics: GlobeMetrics = .canonical) -> [Double] {
         guard count > 0 else { return [] }
-        let inner = earthR + ringInnerPad
-        let outer = ringOuter
+        let inner = metrics.earthR + metrics.ringInnerPad
+        let outer = metrics.ringOuter
         if count == 1 { return [(inner * 2 + outer) / 3] }
         let gap = (outer - inner) / Double(count - 1)
         return (0..<count).map { inner + Double($0) * gap }
@@ -448,7 +494,9 @@ enum SolarLayout {
 
     /// Unique radii. Sort by TTFB/latency (faster = inner), then id so equal
     /// timings still get different ellipses.
-    static func assignIsolatedRadii(for nodes: [FleetNode]) -> [String: Double] {
+    static func assignIsolatedRadii(
+        for nodes: [FleetNode], metrics: GlobeMetrics = .canonical
+    ) -> [String: Double] {
         let sorted = nodes.sorted { a, b in
             let ma = a.ttfbMs ?? a.latencyMs
             let mb = b.ttfbMs ?? b.latencyMs
@@ -462,7 +510,7 @@ enum SolarLayout {
                 return a.id.localizedCaseInsensitiveCompare(b.id) == .orderedAscending
             }
         }
-        let radii = isolatedRadii(count: sorted.count)
+        let radii = isolatedRadii(count: sorted.count, metrics: metrics)
         var out: [String: Double] = [:]
         for (i, node) in sorted.enumerated() {
             out[node.id] = radii[i]
@@ -470,13 +518,15 @@ enum SolarLayout {
         return out
     }
 
-    static func globeBodies(for nodes: [FleetNode]) -> [GlobeBody] {
-        let radii = assignIsolatedRadii(for: nodes)
+    static func globeBodies(
+        for nodes: [FleetNode], metrics: GlobeMetrics = .canonical
+    ) -> [GlobeBody] {
+        let radii = assignIsolatedRadii(for: nodes, metrics: metrics)
         let n = Double(max(nodes.count, 1))
         return nodes.enumerated().map { index, node in
             let ms = node.ttfbMs ?? node.latencyMs
             let track = radius(forLatencyMs: ms)
-            let r = radii[node.id] ?? (earthR + ringInnerPad)
+            let r = radii[node.id] ?? (metrics.earthR + metrics.ringInnerPad)
             let placed = node.location != nil
             let lat = node.location.map { min(80, max(-80, $0.lat)) } ?? 0
             let lng0: Double
@@ -493,7 +543,7 @@ enum SolarLayout {
             } else {
                 arg0 = wrapLng((Double(index) / n) * 360 + hash01(node.id + ":arg") * 24)
             }
-            let period = 56 + (r / ringOuter) * 48
+            let period = 56 + (r / metrics.ringOuter) * 48
             let geo = latLngOnOrbit(inclination: inclination, raan: raan0, arg: arg0)
             return GlobeBody(
                 id: node.id, r: r, track: track,
