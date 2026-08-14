@@ -12,12 +12,14 @@ import { summarizeRings } from "@/lib/app-health";
 import {
   bodyPoint,
   buildGlobeBodies,
+  DENSITY_CAP,
   EARTH_R,
   earthSpin,
   estimateRttMs,
   formatLocation,
   haversineKm,
   orbitPathPair,
+  SUN_OFFSET_X,
   surfacePoint,
   type GlobeBody,
 } from "@/lib/globe-layout";
@@ -50,6 +52,8 @@ export type SolarSystemProps = {
   latencyById?: Record<string, number | null>;
   ttfbById?: Record<string, number | null>;
   locations?: Record<string, AppLocation | null | undefined>;
+  /** Group → member app ids, used in Rings mode when a ring is focused. */
+  groupMembers?: Record<string, string[]>;
   editable?: boolean;
   onAddEdge?: (from: string, to: string) => void;
   onRemoveEdge?: (from: string, to: string) => void;
@@ -70,6 +74,7 @@ export function SolarSystem({
   latencyById,
   ttfbById,
   locations,
+  groupMembers,
   editable = false,
   onAddEdge,
   onRemoveEdge,
@@ -91,6 +96,7 @@ export function SolarSystem({
   const [linkFrom, setLinkFrom] = useState<string | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = focused ?? hovered;
+  const crowded = members.length > DENSITY_CAP;
   const reduceMotion = usePrefersReducedMotion();
   const failing = statuses.filter((s) => s === "failed").length;
   const openLabel = mode === "groups" ? "Open ring" : "Open app";
@@ -187,11 +193,13 @@ export function SolarSystem({
     for (const b of bodies) {
       const pos = bodyPoint(b, elapsed, spin);
       nowPos.set(b.id, pos);
+      const dim = !!active && active !== b.id;
       const el = markerEls.current.get(b.id);
       if (el) {
+        const vis = dim ? (pos.front ? 0.28 : 0.1) : pos.front ? 1 : 0.28;
         el.style.left = `${(pos.x / 400) * 100}%`;
         el.style.top = `${(pos.y / 400) * 100}%`;
-        el.style.opacity = pos.front ? "1" : "0.22";
+        el.style.opacity = String(vis);
         el.style.zIndex = String(pos.front ? 20 + Math.round(pos.z) : 2);
         el.style.pointerEvents = pos.front || active === b.id ? "auto" : "none";
       }
@@ -204,12 +212,24 @@ export function SolarSystem({
         stem.setAttribute("y2", String(pos.y));
         stem.setAttribute(
           "stroke-opacity",
-          String(pos.front ? 0.38 : 0.08),
+          String(dim ? 0.04 : pos.front ? 0.28 : 0.06),
         );
       }
       const { front, back } = orbitPathPair(b, spin);
-      ringFrontEls.current.get(b.id)?.setAttribute("d", front);
-      ringBackEls.current.get(b.id)?.setAttribute("d", back);
+      const ringFront = ringFrontEls.current.get(b.id);
+      const ringBack = ringBackEls.current.get(b.id);
+      ringFront?.setAttribute("d", front);
+      ringBack?.setAttribute("d", back);
+      const lit = active === b.id;
+      ringFront?.setAttribute(
+        "stroke-opacity",
+        String(dim ? (crowded ? 0.1 : 0.18) : lit ? 0.95 : crowded ? 0.4 : 0.58),
+      );
+      ringFront?.setAttribute("stroke-width", lit ? "2.2" : crowded ? "1.05" : "1.25");
+      ringBack?.setAttribute(
+        "stroke-opacity",
+        String(dim ? 0.05 : lit ? 0.42 : 0.18),
+      );
     }
     for (const e of visibleEdges) {
       const a = nowPos.get(e.from);
@@ -241,7 +261,7 @@ export function SolarSystem({
     return () => cancelAnimationFrame(id);
     // Marker refs are populated after commit; bodies/edges are the inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bodies, visibleEdges, reduceMotion, editMode, active]);
+  }, [bodies, visibleEdges, reduceMotion, editMode, active, crowded]);
 
   useLayoutEffect(() => {
     const stage = stageEl.current;
@@ -268,6 +288,13 @@ export function SolarSystem({
         const pos = bodyPoint(p, elapsed, spin);
         if (!el || !pos) continue;
         if (!pos.front && p.id !== active) {
+          el.style.opacity = "0";
+          el.style.pointerEvents = "none";
+          continue;
+        }
+        // Crowded fleets: only the focused/hovered nameplate stays on the
+        // globe — the roster is how you read the rest.
+        if (crowded && p.id !== active) {
           el.style.opacity = "0";
           el.style.pointerEvents = "none";
           continue;
@@ -309,7 +336,7 @@ export function SolarSystem({
       ro.disconnect();
       window.clearInterval(id);
     };
-  }, [bodies, statusById, active, title]);
+  }, [bodies, statusById, active, title, crowded]);
 
   const hoverIn = (id: string) => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -348,10 +375,16 @@ export function SolarSystem({
     loading: "Checking health…",
   };
 
+  const focusBody = focused ? bodies.find((b) => b.id === focused) : null;
+  const focusPos = focusBody ? positions.get(focusBody.id) : null;
+  const camScale = focused && !reduceMotion ? 1.12 : 1;
+  const camX =
+    focusPos && !reduceMotion ? ((SOLAR_C - focusPos.x) / 400) * 18 : 0;
+  const camY =
+    focusPos && !reduceMotion ? ((SOLAR_C - focusPos.y) / 400) * 18 : 0;
+
   return (
     <div className="relative overflow-hidden rounded-2xl border border-black/20 bg-[#07070a] dark:border-border">
-      {/* A single, restrained pool of light at the centre. The old starfield
-          and heavy glow competed with the data for attention. */}
       <div
         aria-hidden
         className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(56,189,248,0.06)_0%,transparent_55%)]"
@@ -363,6 +396,8 @@ export function SolarSystem({
         </p>
         <p className="mt-0.5 font-mono text-[11px] tabular-nums text-neutral-500">
           {members.length} {members.length === 1 ? bodyWord : bodyWordPlural}
+          {" · "}
+          isolated rings
         </p>
       </div>
 
@@ -392,15 +427,16 @@ export function SolarSystem({
         </div>
       )}
 
+      <div className="flex flex-col lg:flex-row">
       <div
         ref={stageEl}
-        className="relative mx-auto aspect-square w-full max-w-[760px] p-3 sm:p-6"
+        className="relative mx-auto aspect-square w-full max-w-[760px] p-3 sm:p-6 lg:flex-1"
         data-testid="solar-system"
         data-status={aggregate}
         onClick={(e) => {
           if (
             !(e.target as HTMLElement).closest(
-              "button, [data-node-card], [data-edge]",
+              "button, [data-node-card], [data-edge], [data-orbit-ring], [data-roster]",
             )
           ) {
             setFocused(null);
@@ -408,6 +444,13 @@ export function SolarSystem({
           }
         }}
       >
+        <div
+          className="absolute inset-0 origin-center will-change-transform"
+          style={{
+            transform: `translate(${camX}%, ${camY}%) scale(${camScale})`,
+            transition: reduceMotion ? "none" : "transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        >
         {/* Far-side orbits sit behind Earth so the disc occults them. */}
         <svg
           viewBox="0 0 400 400"
@@ -442,6 +485,8 @@ export function SolarSystem({
           className="pointer-events-none absolute inset-0 size-full"
         />
 
+        <SunHub label={sunLabel} />
+
         <svg
           viewBox="0 0 400 400"
           className="absolute inset-0 size-full overflow-visible"
@@ -452,20 +497,34 @@ export function SolarSystem({
             const { front } = orbitPathPair(b, 0);
             const lit = active === b.id;
             return (
-              <path
-                key={`orbit-front-${b.id}`}
-                ref={(el) => {
-                  ringFrontEls.current.set(b.id, el);
-                }}
-                d={front}
-                fill="none"
-                stroke={hex}
-                strokeWidth={lit ? 1.9 : 1.2}
-                strokeOpacity={lit ? 0.9 : 0.55}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                data-orbit-ring={b.id}
-              />
+              <g key={`orbit-front-${b.id}`}>
+                <path
+                  d={front}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={10}
+                  strokeLinecap="round"
+                  className="cursor-pointer"
+                  data-orbit-ring={b.id}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    onBodyClick(b.id);
+                  }}
+                />
+                <path
+                  ref={(el) => {
+                    ringFrontEls.current.set(b.id, el);
+                  }}
+                  d={front}
+                  fill="none"
+                  stroke={hex}
+                  strokeWidth={lit ? 2.2 : crowded ? 1.05 : 1.25}
+                  strokeOpacity={lit ? 0.95 : crowded ? 0.4 : 0.58}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="pointer-events-none"
+                />
+              </g>
             );
           })}
 
@@ -647,6 +706,8 @@ export function SolarSystem({
                           location={loc}
                           mode={mode}
                           subtitle={subtitles?.[p.id]}
+                          members={mode === "groups" ? groupMembers?.[p.id] : undefined}
+                          resolveTitle={title}
                           pinned={focused === p.id}
                           openLabel={openLabel}
                           onClose={() => {
@@ -664,9 +725,10 @@ export function SolarSystem({
             </div>
           );
         })}
+        </div>
 
         {/* Legend */}
-        <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap items-center justify-between gap-2 text-[11px] leading-none text-neutral-400">
+        <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-30 flex flex-wrap items-center justify-between gap-2 text-[11px] leading-none text-neutral-400">
           <span className="inline-flex items-center gap-1.5 font-medium">
             <span
               aria-hidden
@@ -681,10 +743,157 @@ export function SolarSystem({
               {ringOrder.length ? ringOrder.join(" · ") : "promotion rings"}
             </span>
             <span className="text-neutral-600">·</span>
-            <span>each ring is an app · closer = lower TTFB</span>
+            <span>Sun + Earth · one ring per {bodyWord} · closer = lower TTFB</span>
           </span>
         </div>
       </div>
+
+      <AppRoster
+        members={members}
+        title={title}
+        statusById={statusById}
+        ttfbByMember={ttfbByMember}
+        latencyByMember={latencyByMember}
+        locationByMember={locationByMember}
+        subtitles={subtitles}
+        mode={mode}
+        active={active}
+        groupMembers={groupMembers}
+        onFocus={(id) => setFocused((f) => (f === id ? null : id))}
+        onOpen={onOpen}
+      />
+      </div>
+    </div>
+  );
+}
+
+function SunHub({ label }: { label: string }) {
+  const left = ((SOLAR_C + SUN_OFFSET_X) / 400) * 100;
+  return (
+    <div
+      className="pointer-events-none absolute z-[8]"
+      style={{ left: `${left}%`, top: "50%" }}
+      data-sun-hub
+    >
+      <div className="-translate-x-1/2 -translate-y-1/2">
+        <div
+          className="relative size-9 rounded-full"
+          style={{
+            background:
+              "radial-gradient(circle at 35% 32%, #fff7d6 0%, #f5b942 42%, #c2410c 100%)",
+            boxShadow:
+              "0 0 18px 6px rgba(245, 185, 66, 0.28), 0 0 42px 12px rgba(245, 185, 66, 0.12)",
+          }}
+          aria-hidden
+        />
+        <p className="absolute left-1/2 top-full mt-1.5 w-28 -translate-x-1/2 text-center font-display text-[9.5px] font-medium uppercase tracking-[0.16em] text-amber-200/70">
+          {label}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function AppRoster({
+  members,
+  title,
+  statusById,
+  ttfbByMember,
+  latencyByMember,
+  locationByMember,
+  subtitles,
+  mode,
+  active,
+  groupMembers,
+  onFocus,
+  onOpen,
+}: {
+  members: string[];
+  title: (id: string) => string;
+  statusById: Map<string, NodeStatus>;
+  ttfbByMember: Map<string, number | null>;
+  latencyByMember: Map<string, number | null>;
+  locationByMember: Map<string, AppLocation | null>;
+  subtitles?: Record<string, string>;
+  mode: "apps" | "groups";
+  active: string | null;
+  groupMembers?: Record<string, string[]>;
+  onFocus: (id: string) => void;
+  onOpen: (id: string) => void;
+}) {
+  const appTitle = useAppTitle();
+  const ordered = [...members].sort((a, b) => {
+    const ma = ttfbByMember.get(a) ?? latencyByMember.get(a);
+    const mb = ttfbByMember.get(b) ?? latencyByMember.get(b);
+    if (ma == null && mb == null) return title(a).localeCompare(title(b));
+    if (ma == null) return 1;
+    if (mb == null) return -1;
+    if (ma !== mb) return ma - mb;
+    return title(a).localeCompare(title(b));
+  });
+
+  return (
+    <div
+      data-roster
+      data-testid="app-roster"
+      className="relative z-30 max-h-[min(380px,46vh)] overflow-auto border-t border-white/10 lg:max-h-none lg:w-[19.5rem] lg:shrink-0 lg:border-l lg:border-t-0"
+    >
+      <div className="sticky top-0 z-10 border-b border-white/10 bg-[#07070a]/90 px-3 py-2 backdrop-blur-md">
+        <p className="font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+          {mode === "groups" ? "Rings" : "Applications"}
+        </p>
+      </div>
+      <ul className="divide-y divide-white/5 p-1.5">
+        {ordered.map((id) => {
+          const status = statusById.get(id) ?? "empty";
+          const hex = STATUS_HEX[status];
+          const ttfb = ttfbByMember.get(id);
+          const lat = latencyByMember.get(id);
+          const shown = ttfb ?? lat;
+          const loc = formatLocation(locationByMember.get(id));
+          const selected = active === id;
+          const kids = mode === "groups" ? groupMembers?.[id] : undefined;
+          return (
+            <li key={id}>
+              <button
+                type="button"
+                onClick={() => onFocus(id)}
+                onDoubleClick={() => onOpen(id)}
+                className={cn(
+                  "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                  selected ? "bg-white/10" : "hover:bg-white/[0.06]",
+                )}
+              >
+                <span
+                  aria-hidden
+                  className="mt-1 size-2 shrink-0 rounded-full"
+                  style={{ background: hex }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-display text-[12px] font-medium leading-tight text-neutral-100">
+                    {title(id)}
+                  </span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-x-2 font-mono text-[10px] tabular-nums text-neutral-500">
+                    <span style={{ color: hex }}>{STATUS_WORD[status]}</span>
+                    <span>
+                      {shown != null ? `${Math.round(shown)}ms TTFB` : "—"}
+                    </span>
+                    {loc ? <span className="truncate text-neutral-600">{loc}</span> : null}
+                    {subtitles?.[id] ? (
+                      <span className="text-neutral-600">{subtitles[id]}</span>
+                    ) : null}
+                  </span>
+                  {selected && kids && kids.length > 0 && (
+                    <span className="mt-1 block text-[10.5px] leading-snug text-neutral-400">
+                      {kids.map((m) => appTitle(m)).join(" · ")}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -759,6 +968,8 @@ function NodeCard({
   location,
   mode,
   subtitle,
+  members,
+  resolveTitle,
   pinned,
   openLabel,
   onClose,
@@ -775,6 +986,8 @@ function NodeCard({
   location: AppLocation | null | undefined;
   mode: "apps" | "groups";
   subtitle?: string;
+  members?: string[];
+  resolveTitle?: (id: string) => string;
   pinned: boolean;
   openLabel: string;
   onClose: () => void;
@@ -783,6 +996,9 @@ function NodeCard({
 }) {
   const hex = STATUS_HEX[status];
   const { active, healthy, latest, lastDeploy } = summarizeRings(rings?.rings);
+  const appTitle = useAppTitle();
+  const memberLabel = (m: string) =>
+    mode === "groups" ? appTitle(m) : (resolveTitle?.(m) ?? m);
 
   return (
     <div
@@ -858,6 +1074,11 @@ function NodeCard({
             <Row label="Apps">
               <span className="text-neutral-100">{subtitle ?? "—"}</span>
             </Row>
+            {members && members.length > 0 && (
+              <p className="text-[11px] leading-snug text-neutral-400">
+                {members.map((m) => memberLabel(m)).join(" · ")}
+              </p>
+            )}
             <Row label="Health">
               <span className="text-neutral-100">
                 {active.length === 0

@@ -319,13 +319,21 @@ enum SolarLayout {
     // MARK: - Globe (ported from web `globe-layout.ts`)
 
     static let earthR: Double = 58
+    static let sunR: Double = 16
+    static let sunOffsetX: Double = -112
     static let earthSpinPeriod: Double = 96
     /// Reduce Motion: one revolution per 20 minutes, matching web.
     static let earthSpinPeriodReduced: Double = 20 * 60
     static let altMin: Double = 14
     static let altMax: Double = 78
+    /// Isolated rings: innermost just above the atmosphere, outermost in the sky.
+    static let ringInnerPad: Double = 14
+    static let ringOuter: Double = 190
+    /// Above this count the roster is the primary identifier; rings dim harder.
+    static let densityCap = 10
     /// Floor so rings never go edge-on in this equatorial camera. Matches web.
     static let minInclination: Double = 22
+    static let saturnInclination: Double = 24
     static let orbitSamples: Int = 80
 
     struct GlobePoint: Sendable {
@@ -342,7 +350,7 @@ enum SolarLayout {
         let track: Double
         let lat: Double
         let lng0: Double
-        /// Motion along the ring (argument of latitude). Geo pins stay put (0).
+        /// Motion along the ring (argument of latitude).
         let driftDegPerSec: Double
         let placed: Bool
         let inclination: Double
@@ -427,73 +435,74 @@ enum SolarLayout {
         }
     }
 
-    static func globeBodies(for nodes: [FleetNode]) -> [GlobeBody] {
-        var placed: [(id: String, loc: AppLocation, alt: Double, track: Double)] = []
-        var unplaced: [(id: String, alt: Double, track: Double)] = []
-        for node in nodes {
-            let ms = node.ttfbMs ?? node.latencyMs
-            let track = radius(forLatencyMs: ms)
-            let alt = altitude(forLatencyMs: ms)
-            if let loc = node.location {
-                placed.append((node.id, loc, alt, track))
-            } else {
-                unplaced.append((node.id, alt, track))
+    /// Distinct ring radii for `count` apps, equally stepped from just above
+    /// Earth to the outer sky. A fleet of 17 still gets 17 different sizes.
+    static func isolatedRadii(count: Int) -> [Double] {
+        guard count > 0 else { return [] }
+        let inner = earthR + ringInnerPad
+        let outer = ringOuter
+        if count == 1 { return [(inner * 2 + outer) / 3] }
+        let gap = (outer - inner) / Double(count - 1)
+        return (0..<count).map { inner + Double($0) * gap }
+    }
+
+    /// Unique radii. Sort by TTFB/latency (faster = inner), then id so equal
+    /// timings still get different ellipses.
+    static func assignIsolatedRadii(for nodes: [FleetNode]) -> [String: Double] {
+        let sorted = nodes.sorted { a, b in
+            let ma = a.ttfbMs ?? a.latencyMs
+            let mb = b.ttfbMs ?? b.latencyMs
+            switch (ma, mb) {
+            case (nil, nil):
+                return a.id.localizedCaseInsensitiveCompare(b.id) == .orderedAscending
+            case (nil, _): return false
+            case (_, nil): return true
+            case let (x?, y?) where x != y: return x < y
+            default:
+                return a.id.localizedCaseInsensitiveCompare(b.id) == .orderedAscending
             }
         }
-        var out: [GlobeBody] = []
-        for p in placed {
-            let jitterLat = (hash01(p.id + ":lat") - 0.5) * 1.6
-            let jitterLng = (hash01(p.id + ":lng") - 0.5) * 2.2
-            let lat = min(80, max(-80, p.loc.lat + jitterLat))
-            let lng0 = wrapLng(p.loc.lng + jitterLng)
-            let orbit = orbitThrough(lat: lat, lng: lng0, id: p.id)
-            out.append(
-                GlobeBody(
-                    id: p.id, r: ringRadius(id: p.id, alt: p.alt), track: p.track,
-                    lat: lat, lng0: lng0, driftDegPerSec: 0, placed: true,
-                    inclination: orbit.inclination, raan0: orbit.raan, arg0: orbit.arg
-                )
-            )
-        }
-        let sorted = unplaced.sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
-        let n = Double(max(sorted.count, 1))
-        let maxTrack = tracks.last ?? defaultRadius
-        for (index, p) in sorted.enumerated() {
-            let inclination = minInclination + hash01(p.id) * 50
-            let raan0 = (Double(index) / n) * 360 - 180
-            let arg0 = hash01(p.id + ":arg") * 360
-            let period = 72 + (p.track / maxTrack) * 50
-            let geo = latLngOnOrbit(inclination: inclination, raan: raan0, arg: arg0)
-            out.append(
-                GlobeBody(
-                    id: p.id, r: ringRadius(id: p.id, alt: p.alt), track: p.track,
-                    lat: geo.lat, lng0: geo.lng, driftDegPerSec: 360 / period, placed: false,
-                    inclination: inclination, raan0: raan0, arg0: arg0
-                )
-            )
+        let radii = isolatedRadii(count: sorted.count)
+        var out: [String: Double] = [:]
+        for (i, node) in sorted.enumerated() {
+            out[node.id] = radii[i]
         }
         return out
     }
 
-    /// TTFB altitude plus a per-app stagger so equal-latency rings don't coincide.
-    static func ringRadius(id: String, alt: Double) -> Double {
-        let nudge = (hash01(id + ":r") - 0.5) * 12
-        return max(earthR + 10, earthR + alt + nudge)
-    }
-
-    /// Inclination / node / anomaly so the satellite sits at (lat, lng).
-    static func orbitThrough(lat: Double, lng: Double, id: String) -> (inclination: Double, raan: Double, arg: Double) {
-        let absLat = abs(lat)
-        let extra = 6 + hash01(id + ":i") * 20
-        var inclination = min(78, max(minInclination, max(absLat, minInclination) + extra * 0.45))
-        if inclination <= absLat + 0.25 {
-            inclination = min(80, max(minInclination, absLat + 0.5))
+    static func globeBodies(for nodes: [FleetNode]) -> [GlobeBody] {
+        let radii = assignIsolatedRadii(for: nodes)
+        let n = Double(max(nodes.count, 1))
+        return nodes.enumerated().map { index, node in
+            let ms = node.ttfbMs ?? node.latencyMs
+            let track = radius(forLatencyMs: ms)
+            let r = radii[node.id] ?? (earthR + ringInnerPad)
+            let placed = node.location != nil
+            let lat = node.location.map { min(80, max(-80, $0.lat)) } ?? 0
+            let lng0: Double
+            if let loc = node.location {
+                lng0 = wrapLng(loc.lng)
+            } else {
+                lng0 = wrapLng((Double(index) / n) * 360 - 180)
+            }
+            let inclination = saturnInclination + (hash01(node.id + ":i") - 0.5) * 6
+            let raan0 = (hash01(node.id + ":raan") - 0.5) * 16
+            let arg0: Double
+            if placed {
+                arg0 = wrapLng(lng0)
+            } else {
+                arg0 = wrapLng((Double(index) / n) * 360 + hash01(node.id + ":arg") * 24)
+            }
+            let period = 56 + (r / ringOuter) * 48
+            let geo = latLngOnOrbit(inclination: inclination, raan: raan0, arg: arg0)
+            return GlobeBody(
+                id: node.id, r: r, track: track,
+                lat: placed ? lat : geo.lat,
+                lng0: placed ? lng0 : geo.lng,
+                driftDegPerSec: 360 / period, placed: placed,
+                inclination: inclination, raan0: raan0, arg0: arg0
+            )
         }
-        let i = inclination * .pi / 180
-        let sinU = min(1, max(-1, sin(lat * .pi / 180) / max(sin(i), 1e-6)))
-        let u = asin(sinU)
-        let raan = lng * .pi / 180 - atan2(cos(i) * sin(u), cos(u))
-        return (inclination, wrapLng(raan * 180 / .pi), u * 180 / .pi)
     }
 
     static func latLngOnOrbit(inclination: Double, raan: Double, arg: Double) -> (lat: Double, lng: Double) {

@@ -180,8 +180,8 @@ export function FleetView() {
           <h2 className="font-display text-lg font-semibold tracking-tight">Rings of Apps</h2>
           <p className="text-sm text-muted-foreground">
             {view === "apps"
-              ? "Earth is the hub. Each app rides its own orbital ring; height is TTFB. Config locations sit on the ring at that longitude."
-              : "Each body is a group of apps on its own orbital ring, placed at the centroid of its members."}
+              ? "Sun is the control plane; Earth spins in the hub. Each app has its own isolated ring — unique size, faster TTFB closer in. Select a ring or a row to focus."
+              : "One isolated ring per group, unique size. Select a ring to see its members."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -287,6 +287,7 @@ export function FleetView() {
             latencyById={ringLatency}
             ttfbById={ringTtfb}
             locations={ringLocations}
+            groupMembers={Object.fromEntries(ringPlanets.map((p) => [p.id, p.apps]))}
             onOpen={(id) => {
               if (id === UNGROUPED_ID) {
                 setView("apps");

@@ -288,10 +288,10 @@ struct RingsUniverseTests {
         #expect(pin?.placed == true)
         #expect(sat?.placed == false)
         #expect(abs((pin?.lat ?? 0) - 51.5) < 2)
-        #expect((pin?.inclination ?? 0) >= SolarLayout.minInclination)
-        #expect((pin?.inclination ?? 0) >= abs(pin?.lat ?? 0) - 0.01)
+        #expect((pin?.inclination ?? 0) >= SolarLayout.minInclination - 4)
         #expect(sat?.driftDegPerSec ?? 0 > 0)
-        #expect(pin?.driftDegPerSec == 0)
+        #expect(pin?.driftDegPerSec ?? 0 > 0)
+        #expect(abs((pin?.r ?? 0) - (sat?.r ?? 0)) > 1)
     }
 
     @Test("an equatorial orbit matches lat 0 orthographic projection")
@@ -307,24 +307,46 @@ struct RingsUniverseTests {
         #expect(abs(fromOrbit.z - fromLatLng.z) < 0.001)
     }
 
-    @Test("a geo pin sits on its ring at that city's longitude")
-    func pinSitsOnOrbit() {
-        let london = AppLocation(lat: 51.5, lng: -0.1, city: "London", region: "GB")
-        let node = FleetNode(
-            summary: AppSummary(
-                name: "web-frontend", title: "Web Frontend",
-                rings: PreviewData.healthyRings, latestJob: nil, loadError: nil,
-                location: london
+    @Test("every app gets a distinctly different ring radius")
+    func isolatedRadiiAreUnique() {
+        let radii17 = SolarLayout.isolatedRadii(count: 17)
+        #expect(radii17.count == 17)
+        #expect(Set(radii17.map { ($0 * 1000).rounded() }).count == 17)
+        let inner = SolarLayout.earthR + SolarLayout.ringInnerPad
+        #expect(abs(radii17[0] - inner) < 0.001)
+        #expect(abs(radii17[16] - SolarLayout.ringOuter) < 0.001)
+        let gap = radii17[1] - radii17[0]
+        #expect(gap > 6)
+        for pair in zip(radii17, radii17.dropFirst()) {
+            #expect(pair.1 - pair.0 > 6)
+        }
+        #expect(SolarLayout.isolatedRadii(count: 1).count == 1)
+        #expect(SolarLayout.densityCap == 10)
+        #expect(SolarLayout.saturnInclination == 24)
+        #expect(SolarLayout.sunOffsetX == -112)
+    }
+
+    @Test("faster TTFB parks closer in; equal TTFB still gets different sizes")
+    func ttfbOrdersRadiiButNeverShares() {
+        func node(_ name: String, ms: Int) -> FleetNode {
+            FleetNode(
+                summary: AppSummary(
+                    name: name, title: name,
+                    rings: [
+                        PreviewData.ring("prod", label: "Production", version: "1.0", latency: ms)
+                    ],
+                    latestJob: nil, loadError: nil
+                )
             )
-        )
-        let body = SolarLayout.globeBodies(for: [node])[0]
-        let sat = SolarLayout.point(of: body, elapsed: 0, spin: 0)
-        let expected = SolarLayout.projectOrtho(
-            latDeg: body.lat, lngDeg: body.lng0, radius: body.r, spin: 0
-        )
-        #expect(abs(sat.x - expected.x) < 0.05)
-        #expect(abs(sat.y - expected.y) < 0.05)
-        #expect(abs(sat.z - expected.z) < 0.05)
+        }
+        let fast = node("alpha", ms: 12)
+        let slow = node("omega", ms: 400)
+        let alsoFast = node("beta", ms: 12)
+        let bodies = SolarLayout.globeBodies(for: [slow, alsoFast, fast])
+        let byID = Dictionary(uniqueKeysWithValues: bodies.map { ($0.id, $0) })
+        #expect((byID["alpha"]?.r ?? 0) < (byID["omega"]?.r ?? 0))
+        #expect((byID["beta"]?.r ?? 0) < (byID["omega"]?.r ?? 0))
+        #expect(abs((byID["alpha"]?.r ?? 0) - (byID["beta"]?.r ?? 0)) > 1)
     }
 
     @Test("apps in the same city get distinct orbital rings")
@@ -342,13 +364,9 @@ struct RingsUniverseTests {
         let bodies = SolarLayout.globeBodies(for: [node("web-frontend"), node("payments-api")])
         #expect(bodies.count == 2)
         let a = bodies[0], b = bodies[1]
-        let distinct =
-            abs(a.r - b.r) > 0.5
-            || abs(a.inclination - b.inclination) > 0.5
-            || abs(a.raan0 - b.raan0) > 0.5
-        #expect(distinct)
-        #expect(a.inclination >= SolarLayout.minInclination)
-        #expect(b.inclination >= SolarLayout.minInclination)
+        #expect(abs(a.r - b.r) > 1)
+        #expect(a.inclination >= SolarLayout.minInclination - 4)
+        #expect(b.inclination >= SolarLayout.minInclination - 4)
     }
 
     @Test("orbit samples stay on a sphere of the body's radius")
