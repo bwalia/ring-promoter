@@ -321,7 +321,9 @@ enum SolarLayout {
     // MARK: - Globe (ported from web `globe-layout.ts`)
 
     static let earthR: Double = 58
-    static let sunR: Double = 16
+    /// Slightly larger than the unlabeled disc so "Ring Promoter" fits
+    /// centered without competing with Earth (earthR = 58).
+    static let sunR: Double = 22
     static let sunOffsetX: Double = -112
     static let earthSpinPeriod: Double = 96
     /// Reduce Motion: one revolution per 20 minutes, matching web.

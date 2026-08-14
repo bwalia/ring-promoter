@@ -430,7 +430,7 @@ export function SolarSystem({
 
       <div className="pointer-events-none absolute left-4 top-3 z-40">
         <p className="font-display text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
-          {sunLabel}
+          Rings of Apps
         </p>
         <p className="mt-0.5 font-mono text-[11px] tabular-nums text-neutral-500">
           {members.length} {members.length === 1 ? bodyWord : bodyWordPlural}
@@ -785,7 +785,10 @@ export function SolarSystem({
               {ringOrder.length ? ringOrder.join(" · ") : "promotion rings"}
             </span>
             <span className="text-neutral-600">·</span>
-            <span>Sun + Earth · one ring per {bodyWord} · closer = lower TTFB</span>
+            <span>
+              Ring Promoter · Earth · one ring per {bodyWord} · closer = lower
+              TTFB
+            </span>
           </span>
         </div>
       </div>
@@ -811,16 +814,24 @@ export function SolarSystem({
 function SunHub({ label, metrics }: { label: string; metrics: GlobeMetrics }) {
   const left = ((metrics.cx + metrics.sunOffsetX) / metrics.width) * 100;
   const top = (metrics.cy / metrics.height) * 100;
-  const size = Math.max(18, metrics.sunR * 2);
+  const size = Math.max(36, metrics.sunR * 2);
+  // Two lines when the brand is "Ring Promoter" so it stays readable on the
+  // disc without competing with Earth; otherwise keep a single centered line.
+  const lines =
+    label.trim().toLowerCase() === "ring promoter"
+      ? (["Ring", "Promoter"] as const)
+      : ([label] as const);
+  const fontPx = Math.max(7, Math.min(11, size * 0.145));
   return (
     <div
       className="pointer-events-none absolute z-[8]"
       style={{ left: `${left}%`, top: `${top}%` }}
       data-sun-hub
+      aria-label={label}
     >
       <div className="-translate-x-1/2 -translate-y-1/2">
         <div
-          className="relative rounded-full"
+          className="relative flex items-center justify-center rounded-full"
           style={{
             width: size,
             height: size,
@@ -829,11 +840,18 @@ function SunHub({ label, metrics }: { label: string; metrics: GlobeMetrics }) {
             boxShadow:
               "0 0 18px 6px rgba(245, 185, 66, 0.28), 0 0 42px 12px rgba(245, 185, 66, 0.12)",
           }}
-          aria-hidden
-        />
-        <p className="absolute left-1/2 top-full mt-1.5 w-28 -translate-x-1/2 text-center font-display text-[9.5px] font-medium uppercase tracking-[0.16em] text-amber-200/70">
-          {label}
-        </p>
+        >
+          <p
+            className="m-0 px-1 text-center font-display font-semibold uppercase leading-[1.05] tracking-[0.06em] text-[#3b1a04]/90]"
+            style={{ fontSize: fontPx }}
+          >
+            {lines.map((line) => (
+              <span key={line} className="block">
+                {line}
+              </span>
+            ))}
+          </p>
+        </div>
       </div>
     </div>
   );
