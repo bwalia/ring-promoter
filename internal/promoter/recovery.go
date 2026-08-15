@@ -32,6 +32,9 @@ import (
 // unjournaled — a restart during it is then lost, exactly as before the
 // journal existed.
 func (p *Promoter) journalStart(ctx context.Context, op store.PendingOp) int64 {
+	if op.CorrelationID == "" {
+		op.CorrelationID = correlationFrom(ctx)
+	}
 	id, err := p.store.CreatePendingOp(ctx, op)
 	if err != nil {
 		p.log.Warn("write-ahead journal failed; a restart during this operation cannot be recovered",
@@ -72,6 +75,12 @@ func (p *Promoter) PendingOps(ctx context.Context) ([]store.PendingOp, error) {
 // all), a failure entry is recorded instead so the operation never disappears
 // silently.
 func (p *Promoter) ResumePendingOp(ctx context.Context, op store.PendingOp) (Result, error) {
+	// The recovered outcome is recorded (history + audit) under the original
+	// operation's correlation id, attributed to the system rather than a user.
+	if op.CorrelationID != "" {
+		ctx = WithCorrelationID(ctx, op.CorrelationID)
+	}
+	ctx = WithActor(ctx, Actor{Type: store.ActorSystem, Name: "recovery"})
 	rc, err := p.ringConfig(op.App, op.Ring)
 	if err != nil {
 		// The app/ring is no longer configured, so there is nothing to verify

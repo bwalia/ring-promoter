@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/example/ring-promoter/internal/store"
 )
 
 // Topology mutation precondition errors.
@@ -79,9 +81,14 @@ func (p *Promoter) AddTopologyEdge(ctx context.Context, from, to string) error {
 		return err
 	}
 	if p.isConfigTopologyEdge(from, to) {
-		return p.store.DeleteTopologySuppression(ctx, from, to)
+		if err := p.store.DeleteTopologySuppression(ctx, from, to); err != nil {
+			return err
+		}
+	} else if err := p.store.AddTopologyEdge(ctx, from, to); err != nil {
+		return err
 	}
-	return p.store.AddTopologyEdge(ctx, from, to)
+	p.auditTopology(ctx, "topology_edge.add", from, to)
+	return nil
 }
 
 // RemoveTopologyEdge removes a user edge. Configuration edges are instead
@@ -95,15 +102,26 @@ func (p *Promoter) RemoveTopologyEdge(ctx context.Context, from, to string) erro
 	if err != nil {
 		return err
 	}
+	removed := false
 	for _, edge := range userEdges {
 		if edge.From == from && edge.To == to {
-			return p.store.DeleteTopologyEdge(ctx, from, to)
+			if err := p.store.DeleteTopologyEdge(ctx, from, to); err != nil {
+				return err
+			}
+			removed = true
+			break
 		}
 	}
-	if p.isConfigTopologyEdge(from, to) {
-		return p.store.AddTopologySuppression(ctx, from, to)
+	if !removed {
+		if !p.isConfigTopologyEdge(from, to) {
+			return ErrEdgeNotFound
+		}
+		if err := p.store.AddTopologySuppression(ctx, from, to); err != nil {
+			return err
+		}
 	}
-	return ErrEdgeNotFound
+	p.auditTopology(ctx, "topology_edge.remove", from, to)
+	return nil
 }
 
 // RestoreTopologyEdge clears a suppression for a configuration edge.
@@ -115,7 +133,19 @@ func (p *Promoter) RestoreTopologyEdge(ctx context.Context, from, to string) err
 	if !p.isConfigTopologyEdge(from, to) {
 		return ErrEdgeNotFound
 	}
-	return p.store.DeleteTopologySuppression(ctx, from, to)
+	if err := p.store.DeleteTopologySuppression(ctx, from, to); err != nil {
+		return err
+	}
+	p.auditTopology(ctx, "topology_edge.restore", from, to)
+	return nil
+}
+
+// auditTopology records one topology mutation in the audit ledger.
+func (p *Promoter) auditTopology(ctx context.Context, action, from, to string) {
+	p.audit(ctx, store.AuditEvent{
+		Category: store.AuditConfig, Action: action,
+		Detail: auditDetail(map[string]string{"from": from, "to": to}),
+	})
 }
 
 func (p *Promoter) validateTopologyEdge(from, to string) (string, string, error) {
