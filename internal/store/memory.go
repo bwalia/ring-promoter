@@ -18,8 +18,10 @@ type Memory struct {
 	windows              map[string]MaintenanceWindow // key: id
 	signoffs             map[string]Signoff           // key: app + "\x00" + ring + "\x00" + version
 	pending              map[int64]PendingOp
+	audit                []AuditEvent
 	nextID               int64
 	nextOpID             int64
+	nextAuditID          int64
 	now                  func() time.Time
 
 	lockMu sync.Mutex
@@ -48,6 +50,7 @@ func NewMemoryWithClock(clock func() time.Time) *Memory {
 		pending:              make(map[int64]PendingOp),
 		nextID:               1,
 		nextOpID:             1,
+		nextAuditID:          1,
 		now:                  clock,
 		locks:                make(map[string]*sync.Mutex),
 	}
@@ -426,6 +429,41 @@ func (m *Memory) ListPendingOps(_ context.Context) ([]PendingOp, error) {
 		out = append(out, op)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// AppendAudit implements Store.
+func (m *Memory) AppendAudit(_ context.Context, e AuditEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e.ID = m.nextAuditID
+	m.nextAuditID++
+	if e.OccurredAt.IsZero() {
+		e.OccurredAt = m.now().UTC()
+	}
+	m.audit = append(m.audit, e)
+	return nil
+}
+
+// ListAudit implements Store, newest first.
+func (m *Memory) ListAudit(_ context.Context, f AuditFilter) ([]AuditEvent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	limit := clampAuditLimit(f.Limit)
+	out := make([]AuditEvent, 0, limit)
+	for i := len(m.audit) - 1; i >= 0 && len(out) < limit; i-- {
+		e := m.audit[i]
+		if f.BeforeID > 0 && e.ID >= f.BeforeID {
+			continue
+		}
+		if (f.App != "" && e.App != f.App) ||
+			(f.Ring != "" && e.Ring != f.Ring) ||
+			(f.Category != "" && e.Category != f.Category) ||
+			(f.Actor != "" && e.Actor != f.Actor) {
+			continue
+		}
+		out = append(out, e)
+	}
 	return out, nil
 }
 

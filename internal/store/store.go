@@ -71,6 +71,9 @@ type HistoryEntry struct {
 	ToVersion   string `json:"to_version"`
 	Result      string `json:"result"`
 	Message     string `json:"message"`
+	// CorrelationID ties this entry to the audit events recorded during the
+	// same operation (empty on rows that predate the audit ledger).
+	CorrelationID string `json:"correlation_id,omitempty"`
 	// Diagnosis is the stored AI explanation of a failed entry (empty until
 	// someone asks for one). Persisted so every user sees the same answer and
 	// it survives restarts.
@@ -155,6 +158,71 @@ type PendingOp struct {
 	// can write the same state transition the operation would have.
 	PrevVersion string    `json:"prev_version"`
 	StartedAt   time.Time `json:"started_at"`
+	// CorrelationID ties the journaled operation to its audit events, so a
+	// recovered operation's outcome lands under the same correlation.
+	CorrelationID string `json:"correlation_id,omitempty"`
+}
+
+// Actor types recorded on audit events.
+const (
+	ActorHuman  = "human"
+	ActorAgent  = "agent"
+	ActorSystem = "system"
+)
+
+// Audit event categories.
+const (
+	AuditOperation     = "operation"      // seed / promote / rollback outcomes
+	AuditGate          = "gate"           // a promotion gate's verdict
+	AuditOverride      = "override"       // a human overruled a blocking gate
+	AuditConfig        = "config"         // settings changed at runtime
+	AuditAgentDecision = "agent_decision" // a Ring Agent decision record
+)
+
+// AuditEvent is one append-only entry in the audit ledger: who did what, to
+// which app/ring/version, under which operation (correlation id). Detail is a
+// JSON blob whose shape belongs to the emitter; the store treats it as opaque.
+type AuditEvent struct {
+	ID            int64     `json:"id"`
+	OccurredAt    time.Time `json:"occurred_at"`
+	CorrelationID string    `json:"correlation_id,omitempty"`
+	ActorType     string    `json:"actor_type"`
+	Actor         string    `json:"actor"`
+	App           string    `json:"app,omitempty"`
+	Ring          string    `json:"ring,omitempty"`
+	Category      string    `json:"category"`
+	Action        string    `json:"action"`
+	Version       string    `json:"version,omitempty"`
+	Detail        string    `json:"detail,omitempty"`
+}
+
+// AuditFilter narrows and pages a ListAudit query. Zero-value fields are
+// ignored. Paging is keyset-based: BeforeID returns rows with ID < BeforeID
+// (0 = newest page). Limit is clamped by implementations to a sane maximum.
+type AuditFilter struct {
+	App      string
+	Ring     string
+	Category string
+	Actor    string
+	BeforeID int64
+	Limit    int
+}
+
+// Audit paging bounds shared by implementations.
+const (
+	AuditDefaultLimit = 50
+	AuditMaxLimit     = 500
+)
+
+// clampAuditLimit applies the shared default/max to a requested page size.
+func clampAuditLimit(n int) int {
+	switch {
+	case n <= 0:
+		return AuditDefaultLimit
+	case n > AuditMaxLimit:
+		return AuditMaxLimit
+	}
+	return n
 }
 
 // Store is the persistence interface. Implementations must be safe for
@@ -236,6 +304,11 @@ type Store interface {
 	// ListPendingOps returns every journaled operation, oldest first. At
 	// start-up these are the operations a previous process left unfinished.
 	ListPendingOps(ctx context.Context) ([]PendingOp, error)
+	// AppendAudit appends one event to the audit ledger. The ledger is
+	// append-only: no update or delete methods exist.
+	AppendAudit(ctx context.Context, e AuditEvent) error
+	// ListAudit returns audit events matching the filter, newest first.
+	ListAudit(ctx context.Context, f AuditFilter) ([]AuditEvent, error)
 	// Lock acquires an exclusive lock for key, blocking until it is held or ctx
 	// is done. The returned function releases it. This serializes mutating
 	// operations for one application. The Postgres implementation uses a session

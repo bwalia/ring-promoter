@@ -76,6 +76,22 @@ func gateInputsFrom(ctx context.Context) GateInputs {
 	return in
 }
 
+type validateOnlyKey struct{}
+
+// withValidateOnly marks a context as a read-only pre-check. Gates evaluated
+// under it must not emit audit events: the async API pre-validates every
+// operation before spawning its job, so without this marker each accepted
+// override would be recorded twice.
+func withValidateOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, validateOnlyKey{}, true)
+}
+
+// isValidateOnly reports whether the context is a pre-check.
+func isValidateOnly(ctx context.Context) bool {
+	v, _ := ctx.Value(validateOnlyKey{}).(bool)
+	return v
+}
+
 // SetChangeRequestValidators installs the per-app change-request validators
 // (built from config in main). Apps absent from the map fall back to a
 // validator that accepts only the demo code — so an enabled change-request gate
@@ -166,6 +182,17 @@ func (p *Promoter) evaluateGates(ctx context.Context, app, targetRing, version s
 			p.log.Warn("grafana gate overridden",
 				"app", app, "ring", targetRing, "version", version,
 				"verdict", describeGrafana(res), "reason", reason)
+			// Durably record the override even when the promotion then succeeds
+			// (history only keeps step logs for failures, so without this row a
+			// successful overridden promotion left no queryable trace). Skipped
+			// during pre-validation so one operation records one override.
+			if !isValidateOnly(ctx) {
+				p.audit(ctx, store.AuditEvent{
+					App: app, Ring: targetRing, Category: store.AuditOverride, Action: "grafana.override",
+					Version: version,
+					Detail:  auditDetail(map[string]string{"verdict": describeGrafana(res), "reason": reason}),
+				})
+			}
 		default:
 			return fmt.Errorf("%w: %s reports %s for %s (open the ring's panel to override)",
 				ErrGrafanaNoGo, dashboardName(pol.Grafana), describeGrafana(res), targetRing)
@@ -244,7 +271,7 @@ func (p *Promoter) ValidatePromote(ctx context.Context, app, fromRing string) er
 	if err != nil || st.CurrentVersion == "" {
 		return ErrNothingToPromote
 	}
-	return p.evaluateGates(ctx, app, next.Name, st.CurrentVersion, gateInputsFrom(ctx))
+	return p.evaluateGates(withValidateOnly(ctx), app, next.Name, st.CurrentVersion, gateInputsFrom(ctx))
 }
 
 // signoffBy renders a short attribution for a sign-off.

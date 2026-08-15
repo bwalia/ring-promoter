@@ -364,7 +364,7 @@ func (p *Promoter) ValidateSeed(ctx context.Context, app, ringName, version stri
 	// Reject a gated seed (closed window / missing sign-off / bad CR code) here
 	// too, so the async path fails on the request instead of spawning a doomed
 	// job. Gate inputs ride the context (see WithGateInputs).
-	return p.evaluateGates(ctx, app, ringName, effective, gateInputsFrom(ctx))
+	return p.evaluateGates(withValidateOnly(ctx), app, ringName, effective, gateInputsFrom(ctx))
 }
 
 // validateVersion rejects a version that does not exist in the app's source
@@ -553,7 +553,14 @@ func (p *Promoter) SetAutoPromote(ctx context.Context, app, ringName string, ena
 			return fmt.Errorf("target %s: %w", next.Name, err)
 		}
 	}
-	return p.store.SetAutoPromote(ctx, app, ringName, enabled)
+	if err := p.store.SetAutoPromote(ctx, app, ringName, enabled); err != nil {
+		return err
+	}
+	p.audit(ctx, store.AuditEvent{
+		App: app, Ring: ringName, Category: store.AuditConfig, Action: "auto_promote.set",
+		Detail: auditDetail(map[string]string{"enabled": fmt.Sprintf("%t", enabled)}),
+	})
+	return nil
 }
 
 // autoChain continues promoting from res.Ring while that ring has auto-promote
@@ -953,6 +960,7 @@ func (p *Promoter) record(ctx context.Context, app, ringName, action, from, to, 
 	entry := store.HistoryEntry{
 		App: app, Ring: ringName, Action: action,
 		FromVersion: from, ToVersion: to, Result: result, Message: msg,
+		CorrelationID: correlationFrom(ctx),
 	}
 	// Failures keep the step logs collected so far (when the reporter can
 	// provide them) so they can be diagnosed properly later, after the
@@ -966,6 +974,11 @@ func (p *Promoter) record(ctx context.Context, app, ringName, action, from, to, 
 	if err := p.store.AddHistory(ctx, entry); err != nil {
 		p.log.Error("record history failed", "err", err, "app", app, "ring", ringName, "action", action)
 	}
+	p.audit(ctx, store.AuditEvent{
+		App: app, Ring: ringName, Category: store.AuditOperation, Action: action,
+		Version: to,
+		Detail:  auditDetail(map[string]string{"from_version": from, "result": result, "message": msg}),
+	})
 }
 
 func (p *Promoter) currentVersion(ctx context.Context, app, ringName string) string {

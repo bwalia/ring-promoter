@@ -107,3 +107,28 @@ CREATE TABLE IF NOT EXISTS pending_op (
     prev_version TEXT        NOT NULL DEFAULT '',
     started_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Upgrade pre-existing databases created before correlation ids (idempotent).
+-- The correlation id ties a history row / journaled op to every audit event of
+-- the same operation.
+ALTER TABLE history    ADD COLUMN IF NOT EXISTS correlation_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE pending_op ADD COLUMN IF NOT EXISTS correlation_id TEXT NOT NULL DEFAULT '';
+
+-- Append-only audit ledger: every mutating action (human, agent, or system),
+-- gate verdict, and override — with who did it and which operation it belongs
+-- to. Rows are only ever inserted; there is no update or delete path.
+CREATE TABLE IF NOT EXISTS audit_event (
+    id             BIGSERIAL   PRIMARY KEY,
+    occurred_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    correlation_id TEXT        NOT NULL DEFAULT '',
+    actor_type     TEXT        NOT NULL DEFAULT '',
+    actor          TEXT        NOT NULL DEFAULT '',
+    app            TEXT        NOT NULL DEFAULT '',
+    ring           TEXT        NOT NULL DEFAULT '',
+    category       TEXT        NOT NULL,
+    action         TEXT        NOT NULL,
+    version        TEXT        NOT NULL DEFAULT '',
+    detail         TEXT        NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_app_id ON audit_event (app, id DESC);
