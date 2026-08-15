@@ -61,6 +61,11 @@ export const ORBIT_SAMPLES = 80;
  * Live-canvas geometry. Earth stays circular (sized from the short side) so
  * a rectangular viewport is not squashed; the stage itself still fills both
  * axes and the extra long-side space is where the Sun and roster live.
+ *
+ * Vertical placement uses the *usable* band between chrome insets. Centering
+ * at raw `height/2` after the fullscreen + overlay-roster change pinned Earth
+ * under the bottom roster (empty sky above). Insets keep Sun/Earth/rings in
+ * the clear stage — upper-middle of that band by default.
  */
 export type GlobeMetrics = {
   width: number;
@@ -74,15 +79,36 @@ export type GlobeMetrics = {
   ringOuter: number;
 };
 
-export function globeMetrics(width: number, height: number): GlobeMetrics {
+/** Chrome reserved above/below the globe so overlays do not hide the stage. */
+export type GlobeInsets = {
+  top?: number;
+  bottom?: number;
+  /**
+   * Fraction of the usable band for Earth's centre. `0.5` is true middle;
+   * slightly less sits upper-middle. Defaults to `0.5` with no insets, and
+   * `0.46` when chrome insets are present.
+   */
+  verticalBias?: number;
+};
+
+export function globeMetrics(
+  width: number,
+  height: number,
+  insets: GlobeInsets = {},
+): GlobeMetrics {
   const w = Math.max(1, width);
   const h = Math.max(1, height);
+  const top = Math.max(0, insets.top ?? 0);
+  const bottom = Math.max(0, insets.bottom ?? 0);
+  const usable = Math.max(1, h - top - bottom);
+  const bias =
+    insets.verticalBias ?? (top > 0 || bottom > 0 ? 0.46 : 0.5);
   const k = Math.min(w, h) / DESIGN_SIZE;
   return {
     width: w,
     height: h,
     cx: w / 2,
-    cy: h / 2,
+    cy: top + usable * bias,
     earthR: EARTH_R * k,
     sunR: SUN_R * k,
     sunOffsetX: SUN_OFFSET_X * k,

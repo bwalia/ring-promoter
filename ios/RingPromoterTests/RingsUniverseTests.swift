@@ -339,7 +339,9 @@ struct RingsUniverseTests {
         #expect(abs(rLarge[0] - rSmall[0] * 2) < 0.001)
         #expect(abs(rLarge[4] - rSmall[4] * 2) < 0.001)
 
-        let wide = SolarLayout.GlobeMetrics(width: 1600, height: 800)
+        let wide = SolarLayout.GlobeMetrics(
+            width: 1600, height: 800, topInset: 0, bottomInset: 0, verticalBias: 0.5
+        )
         #expect(abs(wide.earthR - large.earthR) < 0.001)
         #expect(abs(wide.cx - 800) < 0.001)
         #expect(abs(wide.cy - 400) < 0.001)
@@ -348,6 +350,18 @@ struct RingsUniverseTests {
         )
         #expect(abs(pin.x - wide.cx) < 0.001)
         #expect(abs(pin.y - (wide.cy - wide.earthR)) < 0.001)
+
+        // Bottom roster overlay: Earth must sit in the clear band above it,
+        // not at raw mid-canvas (which reads as bottom-aligned empty sky).
+        let tall = SolarLayout.GlobeMetrics(
+            width: 390, height: 800, topInset: 78, bottomInset: 220, verticalBias: 0.46
+        )
+        let usable = 800.0 - 78 - 220
+        let expectedCy = 78 + usable * 0.46
+        #expect(abs(tall.cy - expectedCy) < 0.001)
+        #expect(tall.cy < 800 / 2)
+        #expect(tall.cy > 78)
+        #expect(tall.cy + tall.ringOuter < 800 - 220 + 8)
     }
 
     @Test("faster TTFB parks closer in; equal TTFB still gets different sizes")
