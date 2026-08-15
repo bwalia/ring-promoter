@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/example/ring-promoter/internal/changerequest"
@@ -110,92 +109,38 @@ func (p *Promoter) policy(app string) *config.PromotionPolicy {
 }
 
 // evaluateGates enforces the app's promotion policy for deploying `version`
-// into `targetRing`. It returns nil when the app has no policy or the target
-// ring is not gated. Every check runs read-only and before any deploy, so a
-// gate failure leaves all state untouched.
+// into `targetRing` by walking the ordered promotionGates pipeline (see
+// gate.go). It returns nil when the app has no policy or no gate guards the
+// target ring, and the first failing gate's typed error otherwise. Every check
+// runs read-only and before any deploy, so a gate failure leaves all state
+// untouched. Non-skipped verdicts are audited (category "gate") under the
+// operation's correlation id — except during validate-only pre-checks, so one
+// operation records each gate once.
 func (p *Promoter) evaluateGates(ctx context.Context, app, targetRing, version string, in GateInputs) error {
 	pol := p.policy(app)
 	if pol == nil {
 		return nil
 	}
 	rep := reporterFrom(ctx)
+	req := GateRequest{App: app, TargetRing: targetRing, Version: version, Inputs: in, Policy: pol}
 
-	// 1. Maintenance window (config-recurring OR operator-created ad-hoc).
-	if pol.MaintenanceWindow.Guards(targetRing) {
-		open, err := p.maintenanceOpenAt(ctx, app, targetRing, p.now())
-		if err != nil {
-			return fmt.Errorf("check maintenance windows: %w", err)
+	for _, g := range promotionGates {
+		res := g.Evaluate(ctx, p, req)
+		if res.Verdict == GateVerdictSkipped {
+			continue
 		}
-		if !open {
-			return fmt.Errorf("%w: no active maintenance window for %s (open one, or wait for a scheduled window)",
-				ErrMaintenanceWindowClosed, targetRing)
+		if res.Err == nil {
+			rep.Log("gate: " + res.Detail)
 		}
-		rep.Log(fmt.Sprintf("gate: maintenance window open for %s", targetRing))
-	}
-
-	// 2. QA / release Go-No-Go sign-off for the exact version.
-	if pol.QASignoff.Guards(targetRing) {
-		s, err := p.store.GetSignoff(ctx, app, targetRing, version)
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			return fmt.Errorf("%w: %s needs a release-engineer sign-off for %s before it can be promoted",
-				ErrSignoffRequired, version, targetRing)
-		case err != nil:
-			return fmt.Errorf("check sign-off: %w", err)
-		case !s.IsGo():
-			return fmt.Errorf("%w: %s sign-off for %s is %q (%s)",
-				ErrSignoffNoGo, version, targetRing, s.Decision, signoffBy(s))
+		if !isValidateOnly(ctx) {
+			p.audit(ctx, store.AuditEvent{
+				App: app, Ring: targetRing, Category: store.AuditGate, Action: res.Gate,
+				Version: version,
+				Detail:  auditDetail(map[string]string{"verdict": res.Verdict, "detail": res.Detail}),
+			})
 		}
-		rep.Log(fmt.Sprintf("gate: %s signed off for %s by %s", version, targetRing, signoffBy(s)))
-	}
-
-	// 3. Change-request code, validated against the app's business system.
-	if pol.ChangeRequest.Guards(targetRing) {
-		code := strings.TrimSpace(in.ChangeRequestCode)
-		if code == "" {
-			return fmt.Errorf("%w: promotion to %s requires a valid change-request code", ErrChangeRequestRequired, targetRing)
-		}
-		if strings.EqualFold(code, demoCRCode) {
-			rep.Log(fmt.Sprintf("gate: change-request %q accepted (demo code)", code))
-		} else if err := p.validateChangeRequest(ctx, app, targetRing, code); err != nil {
-			return err
-		} else {
-			rep.Log(fmt.Sprintf("gate: change-request %q validated for %s", code, targetRing))
-		}
-	}
-
-	// 4. Grafana go/no-go, read from the app's release dashboard. Only an
-	// explicit no-go blocks: a "check" verdict is advisory, and a Grafana that
-	// cannot be reached must not become an outage of its own.
-	if pol.Grafana.Guards(targetRing) {
-		res := p.grafanaVerdict(ctx, app, targetRing)
-		switch {
-		case !res.Verdict.Blocks():
-			rep.Log(fmt.Sprintf("gate: grafana %s for %s (%s)", res.Verdict, targetRing, describeGrafana(res)))
-		case in.OverrideGrafana:
-			reason := strings.TrimSpace(in.OverrideReason)
-			if reason == "" {
-				return fmt.Errorf("%w: state why the %s no-go is being overruled", ErrGrafanaOverrideReason, targetRing)
-			}
-			rep.Log(fmt.Sprintf("gate: grafana NO-GO for %s (%s) OVERRIDDEN — %s",
-				targetRing, describeGrafana(res), reason))
-			p.log.Warn("grafana gate overridden",
-				"app", app, "ring", targetRing, "version", version,
-				"verdict", describeGrafana(res), "reason", reason)
-			// Durably record the override even when the promotion then succeeds
-			// (history only keeps step logs for failures, so without this row a
-			// successful overridden promotion left no queryable trace). Skipped
-			// during pre-validation so one operation records one override.
-			if !isValidateOnly(ctx) {
-				p.audit(ctx, store.AuditEvent{
-					App: app, Ring: targetRing, Category: store.AuditOverride, Action: "grafana.override",
-					Version: version,
-					Detail:  auditDetail(map[string]string{"verdict": describeGrafana(res), "reason": reason}),
-				})
-			}
-		default:
-			return fmt.Errorf("%w: %s reports %s for %s (open the ring's panel to override)",
-				ErrGrafanaNoGo, dashboardName(pol.Grafana), describeGrafana(res), targetRing)
+		if res.Err != nil {
+			return res.Err
 		}
 	}
 	return nil
