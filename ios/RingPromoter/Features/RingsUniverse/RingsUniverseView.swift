@@ -333,7 +333,14 @@ private struct SolarStage: View {
             let elapsed = reduceMotion ? 0 : timeline.date.timeIntervalSince(start)
             let spin = SolarLayout.earthSpin(elapsed: elapsed, reduceMotion: reduceMotion)
             GeometryReader { geo in
-                let metrics = SolarLayout.GlobeMetrics(size: geo.size)
+                // Match bottomChrome (roster ≤168 + legend/timestamp) and
+                // topChrome (mode picker) so Earth centres in the clear sky,
+                // not under the overlays / with empty space above.
+                let metrics = SolarLayout.GlobeMetrics(
+                    size: geo.size,
+                    topInset: 78,
+                    bottomInset: min(220, geo.size.height * 0.34)
+                )
                 let bodies = bodies(metrics: metrics)
                 let focusBody = selectedID.flatMap { id in bodies.first { $0.id == id } }
                 let focusPos = focusBody.map {

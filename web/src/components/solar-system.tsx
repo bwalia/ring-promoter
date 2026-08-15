@@ -156,10 +156,27 @@ export function SolarSystem({
 
   const stageEl = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState({ w: DESIGN_SIZE, h: DESIGN_SIZE });
-  const metrics = useMemo(
-    () => globeMetrics(stageSize.w, stageSize.h),
-    [stageSize],
-  );
+  // Roster is a bottom sheet below `lg`, a right rail at `lg+` — match the
+  // Tailwind breakpoint so Earth centres in the clear sky, not under the sheet.
+  const [sideRoster, setSideRoster] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setSideRoster(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  const metrics = useMemo(() => {
+    const top = 56; // mode picker / "Rings of Apps" chrome
+    const bottom = sideRoster
+      ? 36 // legend only — roster is a side rail
+      : Math.min(200, Math.round(stageSize.h * 0.32));
+    return globeMetrics(stageSize.w, stageSize.h, {
+      top,
+      bottom,
+      verticalBias: 0.46,
+    });
+  }, [stageSize, sideRoster]);
   const strokeK = Math.min(metrics.width, metrics.height) / DESIGN_SIZE;
 
   const bodies = useMemo(

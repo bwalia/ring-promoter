@@ -343,12 +343,27 @@ enum SolarLayout {
     /// Live-canvas geometry. Earth stays circular (sized from the short side)
     /// so a rectangular viewport is not squashed; the stage itself still fills
     /// both axes.
+    ///
+    /// `cy` is the centre of the *usable* band between chrome insets — not raw
+    /// `height/2`. After the fullscreen stage + bottom roster overlay, a true
+    /// mid-canvas centre sat under the roster with empty sky above.
     struct GlobeMetrics: Equatable, Sendable {
         var width: Double
         var height: Double
+        /// Top overlay (mode picker) reserved so Earth sits below it.
+        var topInset: Double
+        /// Bottom roster / legend reserved so Earth sits above it.
+        var bottomInset: Double
+        /// Fraction of the usable band for Earth's centre. `0.5` is true
+        /// middle; slightly less sits upper-middle. Defaults to mid-band
+        /// with no chrome, upper-middle when insets reserve overlay space.
+        var verticalBias: Double
 
         var cx: Double { width / 2 }
-        var cy: Double { height / 2 }
+        var cy: Double {
+            let usable = max(1, height - topInset - bottomInset)
+            return topInset + usable * verticalBias
+        }
         var shortSide: Double { min(width, height) }
         private var k: Double { shortSide / SolarLayout.canvasSize }
 
@@ -361,13 +376,32 @@ enum SolarLayout {
 
         static let canonical = GlobeMetrics(width: SolarLayout.canvasSize, height: SolarLayout.canvasSize)
 
-        init(width: Double, height: Double) {
+        init(
+            width: Double,
+            height: Double,
+            topInset: Double = 0,
+            bottomInset: Double = 0,
+            verticalBias: Double? = nil
+        ) {
             self.width = max(width, 1)
             self.height = max(height, 1)
+            self.topInset = max(topInset, 0)
+            self.bottomInset = max(bottomInset, 0)
+            let defaultBias = (self.topInset > 0 || self.bottomInset > 0) ? 0.46 : 0.5
+            self.verticalBias = min(1, max(0, verticalBias ?? defaultBias))
         }
 
-        init(size: CGSize) {
-            self.init(width: size.width, height: size.height)
+        init(
+            size: CGSize,
+            topInset: Double = 0,
+            bottomInset: Double = 0,
+            verticalBias: Double? = nil
+        ) {
+            self.init(
+                width: size.width, height: size.height,
+                topInset: topInset, bottomInset: bottomInset,
+                verticalBias: verticalBias
+            )
         }
     }
 
