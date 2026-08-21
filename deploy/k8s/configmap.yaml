@@ -71,6 +71,16 @@ data:
               # plaintext fallback (externalSecret.enabled=false) and pass the
               # registry creds injected from jobshout-registry-creds so the
               # pull secret is valid.
+              #
+              # --timeout 12m, not 5m: every seed pushes three freshly-built
+              # images (server/web/python-sidecar) that must be pulled COLD onto
+              # whichever node the pods land on — the pod's node rarely has them
+              # cached. That cold pull plus startup routinely runs past 5m, so
+              # helm's --wait gave up and marked the release failed while the
+              # pods went on to converge seconds later (int stayed up the whole
+              # time because maxUnavailable:0 keeps the old pods serving). 12m
+              # covers the cold-pull worst case and still finishes inside this
+              # job's 15m timeout below, so a genuinely stuck deploy still fails.
               helm upgrade --install jobshout /src/deploy/helm/jobshout \
                 --namespace "${ns}" \
                 -f "/src/deploy/helm/jobshout/values-${ns}.yaml" \
@@ -78,7 +88,7 @@ data:
                 --set externalSecret.enabled=false \
                 --set-string secrets.registryUsername="${REGISTRY_USERNAME}" \
                 --set-string secrets.registryPassword="${REGISTRY_PASSWORD}" \
-                --wait --timeout 5m
+                --wait --timeout 12m
               echo "jobshout ${RP_VERSION} live in ${ns}"
           resources: { cpu_request: 100m, memory_limit: 512Mi }
           timeout: 15m
