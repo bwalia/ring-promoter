@@ -287,6 +287,10 @@ type K8sJobConfig struct {
 	// before Kubernetes garbage-collects it. Default 1h.
 	TTLAfterFinished *Duration          `yaml:"ttl_after_finished"`
 	NodeSelector     map[string]string  `yaml:"node_selector"`
+	// HostNetwork puts the Job on the node's network. Use it when CNI
+	// overlay egress cannot reach GitHub (connection reset / TLS timeout)
+	// but the node itself can. Pairs with dnsPolicy ClusterFirstWithHostNet.
+	HostNetwork      bool               `yaml:"host_network"`
 	Tolerations      []K8sJobToleration `yaml:"tolerations"`
 	// SecurityContext, when set, is applied to the Job container. Leave it unset
 	// for ordinary deploy scripts (kubectl/helm) — they need no elevation. Set
