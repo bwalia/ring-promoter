@@ -51,6 +51,11 @@ spec:
       # cluster-shared ring-promoter-deployer ClusterRole in diy-tax-return-uk.
       serviceAccountName: ring-promoter
       automountServiceAccountToken: true
+      # Image is published linux/amd64 only (deploy-k3s1 buildx platforms).
+      # Without this, a surge pod can land on an arm64 node and ImagePullBackOff
+      # with "no match for platform in manifest", stalling rollout status.
+      nodeSelector:
+        kubernetes.kubernetes.io/arch: amd64
       securityContext:
         runAsNonRoot: true
         # The distroless :nonroot image's user is the NAME "nonroot"; Kubernetes
