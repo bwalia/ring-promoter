@@ -92,6 +92,7 @@ func fullSpec() executor.Spec {
 			CPULimit: "1", MemoryLimit: "512Mi",
 		},
 		NodeSelector:   map[string]string{"kubernetes.io/arch": "amd64"},
+		HostNetwork:    true,
 		Tolerations:    []executor.Toleration{{Key: "ci", Operator: "Exists", Effect: "NoSchedule"}},
 		Timeout:        30 * time.Minute,
 		Retries:        2,
@@ -159,6 +160,12 @@ func TestStart_BuildsManifest(t *testing.T) {
 	}
 	if ps.NodeSelector["kubernetes.io/arch"] != "amd64" {
 		t.Fatalf("nodeSelector = %+v", ps.NodeSelector)
+	}
+	if !ps.HostNetwork {
+		t.Fatal("hostNetwork should be set")
+	}
+	if ps.DNSPolicy != "ClusterFirstWithHostNet" {
+		t.Fatalf("dnsPolicy = %q", ps.DNSPolicy)
 	}
 	if len(ps.Tolerations) != 1 || ps.Tolerations[0].Key != "ci" {
 		t.Fatalf("tolerations = %+v", ps.Tolerations)

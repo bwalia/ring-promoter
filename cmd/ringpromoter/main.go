@@ -260,6 +260,7 @@ func buildK8sJobDeployer(app config.AppConfig, logger *slog.Logger, ex *k8sjob.E
 			ServiceAccount:    j.ServiceAccount,
 			Resources:         executor.Resources(j.Resources),
 			NodeSelector:      j.NodeSelector,
+			HostNetwork:       j.HostNetwork,
 			Tolerations:       tolerations,
 			Affinity:          j.Affinity,
 			SecurityContext:   securityContextOf(j.SecurityContext),

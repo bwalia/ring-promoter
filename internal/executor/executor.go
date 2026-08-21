@@ -58,6 +58,9 @@ type Spec struct {
 	ServiceAccount string
 	Resources      Resources
 	NodeSelector   map[string]string
+	// HostNetwork runs the Job on the node's network namespace. Needed when
+	// the CNI overlay cannot reach GitHub (or similar) but the node can.
+	HostNetwork bool
 	Tolerations    []Toleration
 	// SecurityContext, when set, is applied to the task container. Most
 	// deployment tasks need none (the default hardened context is fine), but a
