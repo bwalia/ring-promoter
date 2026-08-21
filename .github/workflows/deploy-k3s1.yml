@@ -78,7 +78,14 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64
+          # Mac Studio runner is linux/arm64 (Docker Desktop). k3s1 workers are
+          # mostly linux/amd64, plus rpworker99 (arm64). Publish both so a pull
+          # never hits "no match for platform in manifest".
+          # provenance/sbom off: default attestations wrap a single-arch build
+          # in an OCI index that arm64 containerd rejects with that same error.
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          sbom: false
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -88,6 +95,14 @@ jobs:
             VERSION=sha-${{ env.SHORT_SHA }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_TIME=${{ env.BUILD_TIME }}
+
+      - name: Verify published platforms
+        run: |
+          set -euo pipefail
+          inspect=$(docker buildx imagetools inspect "${IMAGE}:sha-${SHORT_SHA}")
+          echo "$inspect"
+          echo "$inspect" | grep -q 'linux/amd64' || { echo "::error::pushed image is missing linux/amd64"; exit 1; }
+          echo "$inspect" | grep -q 'linux/arm64' || { echo "::error::pushed image is missing linux/arm64"; exit 1; }
 
       - name: Rotate local buildx cache
         if: always()
@@ -148,7 +163,14 @@ jobs:
           # remounted but the process only reads it at boot. Without this, an
           # app-registry edit would apply cleanly and never take effect.
           kubectl -n "${NAMESPACE}" rollout restart deploy/ring-promoter
-          kubectl -n "${NAMESPACE}" rollout status deploy/ring-promoter --timeout=180s
+          if kubectl -n "${NAMESPACE}" rollout status deploy/ring-promoter --timeout=180s; then
+            exit 0
+          fi
+          echo "::error::rollout timed out; dumping diagnostics"
+          kubectl -n "${NAMESPACE}" get deploy,rs,pods -o wide
+          kubectl -n "${NAMESPACE}" describe pods -l app=ring-promoter
+          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 40
+          exit 1
 
       - name: Verify the app in-cluster
         run: |

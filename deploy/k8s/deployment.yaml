@@ -51,9 +51,10 @@ spec:
       # cluster-shared ring-promoter-deployer ClusterRole in diy-tax-return-uk.
       serviceAccountName: ring-promoter
       automountServiceAccountToken: true
-      # Image is published linux/amd64 only (deploy-k3s1 buildx platforms).
-      # Without this, a surge pod can land on an arm64 node and ImagePullBackOff
-      # with "no match for platform in manifest", stalling rollout status.
+      # Prefer amd64 workers. rpworker99 is an arm64 Pi that is also
+      # control-plane/etcd and has no taint; keep this service off it.
+      # The image is published linux/amd64+linux/arm64 so a pull still
+      # succeeds if this pin is ever dropped.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

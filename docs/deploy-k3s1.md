@@ -13,9 +13,10 @@ self-hosted **Mac Studio** runner (`runs-on: [self-hosted, mac-studio]`).
 
 1. **test** — `go vet ./...` + `go test ./...`. A failing test blocks the deploy.
 2. **deploy**
-   - Build + push `docker.io/bwalia/ring-promoter` (`linux/amd64`) with tags
-     `sha-<short>` (immutable) and `latest` (on `main`), injecting
-     `VERSION/GIT_COMMIT/BUILD_TIME` (shown at `/version` and in the UI footer).
+   - Build + push `docker.io/bwalia/ring-promoter` (`linux/amd64` and
+     `linux/arm64`) with tags `sha-<short>` (immutable) and `latest` (on
+     `main`), injecting `VERSION/GIT_COMMIT/BUILD_TIME` (shown at `/version`
+     and in the UI footer).
    - Load the k3s1 kubeconfig from the `KUBE_CONFIG_DATA_K3S1` secret.
    - **Preflight**: fail fast if `secret/ring-promoter` is missing (CI never
      creates secrets).
@@ -95,9 +96,11 @@ curl -s  http://ring-promoter.diytaxreturn.co.uk/version      # shows the deploy
 
 ## Notes
 
-- **Node arch**: the workflow builds `linux/amd64` (matches the image running on
-  k3s0). If k3s1 nodes are arm64, change `platforms:` to `linux/arm64` (or build
-  multi-arch). The preflight logs `kubectl get nodes -o wide` so you can confirm.
+- **Node arch**: the workflow publishes a multi-arch image (`linux/amd64` +
+  `linux/arm64`) because the Mac Studio runner is arm64 and k3s1 is mixed
+  (amd64 workers plus `rpworker99` arm64). The Deployment still pins to
+  `kubernetes.io/arch=amd64` so the control plane stays off the Pi. The
+  preflight logs `kubectl get nodes -o wide` so you can confirm.
 - **Single runner**: if the Mac Studio runner is offline, deploys queue until it
   returns — acceptable for this control-plane service.
 - **k3s0 is out of scope** (LAN-only); this pipeline targets k3s1 only.
