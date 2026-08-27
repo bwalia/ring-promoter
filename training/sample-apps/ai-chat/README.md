@@ -115,7 +115,7 @@ helm upgrade --install ai-chat ./chart --set gpu.enabled=true ...
 ```
 
 The Ingress uses `ingressClassName: traefik` (k3s1) and annotates the host so
-**external-dns publishes a Cloudflare CNAME → `pop0.wslproxy.com`** (the wslproxy
+**external-dns publishes a Cloudflare CNAME → `lon1.pop0.uk`** (the wslproxy
 POP). See [`architecture.md`](./architecture.md).
 
 ## How Ring Promoter manages it

@@ -10,8 +10,8 @@ health check the whole academy is built on.
 
 ```mermaid
 flowchart LR
-  U["User / browser"] -->|"https://shop.fictionally.org"| CF1["Cloudflare DNS<br/>CNAME → pop0.wslproxy.com"]
-  U -->|"fetch /api/cart<br/>https://shopping-cart-api.fictionally.org"| CF2["Cloudflare DNS<br/>CNAME → pop0.wslproxy.com"]
+  U["User / browser"] -->|"https://shop.fictionally.org"| CF1["Cloudflare DNS<br/>CNAME → lon1.pop0.uk"]
+  U -->|"fetch /api/cart<br/>https://shopping-cart-api.fictionally.org"| CF2["Cloudflare DNS<br/>CNAME → lon1.pop0.uk"]
   CF1 --> POP["wslproxy POP (pop0)"]
   CF2 --> POP
   POP --> TR["Traefik ingress (k3s1)<br/>ingressClassName: traefik"]

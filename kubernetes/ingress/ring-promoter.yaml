@@ -13,7 +13,7 @@
 # repo:
 #
 #   1. DNS — already satisfied: a wildcard *.workstation.co.uk CNAMEs to
-#      pop0.wslproxy.com, so rp.workstation.co.uk already resolves.
+#      lon1.pop0.uk, so rp.workstation.co.uk already resolves.
 #   2. A wslproxy tenant (vhost) for rp.workstation.co.uk on the pop0 edge,
 #      backing onto the k3s1 Traefik addresses. Until that exists the edge
 #      answers every request with its "Host not configured" page — and it does

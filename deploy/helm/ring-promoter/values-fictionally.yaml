@@ -31,5 +31,5 @@ resources:
 ingress:
   enabled: true
   className: traefik
-  externalDnsTarget: pop0.wslproxy.com
+  externalDnsTarget: lon1.pop0.uk
   tls: false

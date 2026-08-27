@@ -102,7 +102,7 @@ ingress:
   domain: fictionally.org
   # external-dns creates a CNAME for each host pointing at this POP target
   # (k3s1 sits behind the wslproxy edge; pop0 is the POP for these hosts).
-  externalDnsTarget: pop0.wslproxy.com
+  externalDnsTarget: lon1.pop0.uk
   tls: false
 
 # Prometheus scrape annotations on the Go pods (a scrape config or ServiceMonitor

@@ -5,7 +5,7 @@ name: Deploy training instance (fictionally.org)
 # its edge wiring end to end:
 #
 #   1. build + push the image, apply the instance manifests, roll out
-#   2. ensure the Cloudflare CNAME  ring-promoter.fictionally.org -> pop0.wslproxy.com
+#   2. ensure the Cloudflare CNAME  ring-promoter.fictionally.org -> lon1.pop0.uk
 #   3. trigger the wslproxy vhost registration for the host on the pop0 edge
 #   4. verify in-cluster, then verify the public URL
 #
@@ -51,7 +51,7 @@ env:
   NAMESPACE: fictionally-ring-promoter
   HOST: ring-promoter.fictionally.org
   ZONE: fictionally.org
-  CNAME_TARGET: pop0.wslproxy.com
+  CNAME_TARGET: lon1.pop0.uk
   HEALTH_URL: https://ring-promoter.fictionally.org/healthz
   BUILDX_CACHE: /var/tmp/ring-promoter-buildx-cache
 
@@ -220,7 +220,7 @@ jobs:
         run: |
           set -euo pipefail
           # DNS is normally maintained by external-dns from the Ingress
-          # annotations (hostname + target pop0.wslproxy.com). This step is an
+          # annotations (hostname + target lon1.pop0.uk). This step is an
           # explicit, idempotent belt-and-suspenders for zones external-dns does
           # not manage. It soft-skips when no token is configured, since the
           # annotations already cover the common case.
@@ -234,7 +234,7 @@ jobs:
           if [ -z "$zone_id" ] || [ "$zone_id" = "null" ]; then
             echo "::error::zone ${ZONE} not found for this Cloudflare token."; exit 1
           fi
-          # Idempotent upsert: CNAME HOST -> pop0.wslproxy.com, unproxied.
+          # Idempotent upsert: CNAME HOST -> lon1.pop0.uk, unproxied.
           rec=$(curl -fsS "${auth[@]}" "$api/zones/$zone_id/dns_records?type=CNAME&name=${HOST}")
           rec_id=$(echo "$rec" | jq -r '.result[0].id // empty')
           body=$(jq -nc --arg name "$HOST" --arg content "$CNAME_TARGET" \
