@@ -63,7 +63,7 @@ by deleting the Ingress.
 ### 4. dev-api-opsapi-ps.fictionally.org — no DNS → 200
 
 The vhost and backend (`193.237.176.232:14111`) were both healthy; only the
-Cloudflare record was missing. Created `CNAME → pop0.wslproxy.com`, unproxied,
+Cloudflare record was missing. Created `CNAME → lon1.pop0.uk`, unproxied,
 TTL 300, matching every other working host. auto-ssl issued a Let's Encrypt cert
 on first request (the initial `000` was that issuance in flight).
 
@@ -131,7 +131,7 @@ minted token is deleted. Rotate the Cloudflare token and the JWT passphrase, and
 consider bcrypt/argon2 for the admin password.
 
 Unrelated data bug spotted: the POP registry lists `pop0.public_ipv4` as
-`187.124.112.155`, but `pop0.wslproxy.com` actually resolves to `18.133.126.242`.
+`187.124.112.155`, but `lon1.pop0.uk` actually resolves to `18.133.126.242`.
 
 ## Rollback
 

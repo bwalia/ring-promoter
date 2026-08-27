@@ -7,6 +7,6 @@ flowchart LR
   RP -->|kubectl / github / k8sjob| K["k3s1 (Traefik)"]
   RP -->|GET health_url| K
   K --> POP["wslproxy edge (pop0)"]
-  POP --> CF["Cloudflare DNS\nCNAME → pop0.wslproxy.com"]
+  POP --> CF["Cloudflare DNS\nCNAME → lon1.pop0.uk"]
   CF --> USER["Users"]
   RP -.->|int→test→acc→prod| RINGS["Rings, one hop at a time\nauto-rollback on failure"]

@@ -7,7 +7,7 @@ name: Register edge vhost (Cloudflare + wslproxy)
 # assumed already applied in-cluster; this only wires up DNS + the pop0 vhost.
 #
 # Steps:
-#   1. Cloudflare CNAME  <host> -> pop0.wslproxy.com   (idempotent; soft-skips
+#   1. Cloudflare CNAME  <host> -> lon1.pop0.uk   (idempotent; soft-skips
 #      without CF_API_TOKEN — external-dns normally maintains this already).
 #   2. wslproxy vhost (pop0) for <host> via the admin API, from the checked-in
 #      server spec. Until this exists the edge answers "Host not configured".
@@ -34,7 +34,7 @@ on:
         default: deploy/instances/workstation/wslproxy-server.json
 
 env:
-  CNAME_TARGET: pop0.wslproxy.com
+  CNAME_TARGET: lon1.pop0.uk
 
 jobs:
   register:

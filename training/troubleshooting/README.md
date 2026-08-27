@@ -12,7 +12,7 @@ shows per-step logs; a failed job can also be explained with **AI diagnosis**
 | Promote returns **400 `change-request code invalid`** | CR code missing/rejected (JIRA) | Supply a valid CR code; `test` always works in demos |
 | Promote returns **403 `production password required`** | Deploying to prod without the password | Provide the prod password (UI prompts) |
 | **`Host not configured`** (HTTP 200) at the public URL | wslproxy vhost not registered for the host | Register the vhost on pop0 — see the [instance runbook](../../deploy/instances/fictionally/wslproxy-vhost.md) |
-| Public URL doesn't resolve | Cloudflare CNAME missing | Confirm external-dns published `→ pop0.wslproxy.com`; check the Ingress annotations |
+| Public URL doesn't resolve | Cloudflare CNAME missing | Confirm external-dns published `→ lon1.pop0.uk`; check the Ingress annotations |
 | Control-plane pod `CreateContainerConfigError` | `runAsNonRoot` with a non-numeric user | Pin the distroless nonroot UID/GID (65532) — already set in the manifests |
 | kubectl deployer: **`deployments.apps is forbidden`** | Control-plane RBAC missing for the target namespace | Apply [`rbac.yaml`](../../deploy/instances/fictionally/rbac.yaml); bind per-namespace in prod |
 | k8sjob deployer: Job never appears | `ring-exec` namespace or executor RBAC missing | Apply the namespace + executor RBAC |
