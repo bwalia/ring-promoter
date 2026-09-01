@@ -20,8 +20,8 @@ import { SOLAR_R_MAX, SOLAR_R_MIN, latencyToRadius } from "@/lib/solar-layout";
 /** Canonical design size the fractions below were authored against. */
 export const DESIGN_SIZE = 400;
 
-/** Earth disc radius on the 400×400 design. */
-export const EARTH_R = 49;
+/** Earth disc radius on the 400×400 design. Smaller = more sky for rings. */
+export const EARTH_R = 40;
 
 /**
  * Sun (= Ring Promoter) parks in the top-left corner of the stage, well
@@ -49,8 +49,8 @@ export const ALT_MAX = 78;
  * near the stage edge (capped so the sun's glow stays clear). Radii step
  * geometrically, so gaps widen outward like a real planetary system.
  */
-export const RING_INNER_RATIO = 1.4;
-export const RING_OUTER = 190;
+export const RING_INNER_RATIO = 1.75;
+export const RING_OUTER = 210;
 
 /** Above this count, the roster/list is the primary identifier; rings dim harder. */
 export const DENSITY_CAP = 10;
@@ -60,12 +60,12 @@ export const DENSITY_CAP = 10;
  * rings fan across ±INCLINATION_MAX so satellites spread over the whole sky
  * instead of stacking in one diagonal band.
  */
-export const INCLINATION_MAX = 35;
-export const INCLINATION_MIN = 10;
+export const INCLINATION_MAX = 42;
+export const INCLINATION_MIN = 16;
 
 /**
  * Distinct tilt per ring: adjacent radii alternate sign and walk the
- * magnitude band from ±35° down to ±10°, with a small per-id jitter so a
+ * magnitude band from ±42° down to ±16°, with a small per-id jitter so a
  * re-sorted fleet never looks mechanical.
  */
 export function ringInclination(index: number, count: number, id: string): number {
@@ -142,11 +142,16 @@ export function globeMetrics(
   const sunX = SUN_MARGIN * k;
   const sunY = top + SUN_MARGIN * k;
   const ringInner = EARTH_R * k * RING_INNER_RATIO;
-  // The outer ring stops where the sun's glow begins, whatever the stage
-  // shape — the halo must never cross an orbit.
+  // Outer ring: as wide as the stage allows, but never into the sun's glow
+  // or past the design cap.
   const sunClear =
     Math.hypot(cx - sunX, cy - sunY) - sunR * SUN_GLOW - 10 * k;
-  const ringOuter = Math.max(ringInner * 1.2, Math.min(RING_OUTER * k, sunClear));
+  const edgeClear =
+    Math.min(cx, cy - top, h - bottom - cy, usableW - cx) - 18 * k;
+  const ringOuter = Math.max(
+    ringInner * 1.2,
+    Math.min(RING_OUTER * k, sunClear, edgeClear),
+  );
   return {
     width: w,
     height: h,
@@ -347,10 +352,9 @@ function hash01(s: string): number {
 
 /**
  * Distinct ring radii for `count` apps, stepped geometrically from
- * RING_INNER_RATIO× Earth's radius to the outer sky, so gaps widen outward
- * (for three rings against a 2.1× outer bound this lands on 1.4×, ~1.7×,
- * 2.1× the globe radius). A fleet of 1 parks on a comfortable inner-mid
- * ring; a fleet of 17 still gets 17 different sizes.
+ * RING_INNER_RATIO× Earth's radius to the outer sky, so gaps widen outward.
+ * A fleet of 1 parks on a comfortable inner-mid ring; a fleet of 17 still
+ * gets 17 different sizes.
  */
 export function isolatedRadii(
   count: number,
@@ -421,11 +425,13 @@ export function buildGlobeBodies(
     const placed = !!(loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng));
     const lat = placed ? clamp(loc!.lat, -80, 80) : 0;
     const lng0 = placed ? wrapLng(loc!.lng) : wrapLng((i / n) * 360 - 180);
-    const inclination = ringInclination(ringIndex.get(id) ?? i, n, id);
-    const raan0 = (hash01(id + ":raan") - 0.5) * 40;
-    const arg0 = placed
-      ? wrapLng(lng0)
-      : wrapLng((i / n) * 360 + hash01(id + ":arg") * 24);
+    const idx = ringIndex.get(id) ?? i;
+    const inclination = ringInclination(idx, n, id);
+    const raan0 = (hash01(id + ":raan") - 0.5) * 56;
+    // Even argument-of-latitude, regardless of config pin. Co-located
+    // fleets (every app in London) used to share one longitude and stack
+    // as a radial blob; unique radii were not enough.
+    const arg0 = wrapLng((idx / n) * 360 + hash01(id + ":arg") * 14);
     const period = 56 + (r / metrics.ringOuter) * 48;
     const geo = latLngOnOrbit(inclination, raan0, arg0);
     return {
