@@ -21,6 +21,7 @@ import { ProdGateCards } from "@/components/landing/prod-gate-cards";
 import { ProtocolSection } from "@/components/landing/protocol-scrub";
 import { Reveal } from "@/components/landing/reveal";
 import { Spine } from "@/components/landing/spine";
+import { WatchVideo } from "@/components/landing/watch-video";
 import { YamlPanel } from "@/components/landing/yaml-parse";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,7 @@ export default function LandingPage() {
       <Nav />
       <main>
         <Hero />
+        <WatchVideo />
         <FactStrip />
         <Protocol />
         <AutoPromote />
