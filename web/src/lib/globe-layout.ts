@@ -2,11 +2,12 @@ import type { AppLocation } from "@/lib/types";
 import { SOLAR_R_MAX, SOLAR_R_MIN, latencyToRadius } from "@/lib/solar-layout";
 
 /**
- * Globe geometry, shared number-for-number with iOS `SolarLayout` globe
- * helpers. The design was authored on a 400×400 canvas; live stages pass
- * their CSS pixel size into `globeMetrics` so Earth, the Sun, and the
- * isolated ring band are recomputed from the real width and height instead
- * of stretching a 400-unit world.
+ * Globe geometry, originally authored number-for-number with iOS
+ * `SolarLayout`; the web stage has since diverged (corner sun, fanned
+ * inclinations, geometric ring spacing). The design was authored on a
+ * 400×400 canvas; live stages pass their CSS pixel size into `globeMetrics`
+ * so Earth, the Sun, and the ring band are recomputed from the real width
+ * and height instead of stretching a 400-unit world.
  *
  * Camera looks from +Z (towards the viewer). North is −Y (up on the canvas).
  * Earth spin is a rotation about the Y axis (longitude).
@@ -20,11 +21,18 @@ import { SOLAR_R_MAX, SOLAR_R_MIN, latencyToRadius } from "@/lib/solar-layout";
 export const DESIGN_SIZE = 400;
 
 /** Earth disc radius on the 400×400 design. */
-export const EARTH_R = 58;
+export const EARTH_R = 49;
 
-/** Sun (= Ring Promoter) sits left of Earth, in design-canvas units. */
-export const SUN_R = 22;
-export const SUN_OFFSET_X = -112;
+/**
+ * Sun (= Ring Promoter) parks in the top-left corner of the stage, well
+ * clear of the ring band — `globeMetrics` caps the outermost orbit so the
+ * sun's glow can never touch it.
+ */
+export const SUN_R = 13;
+/** Design-unit margin from the stage's top-left corner (inside insets). */
+export const SUN_MARGIN = 36;
+/** The glow halo reaches about this many sun radii from the disc centre. */
+export const SUN_GLOW = 2.8;
 
 /** Seconds for one full Earth revolution. Slow on purpose. */
 export const EARTH_SPIN_PERIOD = 96;
@@ -37,22 +45,36 @@ export const ALT_MIN = 14;
 export const ALT_MAX = 78;
 
 /**
- * Isolated rings: innermost just above the atmosphere, outermost in the sky
- * near the stage edge. The span is split into N distinct radii.
+ * Isolated rings: innermost at `RING_INNER_RATIO`× Earth's radius, outermost
+ * near the stage edge (capped so the sun's glow stays clear). Radii step
+ * geometrically, so gaps widen outward like a real planetary system.
  */
-export const RING_INNER_PAD = 14;
+export const RING_INNER_RATIO = 1.4;
 export const RING_OUTER = 190;
 
 /** Above this count, the roster/list is the primary identifier; rings dim harder. */
 export const DENSITY_CAP = 10;
 
 /**
- * Saturn-style tilt. This camera looks from the equator, so 0° is edge-on.
- * A shared low inclination makes nested radii read as nested ellipses instead
- * of spaghetti crossing the disc. Tiny per-app hash keeps them from z-fighting.
+ * Orbital-tilt band. This camera looks from the equator, so 0° is edge-on;
+ * rings fan across ±INCLINATION_MAX so satellites spread over the whole sky
+ * instead of stacking in one diagonal band.
  */
-export const MIN_INCLINATION = 22;
-export const SATURN_INCLINATION = 24;
+export const INCLINATION_MAX = 35;
+export const INCLINATION_MIN = 10;
+
+/**
+ * Distinct tilt per ring: adjacent radii alternate sign and walk the
+ * magnitude band from ±35° down to ±10°, with a small per-id jitter so a
+ * re-sorted fleet never looks mechanical.
+ */
+export function ringInclination(index: number, count: number, id: string): number {
+  const pairs = Math.max(1, Math.ceil(count / 2));
+  const t = pairs === 1 ? 0.5 : Math.floor(index / 2) / (pairs - 1);
+  const magnitude = INCLINATION_MAX - t * (INCLINATION_MAX - INCLINATION_MIN);
+  const sign = index % 2 === 0 ? 1 : -1;
+  return sign * magnitude + (hash01(id + ":i") - 0.5) * 4;
+}
 
 /** Samples around one orbital ring. Shared with iOS. */
 export const ORBIT_SAMPLES = 80;
@@ -70,19 +92,27 @@ export const ORBIT_SAMPLES = 80;
 export type GlobeMetrics = {
   width: number;
   height: number;
+  /** Design-unit → CSS-pixel scale for this stage. */
+  k: number;
   cx: number;
   cy: number;
   earthR: number;
   sunR: number;
-  sunOffsetX: number;
-  ringInnerPad: number;
+  /** Sun disc centre, absolute stage coordinates (top-left corner). */
+  sunX: number;
+  sunY: number;
+  /** Innermost ring radius (RING_INNER_RATIO × earthR). */
+  ringInner: number;
+  /** Outermost ring radius, capped so orbits never reach the sun's glow. */
   ringOuter: number;
 };
 
-/** Chrome reserved above/below the globe so overlays do not hide the stage. */
+/** Chrome reserved around the globe so overlays do not hide the stage. */
 export type GlobeInsets = {
   top?: number;
   bottom?: number;
+  /** Width of a right-hand rail (roster) overlaying the stage. */
+  right?: number;
   /**
    * Fraction of the usable band for Earth's centre. `0.5` is true middle;
    * slightly less sits upper-middle. Defaults to `0.5` with no insets, and
@@ -100,20 +130,35 @@ export function globeMetrics(
   const h = Math.max(1, height);
   const top = Math.max(0, insets.top ?? 0);
   const bottom = Math.max(0, insets.bottom ?? 0);
+  const right = Math.max(0, insets.right ?? 0);
   const usable = Math.max(1, h - top - bottom);
+  const usableW = Math.max(1, w - right);
   const bias =
     insets.verticalBias ?? (top > 0 || bottom > 0 ? 0.46 : 0.5);
-  const k = Math.min(w, h) / DESIGN_SIZE;
+  const k = Math.min(usableW, h) / DESIGN_SIZE;
+  const cx = usableW / 2;
+  const cy = top + usable * bias;
+  const sunR = SUN_R * k;
+  const sunX = SUN_MARGIN * k;
+  const sunY = top + SUN_MARGIN * k;
+  const ringInner = EARTH_R * k * RING_INNER_RATIO;
+  // The outer ring stops where the sun's glow begins, whatever the stage
+  // shape — the halo must never cross an orbit.
+  const sunClear =
+    Math.hypot(cx - sunX, cy - sunY) - sunR * SUN_GLOW - 10 * k;
+  const ringOuter = Math.max(ringInner * 1.2, Math.min(RING_OUTER * k, sunClear));
   return {
     width: w,
     height: h,
-    cx: w / 2,
-    cy: top + usable * bias,
+    k,
+    cx,
+    cy,
     earthR: EARTH_R * k,
-    sunR: SUN_R * k,
-    sunOffsetX: SUN_OFFSET_X * k,
-    ringInnerPad: RING_INNER_PAD * k,
-    ringOuter: RING_OUTER * k,
+    sunR,
+    sunX,
+    sunY,
+    ringInner,
+    ringOuter,
   };
 }
 
@@ -301,8 +346,10 @@ function hash01(s: string): number {
 }
 
 /**
- * Distinct ring radii for `count` apps, equally stepped from just above
- * Earth to the outer sky. A fleet of 1 parks on a comfortable inner-mid
+ * Distinct ring radii for `count` apps, stepped geometrically from
+ * RING_INNER_RATIO× Earth's radius to the outer sky, so gaps widen outward
+ * (for three rings against a 2.1× outer bound this lands on 1.4×, ~1.7×,
+ * 2.1× the globe radius). A fleet of 1 parks on a comfortable inner-mid
  * ring; a fleet of 17 still gets 17 different sizes.
  */
 export function isolatedRadii(
@@ -310,11 +357,27 @@ export function isolatedRadii(
   metrics: GlobeMetrics = DEFAULT_METRICS,
 ): number[] {
   if (count <= 0) return [];
-  const inner = metrics.earthR + metrics.ringInnerPad;
-  const outer = metrics.ringOuter;
-  if (count === 1) return [(inner * 2 + outer) / 3];
-  const gap = (outer - inner) / (count - 1);
-  return Array.from({ length: count }, (_, i) => inner + i * gap);
+  const inner = metrics.ringInner;
+  const outer = Math.max(inner * 1.2, metrics.ringOuter);
+  if (count === 1) return [inner * Math.pow(outer / inner, 0.42)];
+  const step = Math.pow(outer / inner, 1 / (count - 1));
+  return Array.from({ length: count }, (_, i) => inner * step ** i);
+}
+
+/** Sort by TTFB/latency (faster = inner), then id for a stable order. */
+function latencySorted(
+  ids: string[],
+  radiusMsOf: (id: string) => number | null,
+): string[] {
+  return [...ids].sort((a, b) => {
+    const ma = radiusMsOf(a);
+    const mb = radiusMsOf(b);
+    if (ma == null && mb == null) return a.localeCompare(b);
+    if (ma == null) return 1;
+    if (mb == null) return -1;
+    if (ma !== mb) return ma - mb;
+    return a.localeCompare(b);
+  });
 }
 
 /**
@@ -326,15 +389,7 @@ export function assignIsolatedRadii(
   radiusMsOf: (id: string) => number | null,
   metrics: GlobeMetrics = DEFAULT_METRICS,
 ): Map<string, number> {
-  const sorted = [...ids].sort((a, b) => {
-    const ma = radiusMsOf(a);
-    const mb = radiusMsOf(b);
-    if (ma == null && mb == null) return a.localeCompare(b);
-    if (ma == null) return 1;
-    if (mb == null) return -1;
-    if (ma !== mb) return ma - mb;
-    return a.localeCompare(b);
-  });
+  const sorted = latencySorted(ids, radiusMsOf);
   const radii = isolatedRadii(sorted.length, metrics);
   const out = new Map<string, number>();
   sorted.forEach((id, i) => out.set(id, radii[i]!));
@@ -343,9 +398,9 @@ export function assignIsolatedRadii(
 
 /**
  * Place bodies on isolated orbital rings around Earth. One ring per app
- * (or per group): unique radius, Saturn-style nested ellipses, satellites
- * drifting in the sky. Config location only sets the starting longitude —
- * it never stacks two apps on the same ellipse.
+ * (or per group): unique radius, fanned inclinations, satellites drifting
+ * in the sky. Config location only sets the starting longitude — it never
+ * stacks two apps on the same ellipse.
  */
 export function buildGlobeBodies(
   ids: string[],
@@ -353,19 +408,21 @@ export function buildGlobeBodies(
   radiusMsOf: (id: string) => number | null,
   metrics: GlobeMetrics = DEFAULT_METRICS,
 ): GlobeBody[] {
+  const sorted = latencySorted(ids, radiusMsOf);
+  const ringIndex = new Map(sorted.map((id, i) => [id, i]));
   const radii = assignIsolatedRadii(ids, radiusMsOf, metrics);
   const n = ids.length || 1;
 
   return ids.map((id, i) => {
     const loc = locationOf(id);
     const ms = radiusMsOf(id);
-    const r = radii.get(id) ?? metrics.earthR + metrics.ringInnerPad;
+    const r = radii.get(id) ?? metrics.ringInner;
     const track = latencyToRadius(ms);
     const placed = !!(loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng));
     const lat = placed ? clamp(loc!.lat, -80, 80) : 0;
     const lng0 = placed ? wrapLng(loc!.lng) : wrapLng((i / n) * 360 - 180);
-    const inclination = SATURN_INCLINATION + (hash01(id + ":i") - 0.5) * 6;
-    const raan0 = (hash01(id + ":raan") - 0.5) * 16;
+    const inclination = ringInclination(ringIndex.get(id) ?? i, n, id);
+    const raan0 = (hash01(id + ":raan") - 0.5) * 40;
     const arg0 = placed
       ? wrapLng(lng0)
       : wrapLng((i / n) * 360 + hash01(id + ":arg") * 24);
