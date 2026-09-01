@@ -6,7 +6,12 @@ import { Link2, X } from "lucide-react";
 import { EarthGlobe, type EarthGlobeHandle } from "@/components/earth-globe";
 import { RelativeTime } from "@/components/relative-time";
 import { STATUS_HEX, type NodeStatus } from "@/components/group-ring";
-import { DIAL_SIZE, OrbitDial, ringSegments } from "@/components/orbit-body";
+import {
+  DIAL_SIZE,
+  dialSizeForStatus,
+  OrbitDial,
+  ringSegments,
+} from "@/components/orbit-body";
 import { Button } from "@/components/ui/button";
 import { summarizeRings } from "@/lib/app-health";
 import {
@@ -24,6 +29,12 @@ import {
   type GlobeBody,
   type GlobeMetrics,
 } from "@/lib/globe-layout";
+import {
+  placeLabel,
+  sunBox,
+  type Box,
+  type LabelSpot,
+} from "@/lib/label-layout";
 import { appLatencyMs, appTtfbMs } from "@/lib/solar-layout";
 import { useApps, useAppTitle, type GroupAppRings } from "@/lib/queries";
 import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
@@ -90,9 +101,14 @@ export function SolarSystem({
   const earthRef = useRef<EarthGlobeHandle>(null);
   const markerEls = useRef(new Map<string, HTMLElement | null>());
   const stemEls = useRef(new Map<string, SVGLineElement | null>());
+  const leaderEls = useRef(new Map<string, SVGLineElement | null>());
   const chordEls = useRef(new Map<string, SVGPathElement | null>());
   const ringFrontEls = useRef(new Map<string, SVGPathElement | null>());
   const ringBackEls = useRef(new Map<string, SVGPathElement | null>());
+  /** Last accepted label spot per body — retried first, so labels stay put. */
+  const labelPrev = useRef(new Map<string, LabelSpot>());
+  /** Measured label box per body, keyed by its current content. */
+  const labelSizes = useRef(new Map<string, { w: number; h: number; key: string }>());
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -166,18 +182,35 @@ export function SolarSystem({
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
-  const metrics = useMemo(() => {
+  const { metrics, bounds } = useMemo(() => {
     const top = 56; // mode picker / "Rings of Apps" chrome
     const bottom = sideRoster
       ? 36 // legend only — roster is a side rail
       : Math.min(200, Math.round(stageSize.h * 0.32));
-    return globeMetrics(stageSize.w, stageSize.h, {
+    const right = sideRoster ? 312 : 0; // 19.5rem roster rail overlays the stage
+    const metrics = globeMetrics(stageSize.w, stageSize.h, {
       top,
       bottom,
+      right,
       verticalBias: 0.46,
     });
+    // Where labels are allowed to live: the clear sky between the chrome.
+    const bounds: Box = {
+      l: 6,
+      r: Math.max(60, stageSize.w - right - 6),
+      t: top + 4,
+      b: Math.max(top + 40, stageSize.h - bottom - 6),
+    };
+    return { metrics, bounds };
   }, [stageSize, sideRoster]);
-  const strokeK = Math.min(metrics.width, metrics.height) / DESIGN_SIZE;
+  const strokeK = metrics.k;
+
+  const sizeById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const id of members)
+      m.set(id, dialSizeForStatus(statusById.get(id) ?? "empty"));
+    return m;
+  }, [members, statusById]);
 
   const bodies = useMemo(
     () =>
@@ -214,6 +247,8 @@ export function SolarSystem({
 
   const nameEls = useRef(new Map<string, HTMLElement | null>());
   const frame = useRef({ elapsed: 0, spin: 0 });
+  /** Animation epoch survives effect re-runs so hover/focus never rewinds time. */
+  const epochRef = useRef<number | null>(null);
 
   const applyFrame = (elapsed: number, spin: number) => {
     frame.current = { elapsed, spin };
@@ -221,14 +256,15 @@ export function SolarSystem({
     for (const b of bodies) {
       const pos = bodyPoint(b, elapsed, spin, metrics);
       nowPos.set(b.id, pos);
-      const dim = !!active && active !== b.id;
+      // Focus dims everything else to ~20%; hover only brightens its target.
+      const dim = !!focused && focused !== b.id;
       const el = markerEls.current.get(b.id);
       if (el) {
-        const vis = dim ? (pos.front ? 0.28 : 0.1) : pos.front ? 1 : 0.28;
-        el.style.left = `${(pos.x / metrics.width) * 100}%`;
-        el.style.top = `${(pos.y / metrics.height) * 100}%`;
+        const vis = dim ? (pos.front ? 0.2 : 0.08) : pos.front ? 1 : 0.35;
+        el.style.transform = `translate3d(${pos.x.toFixed(1)}px, ${pos.y.toFixed(1)}px, 0)`;
         el.style.opacity = String(vis);
-        el.style.zIndex = String(pos.front ? 20 + Math.round(pos.z) : 2);
+        el.style.zIndex =
+          active === b.id ? "60" : String(pos.front ? 20 + Math.round(pos.z) : 2);
         el.style.pointerEvents = pos.front || active === b.id ? "auto" : "none";
       }
       const stem = stemEls.current.get(b.id);
@@ -240,7 +276,7 @@ export function SolarSystem({
         stem.setAttribute("y2", String(pos.y));
         stem.setAttribute(
           "stroke-opacity",
-          String(dim ? 0.04 : pos.front ? 0.28 : 0.06),
+          String(dim ? 0.03 : pos.front ? 0.16 : 0.05),
         );
       }
       const { front, back } = orbitPathPair(b, spin, metrics);
@@ -248,15 +284,24 @@ export function SolarSystem({
       const ringBack = ringBackEls.current.get(b.id);
       ringFront?.setAttribute("d", front);
       ringBack?.setAttribute("d", back);
+      // Orbit paths whisper (~10–15%) until their satellite is hovered or
+      // selected — then that one ring, and only that one, goes to full.
       const lit = active === b.id;
       ringFront?.setAttribute(
         "stroke-opacity",
-        String(dim ? (crowded ? 0.1 : 0.18) : lit ? 0.95 : crowded ? 0.4 : 0.58),
+        String(dim ? 0.05 : lit ? 1 : crowded ? 0.1 : 0.13),
       );
-      ringFront?.setAttribute("stroke-width", lit ? "2.2" : crowded ? "1.05" : "1.25");
+      ringFront?.setAttribute(
+        "stroke-width",
+        String((lit ? 2.2 : 1.1) * strokeK),
+      );
       ringBack?.setAttribute(
         "stroke-opacity",
-        String(dim ? 0.05 : lit ? 0.42 : 0.18),
+        String(dim ? 0.02 : lit ? 0.5 : 0.06),
+      );
+      ringBack?.setAttribute(
+        "stroke-width",
+        String((lit ? 1.3 : 0.85) * strokeK),
       );
     }
     for (const e of visibleEdges) {
@@ -267,16 +312,103 @@ export function SolarSystem({
       path.setAttribute("d", chordPath(a, b, metrics));
       path.setAttribute(
         "stroke-opacity",
-        String(a.front || b.front ? (editMode ? 0.5 : 0.22) : 0.06),
+        String(
+          focused
+            ? 0.06
+            : a.front || b.front
+              ? editMode
+                ? 0.5
+                : 0.18
+              : 0.06,
+        ),
       );
+    }
+
+    // ---- Label pass: collision-free placement with leader lines. --------
+    // Obstacles the solver must clear before any label is placed: the sun
+    // (disc + glow + caption) and every satellite dial.
+    const taken: Box[] = [sunBox(metrics)];
+    for (const b of bodies) {
+      const pos = nowPos.get(b.id)!;
+      const half = (sizeById.get(b.id) ?? DIAL_SIZE) / 2 + 2;
+      taken.push({
+        l: pos.x - half,
+        r: pos.x + half,
+        t: pos.y - half,
+        b: pos.y + half,
+      });
+    }
+    const rank = (b: GlobeBody) => {
+      if (b.id === active) return 0;
+      const st = statusById.get(b.id) ?? "empty";
+      const bad = st === "failed" || st === "degraded" || st === "deploying";
+      const front = nowPos.get(b.id)?.front ?? false;
+      if (bad) return front ? 1 : 2;
+      return front ? 3 : 4;
+    };
+    const orderedLabels = [...bodies].sort((a, b) => rank(a) - rank(b));
+    for (const p of orderedLabels) {
+      const el = nameEls.current.get(p.id);
+      const leader = leaderEls.current.get(p.id);
+      const pos = nowPos.get(p.id);
+      if (!el || !pos) continue;
+      const dimmed = !!focused && focused !== p.id;
+      const key = active === p.id ? "expanded" : "name";
+      let size = labelSizes.current.get(p.id);
+      if (!size || size.key !== key) {
+        size = { w: el.offsetWidth, h: el.offsetHeight, key };
+        labelSizes.current.set(p.id, size);
+      }
+      const rad = (sizeById.get(p.id) ?? DIAL_SIZE) / 2;
+      const placed = placeLabel(
+        pos.x,
+        pos.y,
+        rad,
+        size.w,
+        size.h,
+        bounds,
+        taken,
+        labelPrev.current.get(p.id) ?? null,
+      );
+      if (!placed) {
+        el.style.opacity = "0";
+        el.style.pointerEvents = "none";
+        leader?.setAttribute("stroke-opacity", "0");
+        labelPrev.current.delete(p.id);
+        continue;
+      }
+      taken.push(placed.box);
+      labelPrev.current.set(p.id, placed.spot);
+      const op = dimmed ? 0.2 : pos.front ? 1 : 0.4;
+      el.style.opacity = String(op);
+      el.style.pointerEvents = dimmed ? "none" : "auto";
+      el.style.transform = `translate(-50%, -50%) translate(${(placed.cx - pos.x).toFixed(1)}px, ${(placed.cy - pos.y).toFixed(1)}px)`;
+      if (leader) {
+        const sideNow = placed.cx >= pos.x ? 1 : -1;
+        const nearX = placed.cx - sideNow * (size.w / 2 + 2);
+        const ang = Math.atan2(placed.cy - pos.y, nearX - pos.x);
+        leader.setAttribute("x1", (pos.x + Math.cos(ang) * (rad + 1)).toFixed(1));
+        leader.setAttribute("y1", (pos.y + Math.sin(ang) * (rad + 1)).toFixed(1));
+        leader.setAttribute("x2", nearX.toFixed(1));
+        leader.setAttribute("y2", placed.cy.toFixed(1));
+        leader.setAttribute("stroke-opacity", String(op * 0.4));
+      }
     }
   };
 
   useEffect(() => {
-    earthRef.current?.setSpin(0);
-    applyFrame(0, 0);
+    earthRef.current?.setSpin(frame.current.spin);
+    applyFrame(frame.current.elapsed, frame.current.spin);
+    // Once webfonts land, measured label sizes are stale — measure again.
+    document.fonts?.ready
+      .then(() => {
+        labelSizes.current.clear();
+        applyFrame(frame.current.elapsed, frame.current.spin);
+      })
+      .catch(() => {});
     if (reduceMotion) return;
-    const start = performance.now();
+    if (epochRef.current == null) epochRef.current = performance.now();
+    const start = epochRef.current;
     let id = 0;
     const loop = (now: number) => {
       const elapsed = (now - start) / 1000;
@@ -289,7 +421,19 @@ export function SolarSystem({
     return () => cancelAnimationFrame(id);
     // Marker refs are populated after commit; bodies/edges/metrics are the inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bodies, visibleEdges, reduceMotion, editMode, active, crowded, metrics]);
+  }, [
+    bodies,
+    visibleEdges,
+    reduceMotion,
+    editMode,
+    active,
+    focused,
+    crowded,
+    metrics,
+    bounds,
+    sizeById,
+    statusById,
+  ]);
 
   useLayoutEffect(() => {
     const stage = stageEl.current;
@@ -305,84 +449,6 @@ export function SolarSystem({
     ro.observe(stage);
     return () => ro.disconnect();
   }, []);
-
-  useLayoutEffect(() => {
-    const stage = stageEl.current;
-    if (!stage) return;
-
-    const run = () => {
-      const spin = frame.current.spin;
-      const elapsed = frame.current.elapsed;
-      const ordered = [...bodies].sort((x, y) => {
-        const rank = (id: string) => {
-          if (id === active) return 0;
-          const st = statusById.get(id) ?? "empty";
-          return st === "failed" || st === "degraded" || st === "deploying"
-            ? 1
-            : 2;
-        };
-        return rank(x.id) - rank(y.id);
-      });
-
-      const kept: { l: number; r: number; t: number; b: number }[] = [];
-      for (const p of ordered) {
-        const el = nameEls.current.get(p.id);
-        const pos = bodyPoint(p, elapsed, spin, metrics);
-        if (!el || !pos) continue;
-        if (!pos.front && p.id !== active) {
-          el.style.opacity = "0";
-          el.style.pointerEvents = "none";
-          continue;
-        }
-        // Crowded fleets: only the focused/hovered nameplate stays on the
-        // globe — the roster is how you read the rest.
-        if (crowded && p.id !== active) {
-          el.style.opacity = "0";
-          el.style.pointerEvents = "none";
-          continue;
-        }
-        el.style.opacity = "1";
-
-        const w = el.offsetWidth;
-        const h = el.offsetHeight;
-        const nameRight =
-          pos.x > metrics.width * 0.75
-            ? false
-            : pos.x < metrics.width * 0.25
-              ? true
-              : pos.x >= metrics.cx;
-        const offset = DIAL_SIZE / 2 + 4 + w / 2;
-        const cx = pos.x + (nameRight ? offset : -offset);
-        const cy = pos.y;
-        const box = {
-          l: cx - w / 2 - 2,
-          r: cx + w / 2 + 2,
-          t: cy - h / 2 - 1,
-          b: cy + h / 2 + 1,
-        };
-        const clash = kept.some(
-          (k) => !(box.r < k.l || box.l > k.r || box.b < k.t || box.t > k.b),
-        );
-        if (clash && p.id !== active) {
-          el.style.opacity = "0";
-          el.style.pointerEvents = "none";
-        } else {
-          el.style.pointerEvents = "";
-          kept.push(box);
-        }
-      }
-    };
-
-    run();
-    document.fonts?.ready.then(run).catch(() => {});
-    const ro = new ResizeObserver(run);
-    ro.observe(stage);
-    const id = window.setInterval(run, 280);
-    return () => {
-      ro.disconnect();
-      window.clearInterval(id);
-    };
-  }, [bodies, statusById, active, title, crowded, metrics]);
 
   const hoverIn = (id: string) => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -526,7 +592,7 @@ export function SolarSystem({
                 fill="none"
                 stroke={hex}
                 strokeWidth={(lit ? 1.3 : 0.85) * strokeK}
-                strokeOpacity={lit ? 0.4 : 0.22}
+                strokeOpacity={lit ? 0.5 : 0.06}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -573,8 +639,8 @@ export function SolarSystem({
                   d={front}
                   fill="none"
                   stroke={hex}
-                  strokeWidth={(lit ? 2.2 : crowded ? 1.05 : 1.25) * strokeK}
-                  strokeOpacity={lit ? 0.95 : crowded ? 0.4 : 0.58}
+                  strokeWidth={(lit ? 2.2 : 1.1) * strokeK}
+                  strokeOpacity={lit ? 1 : crowded ? 0.1 : 0.13}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   className="pointer-events-none"
@@ -599,10 +665,30 @@ export function SolarSystem({
                 y2={pos.y}
                 stroke="#7dd3fc"
                 strokeWidth={0.7 * strokeK}
-                strokeOpacity={0.38}
+                strokeOpacity={0.16}
               />
             );
           })}
+
+          {/* Leader lines: satellite → its placed name plate. The frame
+              loop drives the endpoints alongside the label solver. */}
+          {bodies.map((b) => (
+            <line
+              key={`leader-${b.id}`}
+              ref={(el) => {
+                leaderEls.current.set(b.id, el);
+              }}
+              x1={0}
+              y1={0}
+              x2={0}
+              y2={0}
+              stroke="#a1a1aa"
+              strokeWidth={0.8 * strokeK}
+              strokeOpacity={0}
+              strokeLinecap="round"
+              className="pointer-events-none"
+            />
+          ))}
 
           {visibleEdges.map((e) => {
             const a = positions.get(e.from);
@@ -619,7 +705,7 @@ export function SolarSystem({
                   fill="none"
                   stroke={e.source === "config" ? "#a3a3a3" : "#737373"}
                   strokeWidth={(editMode ? 1.6 : 0.9) * strokeK}
-                  strokeOpacity={editMode ? 0.5 : 0.22}
+                  strokeOpacity={editMode ? 0.5 : 0.18}
                   className={cn(editMode && "cursor-pointer")}
                   onClick={(ev) => {
                     if (!editMode || !editable) return;
@@ -641,7 +727,7 @@ export function SolarSystem({
           const pos = positions.get(p.id);
           if (!pos) return null;
           const status = statusById.get(p.id) ?? "empty";
-          const expanded = active === p.id && !editMode;
+          const expanded = focused === p.id && !editMode;
           const linking = editMode && linkFrom === p.id;
           const lat = latencyByMember.get(p.id);
           const ttfb = ttfbByMember.get(p.id);
@@ -649,14 +735,6 @@ export function SolarSystem({
           const rings = resultById.get(p.id);
           const segs = ringSegments(rings?.rings, ringOrder);
           const { latest } = summarizeRings(rings?.rings);
-          const left = (pos.x / metrics.width) * 100;
-          const top = (pos.y / metrics.height) * 100;
-          const nameRight =
-            pos.x > metrics.width * 0.75
-              ? false
-              : pos.x < metrics.width * 0.25
-                ? true
-                : pos.x >= metrics.cx;
           const below = pos.y >= metrics.cy;
           const estMs =
             loc && fleetCentroid
@@ -670,8 +748,10 @@ export function SolarSystem({
               ref={(el) => {
                 markerEls.current.set(p.id, el);
               }}
-              className="absolute z-10"
-              style={{ left: `${left}%`, top: `${top}%` }}
+              className="absolute left-0 top-0 z-10"
+              style={{
+                transform: `translate3d(${pos.x.toFixed(1)}px, ${pos.y.toFixed(1)}px, 0)`,
+              }}
               onMouseEnter={() => hoverIn(p.id)}
               onMouseLeave={hoverOut}
             >
@@ -700,11 +780,14 @@ export function SolarSystem({
                     <OrbitDial
                       segments={segs}
                       status={status}
+                      size={sizeById.get(p.id)}
                       reduceMotion={reduceMotion}
                     />
                   </button>
 
-                  {/* Name plate, attached to the body rather than floating */}
+                  {/* Name plate — the frame loop places it collision-free
+                      and ties it back with a leader line. Name only at
+                      rest; metrics appear on hover/focus. */}
                   <button
                     ref={(el) => {
                       nameEls.current.set(p.id, el);
@@ -712,33 +795,32 @@ export function SolarSystem({
                     type="button"
                     onClick={() => onBodyClick(p.id)}
                     title={title(p.id)}
-                    className={cn(
-                      "absolute top-1/2 flex -translate-y-1/2 flex-col whitespace-nowrap rounded-md bg-[#07070a]/80 px-1.5 py-0.5 text-left transition-opacity",
-                      nameRight ? "left-full ml-1" : "right-full mr-1 items-end",
-                    )}
+                    className="absolute left-1/2 top-1/2 z-10 flex flex-col items-center whitespace-nowrap rounded-md bg-[#07070a]/80 px-1.5 py-0.5 text-center opacity-0 transition-opacity duration-200"
                   >
                     <span
                       className={cn(
-                        "max-w-[7.5rem] truncate font-display text-[11px] font-medium leading-tight tracking-tight",
-                        expanded || linking
+                        "max-w-[8.5rem] truncate font-display text-[11px] font-medium leading-tight tracking-tight",
+                        active === p.id || linking
                           ? "text-neutral-50"
                           : "text-neutral-200",
                       )}
                     >
                       {title(p.id)}
                     </span>
-                    <span className="font-mono text-[9.5px] leading-tight tabular-nums text-neutral-500">
-                      {mode === "groups"
-                        ? (subtitles?.[p.id] ?? "")
-                        : (latest?.current_version ?? "—")}
-                      {shownMs != null && (
-                        <span className="text-neutral-600">
-                          {" · "}
-                          {ttfb == null && lat == null ? "~" : ""}
-                          {Math.round(shownMs)}ms TTFB
-                        </span>
-                      )}
-                    </span>
+                    {active === p.id && (
+                      <span className="font-mono text-[9.5px] leading-tight tabular-nums text-neutral-500">
+                        {mode === "groups"
+                          ? (subtitles?.[p.id] ?? "")
+                          : (latest?.current_version ?? "—")}
+                        {shownMs != null && (
+                          <span className="text-neutral-600">
+                            {" · "}
+                            {ttfb == null && lat == null ? "~" : ""}
+                            {Math.round(shownMs)}ms TTFB
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </button>
 
                   <AnimatePresence>
@@ -828,17 +910,15 @@ export function SolarSystem({
   );
 }
 
+/**
+ * The sun parks in the top-left corner, small and distant — a marker, not a
+ * centrepiece. `globeMetrics` guarantees its glow never reaches an orbit,
+ * and the name sits in a caption below the disc instead of crammed onto it.
+ */
 function SunHub({ label, metrics }: { label: string; metrics: GlobeMetrics }) {
-  const left = ((metrics.cx + metrics.sunOffsetX) / metrics.width) * 100;
-  const top = (metrics.cy / metrics.height) * 100;
-  const size = Math.max(36, metrics.sunR * 2);
-  // Two lines when the brand is "Ring Promoter" so it stays readable on the
-  // disc without competing with Earth; otherwise keep a single centered line.
-  const lines =
-    label.trim().toLowerCase() === "ring promoter"
-      ? (["Ring", "Promoter"] as const)
-      : ([label] as const);
-  const fontPx = Math.max(7, Math.min(11, size * 0.145));
+  const left = (metrics.sunX / metrics.width) * 100;
+  const top = (metrics.sunY / metrics.height) * 100;
+  const size = Math.max(20, metrics.sunR * 2);
   return (
     <div
       className="pointer-events-none absolute z-[8]"
@@ -846,29 +926,20 @@ function SunHub({ label, metrics }: { label: string; metrics: GlobeMetrics }) {
       data-sun-hub
       aria-label={label}
     >
-      <div className="-translate-x-1/2 -translate-y-1/2">
+      <div className="flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5">
         <div
-          className="relative flex items-center justify-center rounded-full"
+          className="rounded-full"
           style={{
             width: size,
             height: size,
             background:
               "radial-gradient(circle at 35% 32%, #fff7d6 0%, #f5b942 42%, #c2410c 100%)",
-            boxShadow:
-              "0 0 18px 6px rgba(245, 185, 66, 0.28), 0 0 42px 12px rgba(245, 185, 66, 0.12)",
+            boxShadow: `0 0 ${Math.round(size * 0.6)}px ${Math.round(size * 0.2)}px rgba(245, 185, 66, 0.28), 0 0 ${Math.round(size * 1.3)}px ${Math.round(size * 0.4)}px rgba(245, 185, 66, 0.1)`,
           }}
-        >
-          <p
-            className="m-0 px-1 text-center font-display font-semibold uppercase leading-[1.05] tracking-[0.06em] text-black"
-            style={{ fontSize: fontPx }}
-          >
-            {lines.map((line) => (
-              <span key={line} className="block">
-                {line}
-              </span>
-            ))}
-          </p>
-        </div>
+        />
+        <p className="m-0 whitespace-nowrap text-center font-display text-[9px] font-semibold uppercase leading-none tracking-[0.14em] text-neutral-400">
+          {label}
+        </p>
       </div>
     </div>
   );
@@ -1004,7 +1075,7 @@ function chordPath(
   // The closer the midpoint sits to the hub, the harder it needs to bow. The
   // threshold is comfortably wider than the hub radius so chords clear
   // its edge rather than grazing it.
-  const bow = Math.max(0, metrics.earthR + 46 * (Math.min(metrics.width, metrics.height) / DESIGN_SIZE) - dist) * 1.35;
+  const bow = Math.max(0, metrics.earthR + 46 * metrics.k - dist) * 1.35;
   const cx = mx + (dx / dist) * bow;
   const cy = my + (dy / dist) * bow;
   return `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`;

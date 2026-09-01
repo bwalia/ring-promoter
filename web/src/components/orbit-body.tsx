@@ -7,8 +7,29 @@ import { cn } from "@/lib/utils";
 /** Promotion state of one ring, as drawn on a body's dial. */
 export type SegState = "healthy" | "unhealthy" | "empty" | "absent";
 
-/** Body diameter in px. Shared so label layout can reason about it. */
+/** Baseline body diameter in px. Shared so label layout can reason about it. */
 export const DIAL_SIZE = 30;
+
+/**
+ * Severity → diameter. Trouble grows, calm shrinks, so fleet status reads
+ * at a glance from size alone — the color language stays green/orange.
+ */
+export function dialSizeForStatus(status: NodeStatus): number {
+  switch (status) {
+    case "failed":
+      return 40;
+    case "degraded":
+      return 35;
+    case "deploying":
+      return 33;
+    case "loading":
+      return 26;
+    case "empty":
+      return 22;
+    default:
+      return 26; // healthy: small and quiet
+  }
+}
 
 const SEG_HEX: Record<SegState, string> = {
   healthy: STATUS_HEX.healthy,
@@ -86,6 +107,8 @@ export function OrbitDial({
   // continuous ring and the promotion boundaries disappear.
   const gap = n > 1 ? 0.22 : 0;
   const step = (2 * Math.PI) / n;
+  // Severity-sized dials keep their stroke weight in proportion.
+  const sw = Math.max(0.85, Math.min(1.3, size / DIAL_SIZE));
 
   return (
     <svg
@@ -104,7 +127,7 @@ export function OrbitDial({
             d={arcPath(c, r, a0, a1)}
             fill="none"
             stroke={SEG_HEX[seg.state]}
-            strokeWidth={seg.state === "absent" ? 1.5 : 2.5}
+            strokeWidth={(seg.state === "absent" ? 1.5 : 2.5) * sw}
             strokeLinecap="round"
             opacity={seg.state === "absent" ? 0.5 : 1}
           />
@@ -120,7 +143,7 @@ export function OrbitDial({
           r={r}
           fill="none"
           stroke={hex}
-          strokeWidth={2.5}
+          strokeWidth={2.5 * sw}
           strokeLinecap="round"
           strokeDasharray={`${2 * Math.PI * r * 0.22} ${2 * Math.PI * r}`}
           className="origin-center animate-spin"
