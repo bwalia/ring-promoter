@@ -289,7 +289,7 @@ export function SolarSystem({
       const lit = active === b.id;
       ringFront?.setAttribute(
         "stroke-opacity",
-        String(dim ? 0.05 : lit ? 1 : crowded ? 0.1 : 0.13),
+        String(dim ? 0.05 : lit ? 1 : crowded ? 0.07 : 0.09),
       );
       ringFront?.setAttribute(
         "stroke-width",
@@ -297,7 +297,7 @@ export function SolarSystem({
       );
       ringBack?.setAttribute(
         "stroke-opacity",
-        String(dim ? 0.02 : lit ? 0.5 : 0.06),
+        String(dim ? 0.02 : lit ? 0.4 : 0.04),
       );
       ringBack?.setAttribute(
         "stroke-width",
@@ -353,6 +353,16 @@ export function SolarSystem({
       const pos = nowPos.get(p.id);
       if (!el || !pos) continue;
       const dimmed = !!focused && focused !== p.id;
+      // Back-side names stay hidden — the faded ghosts on the globe were
+      // the main source of clutter. Hover/focus still reveals them.
+      const show = !dimmed && (pos.front || active === p.id);
+      if (!show) {
+        el.style.opacity = "0";
+        el.style.pointerEvents = "none";
+        leader?.setAttribute("stroke-opacity", "0");
+        labelPrev.current.delete(p.id);
+        continue;
+      }
       const key = active === p.id ? "expanded" : "name";
       let size = labelSizes.current.get(p.id);
       if (!size || size.key !== key) {
@@ -369,6 +379,7 @@ export function SolarSystem({
         bounds,
         taken,
         labelPrev.current.get(p.id) ?? null,
+        metrics,
       );
       if (!placed) {
         el.style.opacity = "0";
@@ -379,9 +390,8 @@ export function SolarSystem({
       }
       taken.push(placed.box);
       labelPrev.current.set(p.id, placed.spot);
-      const op = dimmed ? 0.2 : pos.front ? 1 : 0.4;
-      el.style.opacity = String(op);
-      el.style.pointerEvents = dimmed ? "none" : "auto";
+      el.style.opacity = "1";
+      el.style.pointerEvents = "auto";
       el.style.transform = `translate(-50%, -50%) translate(${(placed.cx - pos.x).toFixed(1)}px, ${(placed.cy - pos.y).toFixed(1)}px)`;
       if (leader) {
         const sideNow = placed.cx >= pos.x ? 1 : -1;
@@ -391,7 +401,7 @@ export function SolarSystem({
         leader.setAttribute("y1", (pos.y + Math.sin(ang) * (rad + 1)).toFixed(1));
         leader.setAttribute("x2", nearX.toFixed(1));
         leader.setAttribute("y2", placed.cy.toFixed(1));
-        leader.setAttribute("stroke-opacity", String(op * 0.4));
+        leader.setAttribute("stroke-opacity", "0.35");
       }
     }
   };
@@ -592,7 +602,7 @@ export function SolarSystem({
                 fill="none"
                 stroke={hex}
                 strokeWidth={(lit ? 1.3 : 0.85) * strokeK}
-                strokeOpacity={lit ? 0.5 : 0.06}
+                strokeOpacity={lit ? 0.4 : 0.04}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -640,7 +650,7 @@ export function SolarSystem({
                   fill="none"
                   stroke={hex}
                   strokeWidth={(lit ? 2.2 : 1.1) * strokeK}
-                  strokeOpacity={lit ? 1 : crowded ? 0.1 : 0.13}
+                  strokeOpacity={lit ? 1 : crowded ? 0.07 : 0.09}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   className="pointer-events-none"
@@ -795,7 +805,7 @@ export function SolarSystem({
                     type="button"
                     onClick={() => onBodyClick(p.id)}
                     title={title(p.id)}
-                    className="absolute left-1/2 top-1/2 z-10 flex flex-col items-center whitespace-nowrap rounded-md bg-[#07070a]/80 px-1.5 py-0.5 text-center opacity-0 transition-opacity duration-200"
+                    className="absolute left-1/2 top-1/2 z-10 flex flex-col items-center whitespace-nowrap rounded-md bg-[#07070a]/92 px-1.5 py-0.5 text-center opacity-0 transition-opacity duration-200"
                   >
                     <span
                       className={cn(

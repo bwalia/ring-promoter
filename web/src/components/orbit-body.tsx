@@ -17,17 +17,17 @@ export const DIAL_SIZE = 30;
 export function dialSizeForStatus(status: NodeStatus): number {
   switch (status) {
     case "failed":
-      return 40;
+      return 36;
     case "degraded":
-      return 35;
+      return 32;
     case "deploying":
-      return 33;
+      return 30;
     case "loading":
-      return 26;
-    case "empty":
       return 22;
+    case "empty":
+      return 18;
     default:
-      return 26; // healthy: small and quiet
+      return 22; // healthy: small and quiet
   }
 }
 
