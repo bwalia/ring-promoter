@@ -28,5 +28,10 @@
         "batch-worker": "batch-worker",
         "payments-api": "Payments API",
         "web-frontend": "Web Frontend"
+    },
+    "locations": {
+        "web-frontend": { "lat": 51.5074, "lng": -0.1278, "city": "London", "region": "GB" },
+        "payments-api": { "lat": 51.5074, "lng": -0.1278, "city": "London", "region": "GB" },
+        "batch-worker": { "lat": 51.5074, "lng": -0.1278, "city": "London", "region": "GB" }
     }
 }

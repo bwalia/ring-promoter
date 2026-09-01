@@ -33,6 +33,7 @@ data:
       # the images pushed by jobshout's deploy-k3s.yml workflow.
       - name: jobshout
         display_name: "JobShout"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
         deployer: k8sjob
         k8sjob:
           namespace: ring-exec
@@ -44,6 +45,10 @@ data:
           #     --from-literal=REGISTRY_USERNAME=<user> \
           #     --from-literal=REGISTRY_PASSWORD=<pass>
           env_from_secrets: [jobshout-registry-creds]
+          # CNI overlay egress to github.com started failing ~2h after the last
+          # good helm (TLS timeout / connection reset). The node itself can still
+          # clone; hostNetwork uses that path.
+          host_network: true
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -51,7 +56,13 @@ data:
               ns="${RP_TARGET_ENV}"
               echo "deploy jobshout ${RP_VERSION} -> ns ${ns}"
               rm -rf /src
-              git clone --depth 1 https://github.com/bwalia/jobshout /src
+              n=0
+              until git clone --depth 1 https://github.com/bwalia/jobshout /src; do
+                n=$((n+1))
+                if [ "$n" -ge 5 ]; then exit 1; fi
+                echo "git clone failed (attempt $n), retrying..."
+                sleep $((n*5))
+              done
               # No --create-namespace: int/test/acc/prod are shared platform
               # namespaces that pre-exist (RBAC here is namespaced to them). The
               # ring-deploy-job SA has no cluster-scoped namespace rights.
@@ -60,6 +71,16 @@ data:
               # plaintext fallback (externalSecret.enabled=false) and pass the
               # registry creds injected from jobshout-registry-creds so the
               # pull secret is valid.
+              #
+              # --timeout 12m, not 5m: every seed pushes three freshly-built
+              # images (server/web/python-sidecar) that must be pulled COLD onto
+              # whichever node the pods land on — the pod's node rarely has them
+              # cached. That cold pull plus startup routinely runs past 5m, so
+              # helm's --wait gave up and marked the release failed while the
+              # pods went on to converge seconds later (int stayed up the whole
+              # time because maxUnavailable:0 keeps the old pods serving). 12m
+              # covers the cold-pull worst case and still finishes inside this
+              # job's 15m timeout below, so a genuinely stuck deploy still fails.
               helm upgrade --install jobshout /src/deploy/helm/jobshout \
                 --namespace "${ns}" \
                 -f "/src/deploy/helm/jobshout/values-${ns}.yaml" \

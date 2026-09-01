@@ -67,6 +67,13 @@ func (p *Promoter) CreateMaintenanceWindow(ctx context.Context, app, ringName st
 	if err := p.store.CreateMaintenanceWindow(ctx, w); err != nil {
 		return store.MaintenanceWindow{}, err
 	}
+	p.audit(ctx, store.AuditEvent{
+		App: app, Ring: ringName, Category: store.AuditConfig, Action: "maintenance_window.create",
+		Detail: auditDetail(map[string]string{
+			"id": id, "starts_at": w.StartsAt.Format(time.RFC3339), "ends_at": w.EndsAt.Format(time.RFC3339),
+			"reason": w.Reason, "created_by": w.CreatedBy,
+		}),
+	})
 	// Return the stored form (with CreatedAt stamped) for the response.
 	if list, err := p.store.ListMaintenanceWindows(ctx, app); err == nil {
 		for _, e := range list {
@@ -129,6 +136,10 @@ func (p *Promoter) DeleteMaintenanceWindow(ctx context.Context, app, id string) 
 		}
 		return err
 	}
+	p.audit(ctx, store.AuditEvent{
+		App: app, Category: store.AuditConfig, Action: "maintenance_window.delete",
+		Detail: auditDetail(map[string]string{"id": id}),
+	})
 	return nil
 }
 
@@ -164,6 +175,15 @@ func (p *Promoter) RecordSignoff(ctx context.Context, app, ringName, version, de
 	if err := p.store.UpsertSignoff(ctx, s); err != nil {
 		return store.Signoff{}, err
 	}
+	// Sign-offs are upserts — a later decision replaces the row — so the audit
+	// ledger is the only place every decision (including flipped ones) survives.
+	p.audit(ctx, store.AuditEvent{
+		App: app, Ring: ringName, Category: store.AuditConfig, Action: "signoff.record",
+		Version: s.Version,
+		Detail: auditDetail(map[string]string{
+			"decision": s.Decision, "engineer": s.Engineer, "qa_status": s.QAStatus, "note": s.Note,
+		}),
+	})
 	if got, err := p.store.GetSignoff(ctx, app, ringName, s.Version); err == nil {
 		return got, nil
 	}

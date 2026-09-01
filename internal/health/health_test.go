@@ -53,12 +53,18 @@ func TestHTTPChecker_CheckTimedMeasuresLatency(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	latency, err := NewHTTPChecker(time.Second).CheckTimed(context.Background(), Probe{URL: srv.URL})
+	timing, err := NewHTTPChecker(time.Second).CheckTimed(context.Background(), Probe{URL: srv.URL})
 	if err != nil {
 		t.Fatalf("CheckTimed: %v", err)
 	}
-	if latency <= 0 {
-		t.Fatalf("latency = %v, want > 0", latency)
+	if timing.Latency <= 0 {
+		t.Fatalf("latency = %v, want > 0", timing.Latency)
+	}
+	if timing.TTFB <= 0 {
+		t.Fatalf("ttfb = %v, want > 0", timing.TTFB)
+	}
+	if timing.TTFB > timing.Latency {
+		t.Fatalf("ttfb %v > latency %v", timing.TTFB, timing.Latency)
 	}
 }
 

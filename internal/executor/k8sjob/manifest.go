@@ -59,6 +59,8 @@ type podSpec struct {
 	ServiceAccountName string            `json:"serviceAccountName,omitempty"`
 	ImagePullSecrets   []nameRef         `json:"imagePullSecrets,omitempty"`
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
+	HostNetwork        bool              `json:"hostNetwork,omitempty"`
+	DNSPolicy          string            `json:"dnsPolicy,omitempty"`
 	Tolerations        []toleration      `json:"tolerations,omitempty"`
 	Affinity           map[string]any    `json:"affinity,omitempty"`
 	Containers         []container       `json:"containers"`
@@ -153,6 +155,7 @@ func buildManifest(spec executor.Spec, name, id string) jobManifest {
 				RestartPolicy:      "Never",
 				ServiceAccountName: spec.ServiceAccount,
 				NodeSelector:       spec.NodeSelector,
+				HostNetwork:        spec.HostNetwork,
 				Affinity:           spec.Affinity,
 				Containers: []container{{
 					Name:            containerName,
@@ -166,6 +169,12 @@ func buildManifest(spec executor.Spec, name, id string) jobManifest {
 				}},
 			},
 		},
+	}
+	if spec.HostNetwork {
+		// kube-dns is not on the host network; this keeps cluster DNS
+		// working for in-cluster helm/kubectl while using the node's
+		// default route (the path that can still reach GitHub).
+		js.Template.Spec.DNSPolicy = "ClusterFirstWithHostNet"
 	}
 	if spec.Timeout > 0 {
 		d := int64(spec.Timeout.Seconds())

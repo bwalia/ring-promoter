@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/example/ring-promoter/internal/deployer"
@@ -157,6 +158,9 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/topology/edges", s.handleAddTopologyEdge)
 	api.HandleFunc("DELETE /api/topology/edges", s.handleDeleteTopologyEdge)
 	api.HandleFunc("POST /api/topology/edges/restore", s.handleRestoreTopologyEdge)
+	// Audit ledger — append-only record of every mutating action, gate verdict
+	// and override, with actor attribution and per-operation correlation ids.
+	api.HandleFunc("GET /api/audit", s.handleAudit)
 	mux.Handle("/api/", s.authenticate(api))
 
 	// Web UI (single-page app) — served at the root.
@@ -179,9 +183,28 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, errors.New("missing or invalid bearer token"))
 			return
 		}
-		next.ServeHTTP(w, r)
+		// Attribution + correlation for the audit ledger. X-Actor is a
+		// self-declared name (there is no per-user identity yet); absent means
+		// "anonymous" — exactly the information the shared token conveys today.
+		// A header is used instead of a body field so old clients need no
+		// change and DisallowUnknownFields decoding stays intact. The values
+		// ride the request context; opContext's WithoutCancel preserves them
+		// into detached async jobs.
+		actor := strings.TrimSpace(r.Header.Get("X-Actor"))
+		if len(actor) > maxActorLen {
+			actor = actor[:maxActorLen]
+		}
+		if actor == "" {
+			actor = "anonymous"
+		}
+		ctx := promoter.WithActor(r.Context(), promoter.Actor{Type: store.ActorHuman, Name: actor})
+		ctx = promoter.WithCorrelationID(ctx, promoter.NewCorrelationID())
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
+
+// maxActorLen caps the self-declared X-Actor header before it is recorded.
+const maxActorLen = 128
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -228,7 +251,9 @@ func (s *Server) handleListApps(w http.ResponseWriter, _ *http.Request) {
 		// Display titles per app (config display_name, falling back to the
 		// name). Purely cosmetic: every API path still uses the app name.
 		"titles": s.prom.AppTitles(),
-		"rings":  ring.All(),
+		// Geographic pins from config `location`. Apps without a pin are omitted.
+		"locations": s.prom.AppLocations(),
+		"rings":     ring.All(),
 		// Tells the UI to ask for the production password where needed.
 		"prod_protected": s.prodPass != "",
 		// Tells the UI to offer "Diagnose with AI" on failed jobs.

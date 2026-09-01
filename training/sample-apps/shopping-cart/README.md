@@ -87,7 +87,7 @@ This renders:
 - `shopping-cart-backend` Deployment + Service, `shopping-cart-frontend`
   Deployment + Service, `shopping-cart-redis` Deployment + Service.
 - Two Ingresses using `ingressClassName: traefik` (k3s1), annotated so
-  **external-dns publishes a Cloudflare CNAME → `pop0.wslproxy.com`**:
+  **external-dns publishes a Cloudflare CNAME → `lon1.pop0.uk`**:
   - frontend → `shop.fictionally.org`
   - backend → `shopping-cart-api.fictionally.org`
 

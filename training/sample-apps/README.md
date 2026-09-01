@@ -11,7 +11,7 @@ reference template):
 - A `/healthz` endpoint that reports the running version, so Ring Promoter's
   version-aware health checks can confirm the promoted build actually went live.
 - A Helm chart exposing the app via `ingressClassName: traefik` (k3s1), with
-  **external-dns publishing a Cloudflare CNAME → `pop0.wslproxy.com`** (the
+  **external-dns publishing a Cloudflare CNAME → `lon1.pop0.uk`** (the
   wslproxy POP) for each host under `fictionally.org`.
 - Prometheus `/metrics`, readiness/liveness probes, a non-root read-only
   security context, and resource requests/limits.

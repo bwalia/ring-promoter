@@ -1,12 +1,14 @@
 name: Seed Core Platform demo apps (fictionally.org)
 
-# One-shot seeding of the five INERT "Core Platform" demo apps registered in
-# training/config/apps.training.yaml (api-gateway, identity-service,
-# billing-engine, data-pipeline, notification-service) on the live training
-# instance. They use the `log` deployer, so nothing is deployed anywhere —
-# this only writes state/history so the UI shows a realistic pipeline:
-# an older stable version in prod/acc, a newer one in test, the newest in int.
-# It also creates the "Core Platform" group if it does not exist yet.
+# One-shot seeding of the INERT demo apps registered in
+# training/config/apps.training.yaml — the "Core Platform" five (api-gateway,
+# identity-service, billing-engine, data-pipeline, notification-service) and
+# the "Platform Services" five (search-service, feature-flags, audit-log,
+# event-bus, analytics-service) — on the live training instance. They use the
+# `log` deployer, so nothing is deployed anywhere — this only writes
+# state/history so the UI shows a realistic pipeline: an older stable version
+# in prod/acc, a newer one in test, the newest in int. It also creates the
+# "Core Platform" and "Platform Services" groups if they do not exist yet.
 #
 # MANUAL only (workflow_dispatch). Safe to re-run: the fill sequence is
 # deterministic (same final versions, extra history entries), and the group is
@@ -76,19 +78,32 @@ jobs:
           fill data-pipeline        1.22.4 1.23.0 1.24.0
           fill notification-service 4.6.1  4.7.0  4.7.2
 
-      - name: Ensure the "Core Platform" group exists
+          fill search-service       7.4.2  7.5.0  7.5.1
+          fill feature-flags        1.9.3  1.10.0 1.10.1
+          fill audit-log            2.3.5  2.4.0  2.4.1
+          fill event-bus            6.0.4  6.1.0  6.2.0
+          fill analytics-service    3.11.2 3.12.0 3.12.1
+
+      - name: Ensure the demo groups exist
         env:
           RP_URL: ${{ secrets.RP_URL }}
           RP_TOKEN: ${{ secrets.RP_TOKEN }}
         run: |
           set -uo pipefail
-          if curl -sS -H "Authorization: Bearer $RP_TOKEN" "$RP_URL/api/groups" \
-              | grep -q '"Core Platform"'; then
-            echo "group already exists — nothing to do."
-            exit 0
-          fi
-          curl -sS -X POST "$RP_URL/api/groups" \
-            -H "Authorization: Bearer $RP_TOKEN" \
-            -H 'Content-Type: application/json' \
-            -d '{"name":"Core Platform","apps":["api-gateway","identity-service","billing-engine","data-pipeline","notification-service"]}' \
-            || echo "::warning::group creation failed"
+          groups=$(curl -sS -H "Authorization: Bearer $RP_TOKEN" "$RP_URL/api/groups")
+
+          ensure() { # group-name apps-json-array
+            if printf '%s' "$groups" | grep -q "\"$1\""; then
+              echo "group \"$1\" already exists — nothing to do."
+              return 0
+            fi
+            curl -sS -X POST "$RP_URL/api/groups" \
+              -H "Authorization: Bearer $RP_TOKEN" \
+              -H 'Content-Type: application/json' \
+              -d "$(printf '{"name":"%s","apps":%s}' "$1" "$2")" \
+              || echo "::warning::group \"$1\" creation failed"
+            echo
+          }
+
+          ensure "Core Platform" '["api-gateway","identity-service","billing-engine","data-pipeline","notification-service"]'
+          ensure "Platform Services" '["search-service","feature-flags","audit-log","event-bus","analytics-service"]'

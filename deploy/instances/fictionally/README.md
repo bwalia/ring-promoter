@@ -12,7 +12,7 @@ build/push the image → **`helm upgrade --install`** the
 [`deploy/helm/ring-promoter`](../../helm/ring-promoter) chart (Deployment,
 Service, Traefik Ingress, RBAC, and the app-registry ConfigMap injected from the
 training config via `--set-file` — single source of truth) → ensure the
-Cloudflare **CNAME → pop0.wslproxy.com** → register the **wslproxy** vhost via
+Cloudflare **CNAME → lon1.pop0.uk** → register the **wslproxy** vhost via
 its admin API → verify in-cluster and at the public URL.
 
 The manifests live in a **Helm chart**, so this instance can equally be deployed
@@ -35,14 +35,14 @@ helm upgrade --install ring-promoter deploy/helm/ring-promoter \
 | `DOCKER_USER` / `DOCKER_PASSWD` | ✅ set | Docker Hub push |
 | `CF_API_TOKEN` | optional | Cloudflare DNS:Edit on `fictionally.org`. **Not required** — external-dns already maintains the CNAME from the Ingress annotations; the workflow soft-skips without it. |
 | `WSLPROXY_USER` / `WSLPROXY_PASSWORD` | for edge | wslproxy admin login (email + password). The workflow logs in and upserts the vhost for the host via the wslproxy admin API (`/api/user/login` → `/api/servers`), mirroring `wslproxy/api-scripts`. Without them the step warns and you register the vhost manually ([wslproxy-vhost.md](./wslproxy-vhost.md)). |
-| `WSLPROXY_GATEWAY_URL` | optional | wslproxy admin gateway base URL (defaults to `https://pop0.wslproxy.com`). |
+| `WSLPROXY_GATEWAY_URL` | optional | wslproxy admin gateway base URL (defaults to `https://lon1.pop0.uk`). |
 
 **One-time bootstrap the workflow can't do** (CI never creates secrets): create
 the Postgres DB/role `ringpromoter_training` and the `ring-promoter` Secret in
 the namespace (steps 1–2 below). After that, merging to `main` deploys.
 
 > DNS note: `ring-promoter.fictionally.org` already resolves to
-> `pop0.wslproxy.com` (verified). The remaining gate is the wslproxy vhost — the
+> `lon1.pop0.uk` (verified). The remaining gate is the wslproxy vhost — the
 > public health check fails with "Host not configured" until it's registered.
 
 ---
@@ -54,7 +54,7 @@ the namespace (steps 1–2 below). After that, merging to `main` deploys.
 | Namespace | `fictionally-ring-promoter` (+ `ring-exec` for k8sjob Jobs) |
 | Public URL | `https://ring-promoter.fictionally.org` |
 | In-cluster ingress | Traefik (`ingressClassName: traefik`) |
-| DNS | Cloudflare **CNAME → pop0.wslproxy.com** (via external-dns) |
+| DNS | Cloudflare **CNAME → lon1.pop0.uk** (via external-dns) |
 | Edge | wslproxy vhost on pop0 (see [`wslproxy-vhost.md`](./wslproxy-vhost.md)) |
 | Store | Postgres (own DB `ringpromoter_training`) |
 
@@ -107,7 +107,7 @@ kubectl -n fictionally-ring-promoter rollout status deploy/ring-promoter
 ## 5. DNS + edge
 
 - **DNS**: external-dns publishes the Cloudflare CNAME from the Ingress
-  annotations (`→ pop0.wslproxy.com`). Confirm the `fictionally.org` zone is
+  annotations (`→ lon1.pop0.uk`). Confirm the `fictionally.org` zone is
   managed by external-dns.
 - **wslproxy vhost**: register `ring-promoter.fictionally.org` on the pop0 edge —
   see [`wslproxy-vhost.md`](./wslproxy-vhost.md).

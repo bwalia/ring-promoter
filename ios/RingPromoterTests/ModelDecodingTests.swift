@@ -35,6 +35,8 @@ struct ModelDecodingTests {
         #expect(apps.title(for: "batch-worker") == "batch-worker")
         // An unknown app must not crash or return empty.
         #expect(apps.title(for: "nonexistent") == "nonexistent")
+        #expect(apps.locations["web-frontend"]?.city == "London")
+        #expect(apps.locations["payments-api"]?.region == "GB")
     }
 
     // MARK: - GET /api/apps/{app}/rings

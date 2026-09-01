@@ -51,6 +51,18 @@ spec:
       # cluster-shared ring-promoter-deployer ClusterRole in diy-tax-return-uk.
       serviceAccountName: ring-promoter
       automountServiceAccountToken: true
+      # Prefer amd64 workers. rpworker99 is an arm64 Pi that is also
+      # control-plane/etcd and has no taint; keep this service off it.
+      # The image is published linux/amd64+linux/arm64 so a pull still
+      # succeeds if this pin is ever dropped.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
       securityContext:
         runAsNonRoot: true
         # The distroless :nonroot image's user is the NAME "nonroot"; Kubernetes

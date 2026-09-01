@@ -40,6 +40,10 @@ func (p *Promoter) CreateGroup(ctx context.Context, name string, apps []string) 
 	if err := p.store.CreateGroup(ctx, g); err != nil {
 		return store.Group{}, err
 	}
+	p.audit(ctx, store.AuditEvent{
+		Category: store.AuditConfig, Action: "group.create",
+		Detail: auditDetail(map[string]string{"id": g.ID, "name": g.Name, "apps": strings.Join(g.Apps, ",")}),
+	})
 	return g, nil
 }
 
@@ -56,6 +60,10 @@ func (p *Promoter) UpdateGroup(ctx context.Context, id, name string, apps []stri
 		}
 		return store.Group{}, err
 	}
+	p.audit(ctx, store.AuditEvent{
+		Category: store.AuditConfig, Action: "group.update",
+		Detail: auditDetail(map[string]string{"id": g.ID, "name": g.Name, "apps": strings.Join(g.Apps, ",")}),
+	})
 	return g, nil
 }
 
@@ -67,6 +75,10 @@ func (p *Promoter) DeleteGroup(ctx context.Context, id string) error {
 		}
 		return err
 	}
+	p.audit(ctx, store.AuditEvent{
+		Category: store.AuditConfig, Action: "group.delete",
+		Detail: auditDetail(map[string]string{"id": id}),
+	})
 	return nil
 }
 

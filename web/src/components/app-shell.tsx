@@ -202,7 +202,13 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
-        <main className="flex-1 overflow-y-auto">
+        <main
+          className={
+            selectedApp || selectedGroup
+              ? "min-h-0 flex-1 overflow-y-auto"
+              : "flex min-h-0 flex-1 flex-col overflow-hidden"
+          }
+        >
           {selectedGroup ? (
             activeGroup ? (
               <GroupView key={activeGroup.id} group={activeGroup} />

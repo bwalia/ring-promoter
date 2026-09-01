@@ -83,7 +83,7 @@ helm upgrade --install image-proc ./chart \
 ```
 
 The API Ingress uses `ingressClassName: traefik` (k3s1) and annotates the host
-so **external-dns publishes a Cloudflare CNAME → `pop0.wslproxy.com`** (the
+so **external-dns publishes a Cloudflare CNAME → `lon1.pop0.uk`** (the
 wslproxy POP). Redis is an in-cluster `redis:7-alpine` Deployment+Service
 (ephemeral). See [`architecture.md`](./architecture.md).
 

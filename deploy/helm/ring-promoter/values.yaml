@@ -28,7 +28,7 @@ service:
 ingress:
   enabled: true
   className: traefik            # k3s1 in-cluster ingress
-  externalDnsTarget: pop0.wslproxy.com
+  externalDnsTarget: lon1.pop0.uk
   tls: false
   clusterIssuer: ""
   # Extra annotations merged onto the Ingress.

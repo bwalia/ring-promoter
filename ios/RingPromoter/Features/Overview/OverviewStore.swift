@@ -10,6 +10,8 @@ struct AppSummary: Identifiable, Hashable, Sendable {
     let latestJob: Job?
     /// Rings could not be loaded; the strip shows what was cached, if anything.
     let loadError: String?
+    /// Config `location` pin, when the control plane declared one.
+    var location: AppLocation? = nil
 
     var id: String { name }
 
@@ -184,7 +186,8 @@ final class OverviewStore {
                 title: capabilities.title(for: app),
                 rings: (try? result?.get()) ?? cachedRings(for: app),
                 latestJob: jobsByApp[app],
-                loadError: loadError
+                loadError: loadError,
+                location: capabilities.locations[app]
             )
         }
         groups = fetchedGroups

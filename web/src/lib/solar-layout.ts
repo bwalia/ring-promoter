@@ -21,12 +21,25 @@ export const SOLAR_R_DEFAULT = ORBIT_TRACKS[1];
 
 /** Prefer prod latency; else the outermost configured ring that reported RTT. */
 export function appLatencyMs(rings: RingView[] | undefined): number | null {
+  return pickRingTiming(rings, (r) => r.latency_ms);
+}
+
+/** Prefer prod TTFB; else the outermost configured ring that reported it. */
+export function appTtfbMs(rings: RingView[] | undefined): number | null {
+  return pickRingTiming(rings, (r) => r.ttfb_ms);
+}
+
+function pickRingTiming(
+  rings: RingView[] | undefined,
+  read: (r: RingView) => number | undefined,
+): number | null {
   if (!rings?.length) return null;
   const configured = rings.filter((r) => r.configured);
   const prod = configured.find((r) => r.ring.name === "prod");
-  if (prod?.latency_ms != null) return prod.latency_ms;
+  const prodVal = prod ? read(prod) : undefined;
+  if (prodVal != null) return prodVal;
   for (let i = configured.length - 1; i >= 0; i--) {
-    const ms = configured[i].latency_ms;
+    const ms = read(configured[i]);
     if (ms != null) return ms;
   }
   return null;

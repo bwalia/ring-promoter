@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The Rings of Applications screen: the whole fleet as a solar system, ported
-/// from the web console. Services orbit a central "Rings" sun — inner orbits
-/// mean lower production latency — and each body's colour, symbol and motion
-/// say how that service is doing right now.
+/// The Rings of Applications screen: Sun (= Ring Promoter) and a spinning
+/// Earth, with one isolated orbital ring per app — unique radius so a busy
+/// fleet stays readable. TTFB only orders inner vs outer; two apps never
+/// share an ellipse. A persistent roster identifies every service by name.
 ///
 /// Reuses `OverviewStore` for data: the same summaries, jobs and groups the
 /// Overview list shows, so the two screens can never disagree about health.
@@ -82,65 +82,123 @@ private struct RingsUniverseContent: View {
     @State private var selectedID: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if let error = store.error, store.summaries.isEmpty {
-                    ErrorRow(error: error) { Task { await store.refresh() } }
-                }
-
-                if store.isStale {
-                    Label(
-                        "Showing the last data this app was able to load.",
-                        systemImage: "wifi.exclamationmark"
+        Group {
+            if let error = store.error, store.summaries.isEmpty {
+                ErrorRow(error: error) { Task { await store.refresh() } }
+                    .padding()
+            } else if nodes.isEmpty {
+                if store.isLoading {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if store.error == nil {
+                    CalmEmptyState(
+                        title: "No applications",
+                        message: "This control plane has no applications configured.",
+                        systemImage: "circle.dotted",
+                        tint: .rpNeutral
                     )
-                    .font(.subheadline)
-                    .foregroundStyle(Color.rpGate)
                 }
-
-                Picker("View", selection: $mode) {
-                    ForEach(FleetMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
+            } else if typeSize.isAccessibilitySize {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        modePicker
+                        if let group = filterGroup, mode == .apps {
+                            FilterChip(name: group.name) {
+                                filterGroupID = nil
+                                selectedID = nil
+                            }
+                        }
+                        FleetNodeList(nodes: nodes, mode: mode, onOpen: open(node:))
                     }
+                    .padding()
                 }
-                .pickerStyle(.segmented)
-
-                if let group = filterGroup, mode == .apps {
-                    FilterChip(name: group.name) {
-                        filterGroupID = nil
-                        selectedID = nil
-                    }
-                }
-
-                if nodes.isEmpty {
-                    if store.error == nil, !store.isLoading {
-                        CalmEmptyState(
-                            title: "No applications",
-                            message: "This control plane has no applications configured.",
-                            systemImage: "circle.dotted",
-                            tint: .rpNeutral
-                        )
-                    }
-                } else if typeSize.isAccessibilitySize {
-                    // A radial layout is unreadable at accessibility text sizes;
-                    // reflow to plain rows carrying the same information.
-                    FleetNodeList(nodes: nodes, mode: mode, onOpen: open(node:))
-                } else {
+                .refreshable { await store.refresh() }
+            } else {
+                ZStack {
                     SolarStage(
                         nodes: nodes, mode: mode, selectedID: $selectedID,
                         onOpen: open(node:)
                     )
-                    legend
+                    .ignoresSafeArea(edges: .bottom)
                 }
+                .overlay(alignment: .top) { topChrome }
+                .overlay(alignment: .bottom) { bottomChrome }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task { await store.refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityLabel("Refresh")
+            }
+        }
+        .onChange(of: mode) { _, _ in selectedID = nil }
+    }
 
-                if let lastUpdated = store.lastUpdated {
-                    RelativeTimestamp(date: lastUpdated, prefix: "Updated")
-                        .frame(maxWidth: .infinity, alignment: .center)
+    private var modePicker: some View {
+        Picker("View", selection: $mode) {
+            ForEach(FleetMode.allCases) { mode in
+                Text(mode.label).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var topChrome: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if store.isStale {
+                Label(
+                    "Showing the last data this app was able to load.",
+                    systemImage: "wifi.exclamationmark"
+                )
+                .font(.subheadline)
+                .foregroundStyle(Color.rpGate)
+            }
+            modePicker
+            if let group = filterGroup, mode == .apps {
+                FilterChip(name: group.name) {
+                    filterGroupID = nil
+                    selectedID = nil
                 }
             }
-            .padding()
         }
-        .refreshable { await store.refresh() }
-        .onChange(of: mode) { _, _ in selectedID = nil }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .background(
+            LinearGradient(
+                colors: [Color.black.opacity(0.55), Color.black.opacity(0)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+        )
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var bottomChrome: some View {
+        VStack(spacing: 8) {
+            FleetRoster(
+                nodes: rosterNodes, mode: mode, selectedID: $selectedID,
+                onOpen: open(node:)
+            )
+            .frame(maxHeight: 168)
+            legend
+            if let lastUpdated = store.lastUpdated {
+                RelativeTimestamp(date: lastUpdated, prefix: "Updated")
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.ultraThinMaterial, in: UnevenRoundedRectangle(
+            topLeadingRadius: 16, topTrailingRadius: 16
+        ))
+        .environment(\.colorScheme, .dark)
     }
 
     private var filterGroup: AppGroup? {
@@ -158,6 +216,23 @@ private struct RingsUniverseContent: View {
             return FleetNode.appNodes(from: summaries)
         case .rings:
             return FleetNode.ringNodes(from: store.summaries, groups: store.groups)
+        }
+    }
+
+    /// Inner (faster TTFB) first, matching isolated ring order.
+    private var rosterNodes: [FleetNode] {
+        nodes.sorted { a, b in
+            let ma = a.ttfbMs ?? a.latencyMs
+            let mb = b.ttfbMs ?? b.latencyMs
+            switch (ma, mb) {
+            case (nil, nil):
+                return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+            case (nil, _): return false
+            case (_, nil): return true
+            case let (x?, y?) where x != y: return x < y
+            default:
+                return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+            }
         }
     }
 
@@ -182,7 +257,7 @@ private struct RingsUniverseContent: View {
             Label(summaryLine(for: aggregate), systemImage: aggregate.systemImage)
                 .foregroundStyle(aggregate.tint)
             Spacer()
-            Text("Inner orbits = lower latency")
+            Text("Ring Promoter · Earth · one ring per \(mode == .apps ? "app" : "group") · closer = lower TTFB")
                 .foregroundStyle(.secondary)
         }
         .font(.caption2)
@@ -231,7 +306,7 @@ private struct FilterChip: View {
 
 // MARK: - The stage
 
-/// The sky itself: stars, orbit tracks, the sun, and the orbiting bodies.
+/// The sky itself: Earth, one orbital ring per app, and the orbiting bodies.
 /// A pure function of (nodes, elapsed time) — all state lives in the parent.
 private struct SolarStage: View {
     let nodes: [FleetNode]
@@ -240,57 +315,87 @@ private struct SolarStage: View {
     let onOpen: (FleetNode) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// t=0 for the orbital clock. Bodies drift from their seeded positions.
+    /// t=0 for the orbital clock. Earth spin and satellite drift start here.
     @State private var start = Date()
     /// Entrance reveal: bodies spring in once the stage appears.
     @State private var revealed = false
 
-    private var planets: [SolarLayout.Planet] {
-        SolarLayout.planets(
-            for: nodes.map { ($0.id, SolarLayout.radius(forLatencyMs: $0.latencyMs)) }
-        )
+    private func bodies(metrics: SolarLayout.GlobeMetrics) -> [SolarLayout.GlobeBody] {
+        SolarLayout.globeBodies(for: nodes, metrics: metrics)
     }
 
-    var body: some View {
-        let planets = planets
-        let byID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
-        let occupied = Set(planets.map(\.track))
+    private var crowded: Bool { nodes.count > SolarLayout.densityCap }
 
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+    var body: some View {
+        let byID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+
+        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion)) { timeline in
             let elapsed = reduceMotion ? 0 : timeline.date.timeIntervalSince(start)
+            let spin = SolarLayout.earthSpin(elapsed: elapsed, reduceMotion: reduceMotion)
             GeometryReader { geo in
-                let side = min(geo.size.width, geo.size.height)
-                let scale = side / SolarLayout.canvasSize
+                // Match bottomChrome (roster ≤168 + legend/timestamp) and
+                // topChrome (mode picker) so Earth centres in the clear sky,
+                // not under the overlays / with empty space above.
+                let metrics = SolarLayout.GlobeMetrics(
+                    size: geo.size,
+                    topInset: 78,
+                    bottomInset: min(220, geo.size.height * 0.34)
+                )
+                let bodies = bodies(metrics: metrics)
+                let focusBody = selectedID.flatMap { id in bodies.first { $0.id == id } }
+                let focusPos = focusBody.map {
+                    SolarLayout.point(of: $0, elapsed: elapsed, spin: spin, metrics: metrics)
+                }
+                let camScale: CGFloat = (selectedID != nil && !reduceMotion) ? 1.12 : 1
+                let camX = (focusPos.map { (metrics.cx - $0.x) / metrics.width * 18 } ?? 0)
+                let camY = (focusPos.map { (metrics.cy - $0.y) / metrics.height * 18 } ?? 0)
                 ZStack {
                     StarField(elapsed: elapsed)
-                    latencyAxis(scale: scale)
-                    orbitTracks(occupied: occupied, scale: scale)
-                    orbitBandLabels(scale: scale)
-                    sun(scale: scale)
-                    ForEach(Array(planets.enumerated()), id: \.element.id) { index, planet in
-                        if let node = byID[planet.id] {
-                            let pos = SolarLayout.position(of: planet, at: elapsed)
-                            let angle = SolarLayout.angle(of: planet, at: elapsed)
-                            let point = CGPoint(x: pos.x * scale, y: pos.y * scale)
-                            // Name plates sit radially outward of the body,
-                            // flipping inward near the left/right edges so they
-                            // stay on stage (matches the web console).
-                            let outwardBelow = sin(angle) >= 0
-                            let nearEdge = pos.x > 300 || pos.x < 100
-                            let plateBelow = nearEdge ? !outwardBelow : outwardBelow
+                    orbitRings(
+                        bodies: bodies, spin: spin, metrics: metrics, front: false,
+                        byID: byID, selectedID: selectedID, crowded: crowded
+                    )
+                    EarthGlobe(spin: spin, metrics: metrics)
+                    SunHub(metrics: metrics)
+                    orbitRings(
+                        bodies: bodies, spin: spin, metrics: metrics, front: true,
+                        byID: byID, selectedID: selectedID, crowded: crowded
+                    )
+                    stems(
+                        bodies: bodies, elapsed: elapsed, spin: spin, metrics: metrics,
+                        selectedID: selectedID
+                    )
+                    ForEach(Array(bodies.enumerated()), id: \.element.id) { index, body in
+                        if let node = byID[body.id] {
+                            let pos = SolarLayout.point(
+                                of: body, elapsed: elapsed, spin: spin, metrics: metrics
+                            )
+                            let point = CGPoint(x: pos.x, y: pos.y)
+                            let plateBelow = pos.y >= metrics.cy
+                            let dim = selectedID != nil && selectedID != node.id
+                            let showPlate = !crowded || selectedID == node.id
                             PlanetView(
                                 node: node, elapsed: elapsed,
                                 isSelected: selectedID == node.id,
                                 appearDelay: Double(min(index, 12)) * 0.04,
-                                revealed: revealed
+                                revealed: revealed,
+                                placed: body.placed
                             ) {
                                 withAnimation(.spring(duration: 0.32, bounce: 0.28)) {
                                     selectedID = selectedID == node.id ? nil : node.id
                                 }
                             }
+                            .opacity(dim ? (pos.front ? 0.28 : 0.1) : (pos.front || selectedID == node.id ? 1 : 0.28))
+                            .zIndex(pos.front ? 20 + pos.z : 2)
+                            .allowsHitTesting(pos.front || selectedID == node.id)
                             .position(point)
                             NamePlate(node: node, emphasized: selectedID == node.id)
-                                .opacity(revealed || reduceMotion ? 1 : 0)
+                                .opacity(
+                                    (revealed || reduceMotion)
+                                        && (pos.front || selectedID == node.id)
+                                        && showPlate
+                                        ? 1 : 0
+                                )
                                 .position(
                                     x: point.x,
                                     y: point.y + (plateBelow ? 24 : -24)
@@ -298,17 +403,23 @@ private struct SolarStage: View {
                         }
                     }
                 }
-                .frame(width: side, height: side)
-                .frame(maxWidth: .infinity)
+                .scaleEffect(camScale)
+                .offset(x: camX, y: camY)
+                .animation(
+                    reduceMotion ? nil : .easeOut(duration: 0.55),
+                    value: selectedID
+                )
+                .frame(width: geo.size.width, height: geo.size.height)
             }
-            .aspectRatio(1, contentMode: .fit)
         }
         .background(spaceBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.black.opacity(0.2)))
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .center) {
             if let node = selectedID.flatMap({ id in nodes.first { $0.id == id } }) {
-                NodeCard(node: node, mode: mode, onOpen: onOpen) {
+                NodeCard(
+                    node: node, mode: mode,
+                    estimatedMs: estimatedTTFB(for: node),
+                    onOpen: onOpen
+                ) {
                     withAnimation(.spring(duration: 0.28, bounce: 0.2)) {
                         selectedID = nil
                     }
@@ -326,7 +437,7 @@ private struct SolarStage: View {
         .animation(.spring(duration: 0.32, bounce: 0.22), value: selectedID)
         // Space is dark in both appearances, like the web console's stage.
         .environment(\.colorScheme, .dark)
-        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.spring(duration: 0.28, bounce: 0.2)) {
                 selectedID = nil
@@ -354,129 +465,305 @@ private struct SolarStage: View {
         }
     }
 
-    /// Near-black space with a restrained warm glow at the centre — quiet
-    /// enough that the latency rings and bodies carry the eye.
+    /// Near-black space with a restrained atmosphere at the centre.
     private var spaceBackground: some View {
         ZStack {
             Color(red: 0.027, green: 0.027, blue: 0.039)
             RadialGradient(
-                colors: [Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.05), .clear],
-                center: .center, startRadius: 0, endRadius: 220
+                colors: [Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0.06), .clear],
+                center: .center, startRadius: 0, endRadius: 420
             )
         }
     }
 
-    /// Radial latency axis drawn straight up; tick marks at each track.
-    private func latencyAxis(scale: CGFloat) -> some View {
-        let maxR = (SolarLayout.tracks.last ?? SolarLayout.defaultRadius) + 6
-        return ZStack {
-            Path { path in
-                path.move(to: CGPoint(x: SolarLayout.center * scale, y: SolarLayout.center * scale))
-                path.addLine(
-                    to: CGPoint(
-                        x: SolarLayout.center * scale,
-                        y: (SolarLayout.center - maxR) * scale
-                    )
-                )
-            }
-            .stroke(.white.opacity(0.1), lineWidth: 0.8)
-            ForEach(SolarLayout.tracks, id: \.self) { track in
-                Path { path in
-                    let y = (SolarLayout.center - track) * scale
-                    let cx = SolarLayout.center * scale
-                    path.move(to: CGPoint(x: cx - 2.5 * scale, y: y))
-                    path.addLine(to: CGPoint(x: cx + 2.5 * scale, y: y))
+    private func orbitRings(
+        bodies: [SolarLayout.GlobeBody],
+        spin: Double,
+        metrics: SolarLayout.GlobeMetrics,
+        front: Bool,
+        byID: [String: FleetNode],
+        selectedID: String?,
+        crowded: Bool
+    ) -> some View {
+        Canvas { context, _ in
+            let sw = metrics.strokeScale
+            for body in bodies {
+                let pts = SolarLayout.sampleOrbit(body, spin: spin, metrics: metrics)
+                let lit = selectedID == body.id
+                let dim = selectedID != nil && selectedID != body.id
+                let tint = byID[body.id]?.status.tint ?? Color(white: 0.5)
+                var path = Path()
+                var started = false
+                for p in pts {
+                    guard p.front == front else {
+                        started = false
+                        continue
+                    }
+                    let pt = CGPoint(x: p.x, y: p.y)
+                    if started {
+                        path.addLine(to: pt)
+                    } else {
+                        path.move(to: pt)
+                        started = true
+                    }
                 }
-                .stroke(.white.opacity(0.22), lineWidth: 0.9)
+                let opacity: Double
+                if front {
+                    opacity = dim ? (crowded ? 0.1 : 0.18) : (lit ? 0.95 : (crowded ? 0.4 : 0.58))
+                } else {
+                    opacity = dim ? 0.05 : (lit ? 0.42 : 0.18)
+                }
+                let width: CGFloat
+                if front {
+                    width = (lit ? 2.2 : (crowded ? 1.05 : 1.25)) * sw
+                } else {
+                    width = (lit ? 1.3 : 0.85) * sw
+                }
+                context.stroke(
+                    path,
+                    with: .color(tint.opacity(opacity)),
+                    style: StrokeStyle(
+                        lineWidth: width,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
+                )
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    /// Latency band labels along the axis so "inner = faster" is readable.
-    private func orbitBandLabels(scale: CGFloat) -> some View {
-        ForEach(SolarLayout.orbitBands, id: \.r) { band in
-            Text(band.label)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.38))
-                .position(
-                    x: (SolarLayout.center - 28) * scale,
-                    y: (SolarLayout.center - band.r) * scale
+    private func stems(
+        bodies: [SolarLayout.GlobeBody], elapsed: TimeInterval, spin: Double,
+        metrics: SolarLayout.GlobeMetrics, selectedID: String?
+    ) -> some View {
+        Canvas { context, _ in
+            for body in bodies {
+                let sat = SolarLayout.point(of: body, elapsed: elapsed, spin: spin, metrics: metrics)
+                let ground = SolarLayout.surface(of: body, elapsed: elapsed, spin: spin, metrics: metrics)
+                let dim = selectedID != nil && selectedID != body.id
+                var path = Path()
+                path.move(to: CGPoint(x: ground.x, y: ground.y))
+                path.addLine(to: CGPoint(x: sat.x, y: sat.y))
+                context.stroke(
+                    path,
+                    with: .color(Color(red: 0.49, green: 0.83, blue: 0.99).opacity(
+                        dim ? 0.04 : (sat.front ? 0.28 : 0.06)
+                    )),
+                    lineWidth: 0.7 * metrics.strokeScale
                 )
+            }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    /// All four tracks are always drawn; occupied ones take a slightly stronger
-    /// stroke so the latency bands read as an axis, not decoration.
-    private func orbitTracks(occupied: Set<Double>, scale: CGFloat) -> some View {
-        ForEach(SolarLayout.tracks, id: \.self) { track in
-            let isOccupied = occupied.contains(track)
-            Circle()
-                .stroke(
-                    .white.opacity(isOccupied ? 0.14 : 0.05),
-                    style: StrokeStyle(
-                        lineWidth: isOccupied ? 0.9 : 0.6,
-                        dash: isOccupied ? [] : [2, 8]
+    private func estimatedTTFB(for node: FleetNode) -> Int? {
+        guard let loc = node.location,
+              let centroid = SolarLayout.centroid(of: nodes.compactMap(\.location))
+        else { return nil }
+        return SolarLayout.estimateRttMs(km: SolarLayout.haversineKm(loc, centroid))
+    }
+}
+
+/// Orthographic Earth matching the web console canvas: ocean, graticule,
+/// coarse land, camera-fixed terminator and specular. Continents rotating
+/// under that lighting is what reads as a sphere instead of a flat disc.
+/// Spin is the only input that moves; reduced-motion callers pass 0.
+private struct EarthGlobe: View {
+    let spin: Double
+    let metrics: SolarLayout.GlobeMetrics
+
+    var body: some View {
+        Canvas { context, _ in
+            let s = metrics.strokeScale
+            let c = CGPoint(x: metrics.cx, y: metrics.cy)
+            let r = metrics.earthR
+            let earth = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+
+            // Atmosphere
+            context.fill(
+                Path(ellipseIn: CGRect(
+                    x: c.x - r * 1.28, y: c.y - r * 1.28,
+                    width: r * 2.56, height: r * 2.56
+                )),
+                with: .radialGradient(
+                    Gradient(stops: [
+                        .init(color: Color(red: 56 / 255, green: 189 / 255, blue: 248 / 255).opacity(0), location: 0),
+                        .init(color: Color(red: 56 / 255, green: 189 / 255, blue: 248 / 255).opacity(0.07), location: 0.72),
+                        .init(color: .clear, location: 1),
+                    ]),
+                    center: c, startRadius: r * 0.92, endRadius: r * 1.28
+                )
+            )
+
+            context.drawLayer { ctx in
+                ctx.clip(to: earth)
+
+                // Ocean — lighting is camera-fixed so the globe reads as a sphere.
+                ctx.fill(
+                    earth,
+                    with: .radialGradient(
+                        Gradient(stops: [
+                            .init(color: Color(red: 28 / 255, green: 74 / 255, blue: 110 / 255), location: 0),
+                            .init(color: Color(red: 13 / 255, green: 42 / 255, blue: 68 / 255), location: 0.45),
+                            .init(color: Color(red: 7 / 255, green: 20 / 255, blue: 31 / 255), location: 1),
+                        ]),
+                        center: CGPoint(x: c.x - r * 0.28, y: c.y - r * 0.34),
+                        startRadius: r * 0.08, endRadius: r
                     )
                 )
-                .frame(width: track * 2 * scale, height: track * 2 * scale)
+
+                var grid = Path()
+                for lng in stride(from: -180.0, to: 180.0, by: 30) {
+                    var started = false
+                    for lat in stride(from: -90.0, through: 90.0, by: 4) {
+                        let p = SolarLayout.projectOrtho(
+                            latDeg: lat, lngDeg: lng, radius: metrics.earthR, spin: spin,
+                            metrics: metrics
+                        )
+                        guard p.front else { started = false; continue }
+                        let pt = CGPoint(x: p.x, y: p.y)
+                        if started { grid.addLine(to: pt) } else { grid.move(to: pt); started = true }
+                    }
+                }
+                for lat in stride(from: -60.0, through: 60.0, by: 30) {
+                    var started = false
+                    for lng in stride(from: -180.0, through: 180.0, by: 5) {
+                        let p = SolarLayout.projectOrtho(
+                            latDeg: lat, lngDeg: lng, radius: metrics.earthR, spin: spin,
+                            metrics: metrics
+                        )
+                        guard p.front else { started = false; continue }
+                        let pt = CGPoint(x: p.x, y: p.y)
+                        if started { grid.addLine(to: pt) } else { grid.move(to: pt); started = true }
+                    }
+                }
+                ctx.stroke(
+                    grid,
+                    with: .color(Color(red: 186 / 255, green: 230 / 255, blue: 253 / 255).opacity(0.11)),
+                    lineWidth: 0.55 * s
+                )
+
+                let landFill = Color(red: 134 / 255, green: 168 / 255, blue: 128 / 255).opacity(0.78)
+                let landStroke = Color(red: 190 / 255, green: 210 / 255, blue: 170 / 255).opacity(0.18)
+                for poly in SolarLayout.landPolys {
+                    var path = Path()
+                    var started = false
+                    var frontCount = 0
+                    for pt in poly {
+                        let p = SolarLayout.projectOrtho(
+                            latDeg: pt.lat, lngDeg: pt.lng, radius: metrics.earthR, spin: spin,
+                            metrics: metrics
+                        )
+                        guard p.front else { started = false; continue }
+                        frontCount += 1
+                        let cg = CGPoint(x: p.x, y: p.y)
+                        if started { path.addLine(to: cg) } else { path.move(to: cg); started = true }
+                    }
+                    guard frontCount >= 3 else { continue }
+                    path.closeSubpath()
+                    ctx.fill(path, with: .color(landFill))
+                    ctx.stroke(path, with: .color(landStroke), lineWidth: 0.4 * s)
+                }
+
+                // Terminator / night side — the cue that this is a globe, not a disc.
+                let night = Color(red: 2 / 255, green: 6 / 255, blue: 12 / 255)
+                ctx.fill(
+                    earth,
+                    with: .linearGradient(
+                        Gradient(stops: [
+                            .init(color: night.opacity(0.22), location: 0),
+                            .init(color: night.opacity(0), location: 0.42),
+                            .init(color: night.opacity(0), location: 0.62),
+                            .init(color: night.opacity(0.55), location: 1),
+                        ]),
+                        startPoint: CGPoint(x: c.x - r, y: c.y),
+                        endPoint: CGPoint(x: c.x + r, y: c.y)
+                    )
+                )
+
+                // Specular highlight on the ocean.
+                let specCenter = CGPoint(x: c.x - r * 0.32, y: c.y - r * 0.4)
+                ctx.fill(
+                    Path(ellipseIn: CGRect(
+                        x: specCenter.x - r * 0.55, y: specCenter.y - r * 0.55,
+                        width: r * 1.1, height: r * 1.1
+                    )),
+                    with: .radialGradient(
+                        Gradient(stops: [
+                            .init(color: .white.opacity(0.22), location: 0),
+                            .init(color: Color(red: 186 / 255, green: 230 / 255, blue: 253 / 255).opacity(0.06), location: 0.35),
+                            .init(color: .clear, location: 1),
+                        ]),
+                        center: specCenter, startRadius: 0, endRadius: r * 0.55
+                    )
+                )
+            }
+
+            context.stroke(
+                earth,
+                with: .color(Color(red: 125 / 255, green: 211 / 255, blue: 252 / 255).opacity(0.28)),
+                lineWidth: 1.1 * s
+            )
+            context.stroke(
+                Path(ellipseIn: CGRect(
+                    x: c.x - r - 1.6 * s, y: c.y - r - 1.6 * s,
+                    width: (r + 1.6 * s) * 2, height: (r + 1.6 * s) * 2
+                )),
+                with: .color(Color(red: 245 / 255, green: 185 / 255, blue: 66 / 255).opacity(0.12)),
+                lineWidth: 0.7 * s
+            )
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Earth. \(nodesCaption)")
     }
 
-    private func sun(scale: CGFloat) -> some View {
+    private var nodesCaption: String { "Applications ride isolated orbital rings around Earth." }
+}
+
+/// Ring Promoter hub to Earth's left — the branded sun in this two-body sky.
+private struct SunHub: View {
+    let metrics: SolarLayout.GlobeMetrics
+
+    var body: some View {
+        let r = max(18, metrics.sunR)
+        let fontSize = max(7, min(11, r * 0.29))
         ZStack {
             Circle()
                 .fill(
                     RadialGradient(
-                        stops: [
-                            .init(color: Color(red: 0.16, green: 0.14, blue: 0.09), location: 0),
-                            .init(color: Color(red: 0.07, green: 0.07, blue: 0.09), location: 1),
+                        colors: [
+                            Color(red: 1, green: 0.97, blue: 0.84),
+                            Color(red: 0.96, green: 0.73, blue: 0.26),
+                            Color(red: 0.76, green: 0.25, blue: 0.05),
                         ],
-                        center: .init(x: 0.42, y: 0.36),
-                        startRadius: 0, endRadius: 42 * scale
+                        center: .init(x: 0.35, y: 0.32),
+                        startRadius: 0, endRadius: r
                     )
                 )
-                .overlay(
-                    Circle().strokeBorder(
-                        Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.28),
-                        lineWidth: 1
-                    )
-                )
-                .frame(width: 84 * scale, height: 84 * scale)
-            Circle()
-                .strokeBorder(
-                    Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.12),
-                    lineWidth: 0.6
-                )
-                .frame(width: 70 * scale, height: 70 * scale)
-            VStack(spacing: 1) {
-                Text("Rings")
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(1.2)
-                    .textCase(.uppercase)
-                    .foregroundStyle(Color(red: 0.96, green: 0.73, blue: 0.26))
-                Text("\(nodes.count)")
-                    .font(.system(size: 15, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.92))
-                Text(bodyWord)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .textCase(.uppercase)
-                    .tracking(0.8)
-                    .foregroundStyle(.white.opacity(0.45))
+                .shadow(color: Color(red: 0.96, green: 0.73, blue: 0.26).opacity(0.45), radius: 12)
+            VStack(spacing: 0) {
+                Text("Ring")
+                Text("Promoter")
             }
+            .font(.system(size: fontSize, weight: .semibold, design: .rounded))
+            .foregroundStyle(.black)
+            .multilineTextAlignment(.center)
+            .lineSpacing(-1)
+            .tracking(0.4)
+            .textCase(.uppercase)
+            .allowsHitTesting(false)
         }
+        .frame(width: r * 2, height: r * 2)
+        .position(
+            x: metrics.cx + metrics.sunOffsetX,
+            y: metrics.cy
+        )
+        .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Rings. \(nodes.count) \(bodyWord).")
-    }
-
-    private var bodyWord: String {
-        switch mode {
-        case .apps: nodes.count == 1 ? "service" : "services"
-        case .rings: nodes.count == 1 ? "ring" : "rings"
-        }
+        .accessibilityLabel("Ring Promoter")
     }
 }
 
@@ -516,6 +803,7 @@ private struct PlanetView: View {
     let isSelected: Bool
     let appearDelay: Double
     let revealed: Bool
+    var placed: Bool = false
     let onTap: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -577,9 +865,16 @@ private struct PlanetView: View {
             value: revealed
         )
         .animation(.spring(duration: 0.32, bounce: 0.28), value: isSelected)
-        .accessibilityLabel("\(node.title): \(node.status.label)")
+        .accessibilityLabel(placedLabel)
         .accessibilityHint("Shows details")
         .accessibilityIdentifier("planet-\(node.id)")
+    }
+
+    private var placedLabel: String {
+        if placed, let loc = node.location {
+            return "\(node.title) in \(loc.label): \(node.status.label)"
+        }
+        return "\(node.title): \(node.status.label)"
     }
 }
 
@@ -592,8 +887,8 @@ private struct NamePlate: View {
         HStack(spacing: 3) {
             Text(node.title)
                 .lineLimit(1)
-            if let ms = node.latencyMs {
-                Text("\(ms)ms")
+            if let ms = node.ttfbMs ?? node.latencyMs {
+                Text("\(ms)ms TTFB")
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.45))
             }
@@ -615,6 +910,7 @@ private struct NamePlate: View {
 private struct NodeCard: View {
     let node: FleetNode
     let mode: FleetMode
+    var estimatedMs: Int? = nil
     let onOpen: (FleetNode) -> Void
     let onClose: () -> Void
 
@@ -649,7 +945,19 @@ private struct NodeCard: View {
                     Label(node.status.label, systemImage: node.status.systemImage)
                         .foregroundStyle(node.status.tint)
                 }
-                row("Latency") {
+                if let loc = node.location {
+                    row("Location") { Text(loc.label) }
+                }
+                row("TTFB") {
+                    if let ms = node.ttfbMs {
+                        Text("\(ms)ms").monospacedDigit()
+                    } else if let est = estimatedMs {
+                        Text("~\(est)ms est.").monospacedDigit()
+                    } else {
+                        Text("—")
+                    }
+                }
+                row("Check") {
                     Text(node.latencyMs.map { "\($0)ms" } ?? "—").monospacedDigit()
                 }
                 if mode == .apps {
@@ -669,6 +977,12 @@ private struct NodeCard: View {
                     }
                 } else {
                     row("Apps") { Text(node.subtitle ?? "—") }
+                    if node.apps.count > 1 {
+                        Text(node.apps.joined(separator: " · "))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     row("Health") {
                         Text(
                             node.activeCount > 0
@@ -707,6 +1021,87 @@ private struct NodeCard: View {
             value().lineLimit(1)
         }
     }
+
+}
+
+// MARK: - Persistent roster
+
+/// Always-visible identification: name, health, TTFB, location. Tap focuses
+/// that ring; the globe is never the only way to tell apps apart.
+private struct FleetRoster: View {
+    let nodes: [FleetNode]
+    let mode: FleetMode
+    @Binding var selectedID: String?
+    let onOpen: (FleetNode) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(mode == .rings ? "Rings" : "Applications")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            ScrollView {
+                VStack(spacing: 4) {
+                ForEach(nodes) { node in
+                    Button {
+                        withAnimation(.spring(duration: 0.32, bounce: 0.22)) {
+                            selectedID = selectedID == node.id ? nil : node.id
+                        }
+                    } label: {
+                        HStack(alignment: .top, spacing: 8) {
+                            Circle()
+                                .fill(node.status.tint)
+                                .frame(width: 8, height: 8)
+                                .padding(.top, 5)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(node.title)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                HStack(spacing: 8) {
+                                    Text(node.status.label)
+                                        .foregroundStyle(node.status.tint)
+                                    if let ms = node.ttfbMs ?? node.latencyMs {
+                                        Text("\(ms)ms TTFB").monospacedDigit()
+                                    } else {
+                                        Text("—")
+                                    }
+                                    if let loc = node.location {
+                                        Text(loc.label).lineLimit(1)
+                                    }
+                                    if let subtitle = node.subtitle {
+                                        Text(subtitle)
+                                    }
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                if selectedID == node.id, mode == .rings, node.apps.count > 1 {
+                                    Text(node.apps.joined(separator: " · "))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(selectedID == node.id ? Color.white.opacity(0.08) : Color.white.opacity(0.03))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Focuses this ring. Opens details from the card.")
+                    .accessibilityIdentifier("roster-\(node.id)")
+                    .simultaneousGesture(
+                        TapGesture(count: 2).onEnded { onOpen(node) }
+                    )
+                }
+                }
+            }
+        }
+        .environment(\.colorScheme, .dark)
+    }
 }
 
 // MARK: - Accessibility fallback
@@ -732,8 +1127,13 @@ private struct FleetNodeList: View {
                                 systemImage: node.status.systemImage,
                                 tint: node.status.tint
                             )
-                            if let ms = node.latencyMs {
-                                Text("\(ms)ms")
+                            if let loc = node.location {
+                                Text(loc.label)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let ms = node.ttfbMs ?? node.latencyMs {
+                                Text("\(ms)ms TTFB")
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }

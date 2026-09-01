@@ -74,7 +74,10 @@ type RingView struct {
 	LiveHealthy     bool      `json:"live_healthy"` // fresh check at read time
 	LiveHealthError string    `json:"live_health_error,omitempty"`
 	LatencyMs       *int64    `json:"latency_ms,omitempty"`
-	AutoPromote     bool      `json:"auto_promote"` // continue onward automatically
+	// TTFBms is time-to-first-byte of the live health check, when the
+	// transport reported it. Distinct from LatencyMs (full request duration).
+	TTFBms      *int64 `json:"ttfb_ms,omitempty"`
+	AutoPromote bool   `json:"auto_promote"` // continue onward automatically
 	// AutoPromoteManaged reports that config owns this ring's auto-promote
 	// switch, so the API toggle returns 409 and the UI must render its control
 	// disabled rather than offer one that cannot work.
@@ -216,6 +219,19 @@ func (p *Promoter) AppTitles() map[string]string {
 	return titles
 }
 
+// AppLocations maps each app that declared a geographic pin in config to that
+// pin. Apps without a location are omitted so existing clients treat them as
+// unplaced.
+func (p *Promoter) AppLocations() map[string]config.AppLocation {
+	out := make(map[string]config.AppLocation)
+	for _, a := range p.cfg.Apps {
+		if a.Location != nil {
+			out[a.Name] = *a.Location
+		}
+	}
+	return out
+}
+
 // History returns an application's history, newest first.
 func (p *Promoter) History(ctx context.Context, app string) ([]store.HistoryEntry, error) {
 	if _, ok := p.cfg.App(app); !ok {
@@ -283,18 +299,12 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			// the stored deploy outcome speak.
 			if rc.HealthURL == "" {
 				views[idx].LiveHealthy = true
-			} else if latency, err := health.CheckTimed(p.checker, cctx, probe(rc, "")); err != nil {
-				if latency > 0 {
-					ms := latency.Milliseconds()
-					views[idx].LatencyMs = &ms
-				}
+			} else if timing, err := health.CheckTimed(p.checker, cctx, probe(rc, "")); err != nil {
+				applyTiming(&views[idx], timing)
 				views[idx].LiveHealthy = false
 				views[idx].LiveHealthError = err.Error()
 			} else {
-				if latency > 0 {
-					ms := latency.Milliseconds()
-					views[idx].LatencyMs = &ms
-				}
+				applyTiming(&views[idx], timing)
 				views[idx].LiveHealthy = true
 			}
 			if lv, ok := p.deployerFor(app).(deployer.LiveVersioner); ok {
@@ -306,6 +316,17 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 	}
 	wg.Wait()
 	return views, nil
+}
+
+func applyTiming(v *RingView, timing health.Timing) {
+	if timing.Latency > 0 {
+		ms := timing.Latency.Milliseconds()
+		v.LatencyMs = &ms
+	}
+	if timing.TTFB > 0 {
+		ms := timing.TTFB.Milliseconds()
+		v.TTFBms = &ms
+	}
 }
 
 // Versions returns the deployable versions known to the application's source
@@ -343,7 +364,7 @@ func (p *Promoter) ValidateSeed(ctx context.Context, app, ringName, version stri
 	// Reject a gated seed (closed window / missing sign-off / bad CR code) here
 	// too, so the async path fails on the request instead of spawning a doomed
 	// job. Gate inputs ride the context (see WithGateInputs).
-	return p.evaluateGates(ctx, app, ringName, effective, gateInputsFrom(ctx))
+	return p.evaluateGates(withValidateOnly(ctx), app, ringName, effective, gateInputsFrom(ctx))
 }
 
 // validateVersion rejects a version that does not exist in the app's source
@@ -532,7 +553,14 @@ func (p *Promoter) SetAutoPromote(ctx context.Context, app, ringName string, ena
 			return fmt.Errorf("target %s: %w", next.Name, err)
 		}
 	}
-	return p.store.SetAutoPromote(ctx, app, ringName, enabled)
+	if err := p.store.SetAutoPromote(ctx, app, ringName, enabled); err != nil {
+		return err
+	}
+	p.audit(ctx, store.AuditEvent{
+		App: app, Ring: ringName, Category: store.AuditConfig, Action: "auto_promote.set",
+		Detail: auditDetail(map[string]string{"enabled": fmt.Sprintf("%t", enabled)}),
+	})
+	return nil
 }
 
 // autoChain continues promoting from res.Ring while that ring has auto-promote
@@ -932,6 +960,7 @@ func (p *Promoter) record(ctx context.Context, app, ringName, action, from, to, 
 	entry := store.HistoryEntry{
 		App: app, Ring: ringName, Action: action,
 		FromVersion: from, ToVersion: to, Result: result, Message: msg,
+		CorrelationID: correlationFrom(ctx),
 	}
 	// Failures keep the step logs collected so far (when the reporter can
 	// provide them) so they can be diagnosed properly later, after the
@@ -945,6 +974,11 @@ func (p *Promoter) record(ctx context.Context, app, ringName, action, from, to, 
 	if err := p.store.AddHistory(ctx, entry); err != nil {
 		p.log.Error("record history failed", "err", err, "app", app, "ring", ringName, "action", action)
 	}
+	p.audit(ctx, store.AuditEvent{
+		App: app, Ring: ringName, Category: store.AuditOperation, Action: action,
+		Version: to,
+		Detail:  auditDetail(map[string]string{"from_version": from, "result": result, "message": msg}),
+	})
 }
 
 func (p *Promoter) currentVersion(ctx context.Context, app, ringName string) string {

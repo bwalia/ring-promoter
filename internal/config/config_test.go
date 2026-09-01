@@ -460,3 +460,56 @@ apps:
 		t.Fatal("auto_promote with an unconfigured next ring must be rejected")
 	}
 }
+
+func TestAppLocation_OptionalAndValidated(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+
+	cfg, err := Load(writeConfig(t, baseApps))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Apps[0].Location != nil {
+		t.Fatal("existing configs without location must keep loading with a nil pin")
+	}
+
+	cfg, err = Load(writeConfig(t, `
+apps:
+  - name: web
+    location:
+      lat: 51.5074
+      lng: -0.1278
+      city: London
+      region: GB
+    rings:
+      int: { namespace: ring0, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc := cfg.Apps[0].Location
+	if loc == nil {
+		t.Fatal("location block must be kept")
+	}
+	if loc.Lat != 51.5074 || loc.Lng != -0.1278 || loc.City != "London" || loc.Region != "GB" {
+		t.Fatalf("location = %+v", loc)
+	}
+
+	if _, err := Load(writeConfig(t, `
+apps:
+  - name: web
+    location: { lat: 100, lng: 0 }
+    rings:
+      int: { namespace: ring0, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
+`)); err == nil {
+		t.Fatal("latitude out of range must be rejected")
+	}
+	if _, err := Load(writeConfig(t, `
+apps:
+  - name: web
+    location: { lat: 0, lng: 200 }
+    rings:
+      int: { namespace: ring0, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
+`)); err == nil {
+		t.Fatal("longitude out of range must be rejected")
+	}
+}

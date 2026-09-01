@@ -8,7 +8,7 @@ promote → health-check → rollback — with nothing else in the way.
 
 ```mermaid
 flowchart LR
-  U["User / curl"] -->|"https://hello-world.fictionally.org"| CF["Cloudflare DNS<br/>CNAME → pop0.wslproxy.com"]
+  U["User / curl"] -->|"https://hello-world.fictionally.org"| CF["Cloudflare DNS<br/>CNAME → lon1.pop0.uk"]
   CF --> POP["wslproxy POP (pop0)"]
   POP --> TR["Traefik ingress (k3s1)<br/>ingressClassName: traefik"]
   TR --> SVC["Service :80"]

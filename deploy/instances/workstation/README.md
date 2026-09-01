@@ -10,7 +10,7 @@ own Postgres database, and is published through the same wslproxy edge.
 | Namespace | `workstation-ring-promoter` |
 | Public URL | `https://rp.workstation.co.uk` |
 | In-cluster ingress | Traefik (`ingressClassName: traefik`) |
-| DNS | Cloudflare **CNAME → pop0.wslproxy.com** (already published) |
+| DNS | Cloudflare **CNAME → lon1.pop0.uk** (already published) |
 | Edge | wslproxy vhost on pop0 — see [`wslproxy-server.json`](./wslproxy-server.json) |
 | Store | Postgres, own DB `ringpromoter_ws` on the shared `ring-promoter-db` |
 
@@ -20,7 +20,7 @@ k3s1's Traefik LoadBalancer IPs are private, so the Ingress alone is not
 internet-reachable. Public traffic arrives via the **wslproxy edge (pop0)**,
 which needs two things outside the cluster:
 
-1. **DNS** — a Cloudflare **CNAME** `rp.workstation.co.uk → pop0.wslproxy.com`
+1. **DNS** — a Cloudflare **CNAME** `rp.workstation.co.uk → lon1.pop0.uk`
    (already resolves; external-dns publishes it from the Ingress annotations).
 2. **A wslproxy vhost (tenant)** for the host on pop0, attaching routing rule
    `8f161403-8592-1111-6294-9c57974505b0` (the shared rule that forwards into
@@ -50,7 +50,7 @@ real `200` (not the "Host not configured" page).
 ## Verify
 
 ```bash
-dig +short rp.workstation.co.uk                                   # -> pop0.wslproxy.com.
+dig +short rp.workstation.co.uk                                   # -> lon1.pop0.uk.
 curl -sS -o /dev/null -w '%{http_code}\n' https://rp.workstation.co.uk/healthz   # 200 {"status":"ok"}
 ```
 

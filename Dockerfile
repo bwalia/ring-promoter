@@ -14,6 +14,10 @@ RUN NEXT_OUTPUT=export npx next build \
  && cp -R out/. /out/
 
 # ---- build the static Go binary ----
+# Compile on $BUILDPLATFORM (native on the Mac runner) and emit a binary for
+# $TARGETARCH. buildx injects TARGETOS/TARGETARCH from --platform; do not
+# default TARGETARCH to amd64 — that baked an amd64 binary into an arm64
+# image when Docker Desktop on the Mac built without an explicit platform.
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -22,8 +26,8 @@ COPY . .
 # Replace any committed embed with the fresh UI from the web stage.
 RUN rm -rf internal/web/static && mkdir -p internal/web/static
 COPY --from=web /out/ internal/web/static/
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 # Build metadata, surfaced by the app on /version and in the UI footer.
 ARG VERSION=dev
 ARG GIT_COMMIT=none
@@ -35,15 +39,15 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 
 # ---- fetch kubectl for the KubectlDeployer ----
 FROM build AS kubectl
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 ARG KUBECTL_VERSION=v1.30.4
 RUN wget -q -O /out/kubectl \
       "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${TARGETOS}/${TARGETARCH}/kubectl" \
     && chmod +x /out/kubectl
 
 # ---- minimal runtime image ----
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM --platform=$TARGETPLATFORM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=build   /out/ringpromoter /app/ringpromoter
 COPY --from=kubectl /out/kubectl      /usr/local/bin/kubectl

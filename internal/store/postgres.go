@@ -101,9 +101,9 @@ func (p *Postgres) SetAutoPromote(ctx context.Context, app, ring string, enabled
 // AddHistory implements Store.
 func (p *Postgres) AddHistory(ctx context.Context, e HistoryEntry) error {
 	const q = `
-		INSERT INTO history (app, ring, action, from_version, to_version, result, message, logs)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-	if _, err := p.db.ExecContext(ctx, q, e.App, e.Ring, e.Action, e.FromVersion, e.ToVersion, e.Result, e.Message, e.Logs); err != nil {
+		INSERT INTO history (app, ring, action, from_version, to_version, result, message, logs, correlation_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	if _, err := p.db.ExecContext(ctx, q, e.App, e.Ring, e.Action, e.FromVersion, e.ToVersion, e.Result, e.Message, e.Logs, e.CorrelationID); err != nil {
 		return fmt.Errorf("add history: %w", err)
 	}
 	if e.Logs == "" {
@@ -123,7 +123,7 @@ func (p *Postgres) AddHistory(ctx context.Context, e HistoryEntry) error {
 // ListHistory implements Store, newest first.
 func (p *Postgres) ListHistory(ctx context.Context, app string) ([]HistoryEntry, error) {
 	const q = `
-		SELECT id, app, ring, action, from_version, to_version, result, message, diagnosis, created_at
+		SELECT id, app, ring, action, from_version, to_version, result, message, diagnosis, correlation_id, created_at
 		FROM history WHERE app = $1 ORDER BY id DESC`
 	rows, err := p.db.QueryContext(ctx, q, app)
 	if err != nil {
@@ -134,7 +134,7 @@ func (p *Postgres) ListHistory(ctx context.Context, app string) ([]HistoryEntry,
 	var out []HistoryEntry
 	for rows.Next() {
 		var e HistoryEntry
-		if err := rows.Scan(&e.ID, &e.App, &e.Ring, &e.Action, &e.FromVersion, &e.ToVersion, &e.Result, &e.Message, &e.Diagnosis, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.App, &e.Ring, &e.Action, &e.FromVersion, &e.ToVersion, &e.Result, &e.Message, &e.Diagnosis, &e.CorrelationID, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan history: %w", err)
 		}
 		out = append(out, e)
@@ -145,11 +145,11 @@ func (p *Postgres) ListHistory(ctx context.Context, app string) ([]HistoryEntry,
 // GetHistoryEntry implements Store (includes the stored failure logs).
 func (p *Postgres) GetHistoryEntry(ctx context.Context, app string, id int64) (HistoryEntry, error) {
 	const q = `
-		SELECT id, app, ring, action, from_version, to_version, result, message, diagnosis, logs, created_at
+		SELECT id, app, ring, action, from_version, to_version, result, message, diagnosis, logs, correlation_id, created_at
 		FROM history WHERE id = $1 AND app = $2`
 	var e HistoryEntry
 	err := p.db.QueryRowContext(ctx, q, id, app).Scan(
-		&e.ID, &e.App, &e.Ring, &e.Action, &e.FromVersion, &e.ToVersion, &e.Result, &e.Message, &e.Diagnosis, &e.Logs, &e.CreatedAt)
+		&e.ID, &e.App, &e.Ring, &e.Action, &e.FromVersion, &e.ToVersion, &e.Result, &e.Message, &e.Diagnosis, &e.Logs, &e.CorrelationID, &e.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return HistoryEntry{}, ErrNotFound
 	}
@@ -405,10 +405,10 @@ func (p *Postgres) ListSignoffs(ctx context.Context, app string) ([]Signoff, err
 // CreatePendingOp implements Store.
 func (p *Postgres) CreatePendingOp(ctx context.Context, op PendingOp) (int64, error) {
 	const q = `
-		INSERT INTO pending_op (app, ring, action, from_ring, version, prev_version)
-		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+		INSERT INTO pending_op (app, ring, action, from_ring, version, prev_version, correlation_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`
 	var id int64
-	if err := p.db.QueryRowContext(ctx, q, op.App, op.Ring, op.Action, op.FromRing, op.Version, op.PrevVersion).Scan(&id); err != nil {
+	if err := p.db.QueryRowContext(ctx, q, op.App, op.Ring, op.Action, op.FromRing, op.Version, op.PrevVersion, op.CorrelationID).Scan(&id); err != nil {
 		return 0, fmt.Errorf("create pending op: %w", err)
 	}
 	return id, nil
@@ -417,11 +417,11 @@ func (p *Postgres) CreatePendingOp(ctx context.Context, op PendingOp) (int64, er
 // GetPendingOp implements Store.
 func (p *Postgres) GetPendingOp(ctx context.Context, id int64) (PendingOp, error) {
 	const q = `
-		SELECT id, app, ring, action, from_ring, version, prev_version, started_at
+		SELECT id, app, ring, action, from_ring, version, prev_version, correlation_id, started_at
 		FROM pending_op WHERE id = $1`
 	var op PendingOp
 	err := p.db.QueryRowContext(ctx, q, id).Scan(
-		&op.ID, &op.App, &op.Ring, &op.Action, &op.FromRing, &op.Version, &op.PrevVersion, &op.StartedAt)
+		&op.ID, &op.App, &op.Ring, &op.Action, &op.FromRing, &op.Version, &op.PrevVersion, &op.CorrelationID, &op.StartedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PendingOp{}, ErrNotFound
 	}
@@ -442,7 +442,7 @@ func (p *Postgres) DeletePendingOp(ctx context.Context, id int64) error {
 // ListPendingOps implements Store, oldest first.
 func (p *Postgres) ListPendingOps(ctx context.Context) ([]PendingOp, error) {
 	const q = `
-		SELECT id, app, ring, action, from_ring, version, prev_version, started_at
+		SELECT id, app, ring, action, from_ring, version, prev_version, correlation_id, started_at
 		FROM pending_op ORDER BY id`
 	rows, err := p.db.QueryContext(ctx, q)
 	if err != nil {
@@ -452,10 +452,67 @@ func (p *Postgres) ListPendingOps(ctx context.Context) ([]PendingOp, error) {
 	var out []PendingOp
 	for rows.Next() {
 		var op PendingOp
-		if err := rows.Scan(&op.ID, &op.App, &op.Ring, &op.Action, &op.FromRing, &op.Version, &op.PrevVersion, &op.StartedAt); err != nil {
+		if err := rows.Scan(&op.ID, &op.App, &op.Ring, &op.Action, &op.FromRing, &op.Version, &op.PrevVersion, &op.CorrelationID, &op.StartedAt); err != nil {
 			return nil, fmt.Errorf("scan pending op: %w", err)
 		}
 		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
+// AppendAudit implements Store. The ledger is append-only by construction:
+// this is the only statement that touches audit_event besides ListAudit.
+func (p *Postgres) AppendAudit(ctx context.Context, e AuditEvent) error {
+	const q = `
+		INSERT INTO audit_event (correlation_id, actor_type, actor, app, ring, category, action, version, detail)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	detail := e.Detail
+	if detail == "" {
+		detail = "{}"
+	}
+	if _, err := p.db.ExecContext(ctx, q,
+		e.CorrelationID, e.ActorType, e.Actor, e.App, e.Ring, e.Category, e.Action, e.Version, detail); err != nil {
+		return fmt.Errorf("append audit: %w", err)
+	}
+	return nil
+}
+
+// ListAudit implements Store, newest first with keyset paging.
+func (p *Postgres) ListAudit(ctx context.Context, f AuditFilter) ([]AuditEvent, error) {
+	q := `
+		SELECT id, occurred_at, correlation_id, actor_type, actor, app, ring, category, action, version, detail
+		FROM audit_event WHERE 1=1`
+	var args []any
+	add := func(clause, val string) {
+		if val != "" {
+			args = append(args, val)
+			q += fmt.Sprintf(" AND %s = $%d", clause, len(args))
+		}
+	}
+	add("app", f.App)
+	add("ring", f.Ring)
+	add("category", f.Category)
+	add("actor", f.Actor)
+	if f.BeforeID > 0 {
+		args = append(args, f.BeforeID)
+		q += fmt.Sprintf(" AND id < $%d", len(args))
+	}
+	args = append(args, clampAuditLimit(f.Limit))
+	q += fmt.Sprintf(" ORDER BY id DESC LIMIT $%d", len(args))
+
+	rows, err := p.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list audit: %w", err)
+	}
+	defer rows.Close()
+	var out []AuditEvent
+	for rows.Next() {
+		var e AuditEvent
+		if err := rows.Scan(&e.ID, &e.OccurredAt, &e.CorrelationID, &e.ActorType, &e.Actor,
+			&e.App, &e.Ring, &e.Category, &e.Action, &e.Version, &e.Detail); err != nil {
+			return nil, fmt.Errorf("scan audit event: %w", err)
+		}
+		out = append(out, e)
 	}
 	return out, rows.Err()
 }
