@@ -177,7 +177,7 @@ export function FleetView() {
       <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex justify-center p-3">
         <div className="pointer-events-auto flex flex-wrap items-center gap-2">
           <div
-            className="inline-flex rounded-md border border-white/15 bg-[#07070a]/70 p-0.5 backdrop-blur-md"
+            className="inline-flex rounded-lg border border-white/15 bg-[#07070a]/75 p-0.5 shadow-[0_8px_32px_-12px_rgba(0,0,0,0.8)] backdrop-blur-md"
             role="group"
             aria-label="Rings of Apps view"
           >
@@ -185,9 +185,9 @@ export function FleetView() {
               type="button"
               onClick={() => setView("apps")}
               className={cn(
-                "rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+                "rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors",
                 view === "apps"
-                  ? "bg-white/10 text-neutral-50 shadow-sm"
+                  ? "bg-white/12 text-neutral-50 shadow-sm"
                   : "text-neutral-400 hover:text-neutral-100",
               )}
               data-testid="solar-view-apps"
@@ -198,9 +198,9 @@ export function FleetView() {
               type="button"
               onClick={() => setView("rings")}
               className={cn(
-                "rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+                "rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors",
                 view === "rings"
-                  ? "bg-white/10 text-neutral-50 shadow-sm"
+                  ? "bg-white/12 text-neutral-50 shadow-sm"
                   : "text-neutral-400 hover:text-neutral-100",
               )}
               data-testid="solar-view-rings"

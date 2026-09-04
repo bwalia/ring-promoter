@@ -50,6 +50,22 @@ const STATUS_WORD: Record<NodeStatus, string> = {
   loading: "Checking…",
 };
 
+/** Sparse starfield for the orbital void — same motif as group-ring, quieter. */
+const STAGE_STARS = [
+  { x: 8, y: 12, size: 1.2, duration: 5.2, delay: 0.4 },
+  { x: 18, y: 28, size: 1, duration: 6.1, delay: 1.1 },
+  { x: 72, y: 9, size: 1.4, duration: 4.8, delay: 0.2 },
+  { x: 88, y: 22, size: 1, duration: 7.0, delay: 2.0 },
+  { x: 64, y: 18, size: 0.9, duration: 5.5, delay: 1.6 },
+  { x: 42, y: 8, size: 1.1, duration: 6.4, delay: 0.8 },
+  { x: 12, y: 48, size: 1, duration: 5.8, delay: 2.4 },
+  { x: 91, y: 44, size: 1.3, duration: 4.4, delay: 0.6 },
+  { x: 78, y: 62, size: 0.9, duration: 6.8, delay: 1.9 },
+  { x: 6, y: 72, size: 1.1, duration: 5.1, delay: 3.0 },
+  { x: 34, y: 78, size: 1, duration: 7.2, delay: 0.3 },
+  { x: 55, y: 88, size: 1.2, duration: 4.9, delay: 2.2 },
+];
+
 export type SolarSystemProps = {
   sunLabel: string;
   members: string[];
@@ -515,20 +531,18 @@ export function SolarSystem({
         "relative h-full min-h-0 overflow-hidden bg-[#07070a]",
         className,
       )}
+      data-solar-ambient
     >
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(56,189,248,0.06)_0%,transparent_55%)]"
-      />
+      <StageAtmosphere accent={hex} />
 
-      <div className="pointer-events-none absolute left-4 top-3 z-40">
-        <p className="font-display text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+      <div className="pointer-events-none absolute left-3 top-3 z-40 sm:left-4">
+        <p className="font-display text-[12px] font-semibold tracking-tight text-neutral-100 sm:text-[13px]">
           Rings of Apps
         </p>
-        <p className="mt-0.5 font-mono text-[11px] tabular-nums text-neutral-500">
+        <p className="mt-0.5 font-mono text-[10px] tabular-nums text-neutral-500 sm:text-[11px]">
           {members.length} {members.length === 1 ? bodyWord : bodyWordPlural}
           {" · "}
-          isolated rings
+          one ring each · Earth hub
         </p>
       </div>
 
@@ -602,7 +616,7 @@ export function SolarSystem({
                 fill="none"
                 stroke={hex}
                 strokeWidth={(lit ? 1.3 : 0.85) * strokeK}
-                strokeOpacity={lit ? 0.4 : 0.04}
+                strokeOpacity={lit ? 0.45 : crowded ? 0.06 : 0.1}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -616,7 +630,7 @@ export function SolarSystem({
           className="pointer-events-none absolute inset-0 size-full"
         />
 
-        <SunHub label={sunLabel} metrics={metrics} />
+        <SunHub label={sunLabel} metrics={metrics} reduceMotion={reduceMotion} />
 
         <svg
           viewBox={`0 0 ${metrics.width} ${metrics.height}`}
@@ -649,11 +663,15 @@ export function SolarSystem({
                   d={front}
                   fill="none"
                   stroke={hex}
-                  strokeWidth={(lit ? 2.2 : 1.1) * strokeK}
-                  strokeOpacity={lit ? 1 : crowded ? 0.07 : 0.09}
+                  strokeWidth={(lit ? 2.4 : 1.25) * strokeK}
+                  strokeOpacity={lit ? 1 : crowded ? 0.14 : 0.28}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="pointer-events-none"
+                  strokeDasharray={lit ? undefined : `${14 * strokeK} ${10 * strokeK}`}
+                  className={cn(
+                    "pointer-events-none",
+                    !reduceMotion && !lit && "[animation:orbit-shimmer_28s_linear_infinite]",
+                  )}
                 />
               </g>
             );
@@ -921,14 +939,21 @@ export function SolarSystem({
 }
 
 /**
- * The sun parks in the top-left corner, small and distant — a marker, not a
- * centrepiece. `globeMetrics` guarantees its glow never reaches an orbit,
- * and the name sits in a caption below the disc instead of crammed onto it.
+ * Sun = Ring Promoter. Parks top-left, clear of the ring band — a readable
+ * hub identity, not a decorative speck. `globeMetrics` keeps the glow off orbits.
  */
-function SunHub({ label, metrics }: { label: string; metrics: GlobeMetrics }) {
+function SunHub({
+  label,
+  metrics,
+  reduceMotion,
+}: {
+  label: string;
+  metrics: GlobeMetrics;
+  reduceMotion: boolean;
+}) {
   const left = (metrics.sunX / metrics.width) * 100;
   const top = (metrics.sunY / metrics.height) * 100;
-  const size = Math.max(20, metrics.sunR * 2);
+  const size = Math.max(22, metrics.sunR * 2);
   return (
     <div
       className="pointer-events-none absolute z-[8]"
@@ -936,22 +961,86 @@ function SunHub({ label, metrics }: { label: string; metrics: GlobeMetrics }) {
       data-sun-hub
       aria-label={label}
     >
-      <div className="flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5">
-        <div
-          className="rounded-full"
-          style={{
-            width: size,
-            height: size,
-            background:
-              "radial-gradient(circle at 35% 32%, #fff7d6 0%, #f5b942 42%, #c2410c 100%)",
-            boxShadow: `0 0 ${Math.round(size * 0.6)}px ${Math.round(size * 0.2)}px rgba(245, 185, 66, 0.28), 0 0 ${Math.round(size * 1.3)}px ${Math.round(size * 0.4)}px rgba(245, 185, 66, 0.1)`,
-          }}
-        />
-        <p className="m-0 whitespace-nowrap text-center font-display text-[9px] font-semibold uppercase leading-none tracking-[0.14em] text-neutral-400">
-          {label}
-        </p>
+      <div className="flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2">
+        <div className="relative" style={{ width: size, height: size }}>
+          {!reduceMotion && (
+            <div
+              aria-hidden
+              className="absolute inset-[-40%] rounded-full [animation:sun-corona_5.5s_ease-in-out_infinite]"
+              style={{
+                background:
+                  "radial-gradient(circle, rgba(245,185,66,0.42) 0%, rgba(245,185,66,0.08) 45%, transparent 70%)",
+              }}
+            />
+          )}
+          <div
+            className="relative size-full rounded-full"
+            style={{
+              background:
+                "radial-gradient(circle at 35% 32%, #fff7d6 0%, #f5b942 42%, #c2410c 100%)",
+              boxShadow: `0 0 ${Math.round(size * 0.65)}px ${Math.round(size * 0.22)}px rgba(245, 185, 66, 0.34), 0 0 ${Math.round(size * 1.4)}px ${Math.round(size * 0.45)}px rgba(245, 185, 66, 0.12)`,
+            }}
+          />
+        </div>
+        <div className="text-center">
+          <p className="m-0 max-w-[9rem] whitespace-nowrap text-center font-display text-[11px] font-semibold leading-tight tracking-tight text-neutral-50 sm:text-[12px]">
+            {label}
+          </p>
+          <p className="m-0 mt-0.5 font-mono text-[9px] uppercase leading-none tracking-[0.14em] text-neutral-500">
+            Control plane
+          </p>
+        </div>
       </div>
     </div>
+  );
+}
+
+function StageAtmosphere({ accent }: { accent: string }) {
+  return (
+    <>
+      <div
+        aria-hidden
+        className="absolute inset-0 opacity-[0.35]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)",
+          backgroundSize: "48px 48px",
+          maskImage:
+            "radial-gradient(ellipse 70% 60% at 45% 42%, black 20%, transparent 75%)",
+        }}
+      />
+      <div aria-hidden className="absolute inset-0">
+        {STAGE_STARS.map((s, i) => (
+          <span
+            key={i}
+            className="absolute rounded-full bg-white [animation:twinkle_var(--d)_ease-in-out_infinite]"
+            style={
+              {
+                left: `${s.x}%`,
+                top: `${s.y}%`,
+                width: s.size,
+                height: s.size,
+                "--d": `${s.duration}s`,
+                animationDelay: `${s.delay}s`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </div>
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-[radial-gradient(ellipse_at_45%_42%,rgba(56,189,248,0.07)_0%,transparent_52%)]"
+      />
+      <div
+        aria-hidden
+        className="absolute -left-20 top-0 size-72 rounded-full opacity-[0.12] blur-3xl [animation:blob-drift_18s_ease-in-out_infinite]"
+        style={{ background: accent }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_48%,rgba(0,0,0,0.55)_100%)]"
+      />
+    </>
   );
 }
 
@@ -997,14 +1086,17 @@ function AppRoster({
     <div
       data-roster
       data-testid="app-roster"
-      className="absolute inset-x-0 bottom-0 z-30 max-h-[min(200px,32vh)] overflow-auto border-t border-white/10 bg-[#07070a]/80 backdrop-blur-md lg:inset-y-0 lg:left-auto lg:right-0 lg:max-h-none lg:w-[19.5rem] lg:border-l lg:border-t-0"
+      className="absolute inset-x-0 bottom-0 z-30 max-h-[min(200px,32vh)] overflow-auto border-t border-white/10 bg-[#07070a]/88 backdrop-blur-xl lg:inset-y-0 lg:left-auto lg:right-0 lg:max-h-none lg:w-[19.5rem] lg:border-l lg:border-t-0"
     >
-      <div className="sticky top-0 z-10 border-b border-white/10 bg-[#07070a]/90 px-3 py-2 backdrop-blur-md">
-        <p className="font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+      <div className="sticky top-0 z-10 border-b border-white/10 bg-[#07070a]/95 px-3 py-2.5 backdrop-blur-md">
+        <p className="font-display text-[12px] font-semibold tracking-tight text-neutral-100">
           {mode === "groups" ? "Rings" : "Applications"}
         </p>
+        <p className="mt-0.5 font-mono text-[10px] tabular-nums text-neutral-500">
+          {ordered.length} · sorted by TTFB · click to focus
+        </p>
       </div>
-      <ul className="divide-y divide-white/5 p-1.5">
+      <ul className="divide-y divide-white/[0.04] p-1.5">
         {ordered.map((id) => {
           const status = statusById.get(id) ?? "empty";
           const hex = STATUS_HEX[status];
@@ -1021,17 +1113,19 @@ function AppRoster({
                 onClick={() => onFocus(id)}
                 onDoubleClick={() => onOpen(id)}
                 className={cn(
-                  "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
-                  selected ? "bg-white/10" : "hover:bg-white/[0.06]",
+                  "flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors",
+                  selected
+                    ? "bg-white/[0.12] ring-1 ring-white/15"
+                    : "hover:bg-white/[0.06]",
                 )}
               >
                 <span
                   aria-hidden
-                  className="mt-1 size-2 shrink-0 rounded-full"
-                  style={{ background: hex }}
+                  className="mt-1 size-2 shrink-0 rounded-full shadow-[0_0_8px_currentColor]"
+                  style={{ background: hex, color: hex }}
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-display text-[12px] font-medium leading-tight text-neutral-100">
+                  <span className="block truncate font-display text-[12.5px] font-medium leading-tight text-neutral-50">
                     {title(id)}
                   </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-x-2 font-mono text-[10px] tabular-nums text-neutral-500">
