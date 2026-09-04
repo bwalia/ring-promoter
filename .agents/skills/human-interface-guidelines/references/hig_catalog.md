@@ -1,0 +1,183 @@
+# Apple Human Interface Guidelines — Catalog (titles + abstracts)
+
+- Source root: https://developer.apple.com/design/human-interface-guidelines
+- Pages: 170
+
+## article
+
+- [Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) — Accessible user interfaces empower everyone to have a great experience with your app or game.
+- [Action button](https://developer.apple.com/design/human-interface-guidelines/action-button) — The Action button gives people quick access to their favorite features on supported iPhone and Apple Watch models.
+- [Action sheets](https://developer.apple.com/design/human-interface-guidelines/action-sheets) — An action sheet is a modal view that presents choices related to an action people initiate.
+- [Activity rings](https://developer.apple.com/design/human-interface-guidelines/activity-rings) — Activity rings show an individual’s daily progress toward Move, Exercise, and Stand goals.
+- [Activity views](https://developer.apple.com/design/human-interface-guidelines/activity-views) — An activity view — often called a  — presents a range of tasks that people can perform in the current context.
+- [AirPlay](https://developer.apple.com/design/human-interface-guidelines/airplay) — AirPlay lets people stream media content wirelessly from iOS, iPadOS, macOS, and tvOS devices to Apple TV, HomePod, and TVs and speakers that support AirPlay.
+- [Alerts](https://developer.apple.com/design/human-interface-guidelines/alerts) — An alert gives people critical information they need right away.
+- [Always On](https://developer.apple.com/design/human-interface-guidelines/always-on) — On devices that include the Always On display, the system can continue to display an app’s interface when people suspend their interactions with the device.
+- [App Clips](https://developer.apple.com/design/human-interface-guidelines/app-clips) — An App Clip is a lightweight version of your app or game that provides an on-the-go or demo experience that’s instantly available.
+- [App icons](https://developer.apple.com/design/human-interface-guidelines/app-icons) — A unique, memorable icon expresses your app’s or game’s purpose and personality and helps people recognize it at a glance.
+- [App Shortcuts](https://developer.apple.com/design/human-interface-guidelines/app-shortcuts) — An App Shortcut gives people access to your app’s key functions or content throughout the system.
+- [Apple Pay](https://developer.apple.com/design/human-interface-guidelines/apple-pay) — Apple Pay is a secure, easy way to make payments for physical goods and services — as well as donations and subscriptions — in apps running on iPhone, iPad, Mac, Apple Vision Pro, Apple Watch, on websites, and on any browser.
+- [Apple Pencil and Scribble](https://developer.apple.com/design/human-interface-guidelines/apple-pencil-and-scribble) — Apple Pencil helps make drawing, handwriting, and marking effortless and natural, in addition to performing well as a pointer and UI interaction tool.
+- [Augmented reality](https://developer.apple.com/design/human-interface-guidelines/augmented-reality) — Augmented reality (or AR) lets you deliver immersive, engaging experiences that seamlessly blend virtual objects with the real world.
+- [Boxes](https://developer.apple.com/design/human-interface-guidelines/boxes) — A box creates a visually distinct group of logically related information and components.
+- [Branding](https://developer.apple.com/design/human-interface-guidelines/branding) — Apps and games express their unique brand identity in ways that make them instantly recognizable while feeling at home on the platform and giving people a consistent experience.
+- [Buttons](https://developer.apple.com/design/human-interface-guidelines/buttons) — A button initiates an instantaneous action.
+- [Camera Control](https://developer.apple.com/design/human-interface-guidelines/camera-control) — The Camera Control provides direct access to your app’s camera experience.
+- [CareKit](https://developer.apple.com/design/human-interface-guidelines/carekit) — People can use CareKit apps to manage care plans related to a chronic illness like diabetes, recover from an injury or surgery, or achieve health and wellness goals.
+- [CarPlay](https://developer.apple.com/design/human-interface-guidelines/carplay) — CarPlay lets people get directions, make calls, send and receive messages, listen to music, and more from their car’s built-in display, all while staying focused on the road.
+- [Charting data](https://developer.apple.com/design/human-interface-guidelines/charting-data) — Presenting data in a chart can help you communicate information with clarity and appeal.
+- [Charts](https://developer.apple.com/design/human-interface-guidelines/charts) — Organize data in a chart to communicate information with clarity and visual appeal.
+- [Collaboration and sharing](https://developer.apple.com/design/human-interface-guidelines/collaboration-and-sharing) — Great collaboration and sharing experiences are simple and responsive, letting people engage with the content while communicating effectively with others.
+- [Collections](https://developer.apple.com/design/human-interface-guidelines/collections) — A collection manages an ordered set of content and presents it in a customizable and highly visual layout.
+- [Color](https://developer.apple.com/design/human-interface-guidelines/color) — Judicious use of color can enhance communication, evoke your brand, provide visual continuity, communicate status and feedback, and help people understand information.
+- [Color wells](https://developer.apple.com/design/human-interface-guidelines/color-wells) — A color well lets people adjust the color of text, shapes, guides, and other onscreen elements.
+- [Column views](https://developer.apple.com/design/human-interface-guidelines/column-views) — A column view — also called a  — lets people view and navigate a data hierarchy using a series of vertical columns.
+- [Combo boxes](https://developer.apple.com/design/human-interface-guidelines/combo-boxes) — A combo box combines a text field with a pull-down button in a single control.
+- [Complications](https://developer.apple.com/design/human-interface-guidelines/complications) — A complication displays timely, relevant information on the watch face, where people can view it each time they raise their wrist.
+- [Context menus](https://developer.apple.com/design/human-interface-guidelines/context-menus) — A context menu provides access to functionality that’s directly related to an item, without cluttering the interface.
+- [Controls](https://developer.apple.com/design/human-interface-guidelines/controls) — In iOS and iPadOS, a control provides quick access to a feature of your app from Control Center, the Lock Screen, or the Action button.
+- [Dark Mode](https://developer.apple.com/design/human-interface-guidelines/dark-mode) — Dark Mode is a systemwide appearance setting that uses a dark color palette to provide a comfortable viewing experience tailored for low-light environments.
+- [Designing for games](https://developer.apple.com/design/human-interface-guidelines/designing-for-games) — When people play your game on an Apple device, they dive into the world you designed while relying on the platform features they love.
+- [Designing for iOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ios) — People depend on their iPhone to help them stay connected, play games, view media, accomplish tasks, and track personal data in any location and while on the go.
+- [Designing for iPadOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ipados) — People value the power, mobility, and flexibility of iPad as they enjoy media, play games, perform detailed productivity tasks, and bring their creations to life.
+- [Designing for macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos) — People rely on the power, spaciousness, and flexibility of a Mac as they perform in-depth productivity tasks, view media or content, and play games, often using several apps at once.
+- [Designing for tvOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-tvos) — People enjoy the vibrant content, immersive experiences, and streamlined interactions that tvOS delivers in media and games, as well as in fitness, education, and home utility apps.
+- [Designing for visionOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-visionos) — When people wear Apple Vision Pro, they enter an infinite 3D space where they can engage with your app or game while staying connected to their surroundings.
+- [Designing for watchOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-watchos) — When people glance at their Apple Watch, they know they can access essential information and perform simple, timely tasks whether they’re stationary or in motion.
+- [Digit entry views](https://developer.apple.com/design/human-interface-guidelines/digit-entry-views) — A digit entry view fills the entire screen and prompts people to enter a series of digits, like a PIN, using a digit-specific keyboard.
+- [Digital Crown](https://developer.apple.com/design/human-interface-guidelines/digital-crown) — The Digital Crown is an important hardware input for Apple Vision Pro and Apple Watch.
+- [Disclosure controls](https://developer.apple.com/design/human-interface-guidelines/disclosure-controls) — Disclosure controls reveal and hide information and functionality related to specific controls or views.
+- [Dock menus](https://developer.apple.com/design/human-interface-guidelines/dock-menus) — On a Mac, people can secondary click an app’s or game’s icon in the Dock to reveal a Dock menu, which presents both system-provided and custom items.
+- [Drag and drop](https://developer.apple.com/design/human-interface-guidelines/drag-and-drop) — Using drag and drop, people can move or duplicate selected photos, text, and other content by dragging the selection from one location to another.
+- [Edit menus](https://developer.apple.com/design/human-interface-guidelines/edit-menus) — An edit menu lets people make changes to selected content in the current view, in addition to offering related commands like Copy, Select, Translate, and Look Up.
+- [Entering data](https://developer.apple.com/design/human-interface-guidelines/entering-data) — When you need information from people, design ways that make it easy for them to provide it without making mistakes.
+- [Eyes](https://developer.apple.com/design/human-interface-guidelines/eyes) — In visionOS, people look at a virtual object to identify it as a target they can interact with.
+- [Feedback](https://developer.apple.com/design/human-interface-guidelines/feedback) — Feedback helps people know what’s happening, discover what they can do next, understand the results of actions, and avoid mistakes.
+- [File management](https://developer.apple.com/design/human-interface-guidelines/file-management) — Some apps can support documents and files that people expect to manage throughout the system.
+- [Focus and selection](https://developer.apple.com/design/human-interface-guidelines/focus-and-selection) — Focus helps people visually confirm the object that their interaction targets.
+- [Game Center](https://developer.apple.com/design/human-interface-guidelines/game-center) — Game Center is Apple’s social gaming network, which lets players track their progress and connect with friends across Apple platforms, and boosts the discovery of your game across players’ devices.
+- [Game controls](https://developer.apple.com/design/human-interface-guidelines/game-controls) — Precise, intuitive game controls enhance gameplay and can increase a player’s immersion in the game.
+- [Gauges](https://developer.apple.com/design/human-interface-guidelines/gauges) — A gauge displays a specific numerical value within a range of values.
+- [Generative AI](https://developer.apple.com/design/human-interface-guidelines/generative-ai) — Generative AI empowers you to enhance your app or game with dynamic content and offer intelligent features that unlock new levels of creativity, connection, and productivity.
+- [Gestures](https://developer.apple.com/design/human-interface-guidelines/gestures) — A gesture is a physical motion that a person uses to directly affect an object in an app or game on their device.
+- [Going full screen](https://developer.apple.com/design/human-interface-guidelines/going-full-screen) — iPhone, iPad, and Mac offer full-screen modes that let people expand a window to fill the screen, hiding system controls and providing a distraction-free environment.
+- [Gyroscope and accelerometer](https://developer.apple.com/design/human-interface-guidelines/gyro-and-accelerometer) — On-device gyroscopes and accelerometers can supply data about a device’s movement in the physical world.
+- [HealthKit](https://developer.apple.com/design/human-interface-guidelines/healthkit) — HealthKit is the central repository for health and fitness data in iOS, iPadOS, and watchOS.
+- [Home Screen quick actions](https://developer.apple.com/design/human-interface-guidelines/home-screen-quick-actions) — Home Screen quick actions give people a way to perform app-specific actions from the Home Screen.
+- [HomeKit](https://developer.apple.com/design/human-interface-guidelines/homekit) — HomeKit lets people securely control connected accessories in their homes using Siri or the Home app on iPhone, iPad, Apple Watch, and Mac.
+- [iCloud](https://developer.apple.com/design/human-interface-guidelines/icloud) — iCloud is a service that lets people seamlessly access the content they care about — photos, videos, documents, and more — from any device, without performing explicit synchronization.
+- [Icons](https://developer.apple.com/design/human-interface-guidelines/icons) — An effective icon is a graphic asset that expresses a single concept in ways people instantly understand.
+- [ID Verifier](https://developer.apple.com/design/human-interface-guidelines/id-verifier) — ID Verifier lets your iPhone app read mobile IDs in person without requiring external hardware.
+- [Image views](https://developer.apple.com/design/human-interface-guidelines/image-views) — An image view displays a single image — or in some cases, an animated sequence of images — on a transparent or opaque background.
+- [Image wells](https://developer.apple.com/design/human-interface-guidelines/image-wells) — An image well is an editable version of an image view.
+- [Images](https://developer.apple.com/design/human-interface-guidelines/images) — To make sure your artwork looks great on all devices you support, learn how the system displays content and how to deliver art at the appropriate scale factors.
+- [iMessage apps and stickers](https://developer.apple.com/design/human-interface-guidelines/imessage-apps-and-stickers) — An iMessage app can help people share content, collaborate, and even play games with others in a conversation; stickers are images that people can use to decorate a conversation.
+- [Immersive experiences](https://developer.apple.com/design/human-interface-guidelines/immersive-experiences) — In visionOS, you can design apps and games that extend beyond windows and volumes, immersing people in your content.
+- [In-app purchase](https://developer.apple.com/design/human-interface-guidelines/in-app-purchase) — People can use in-app purchase to pay for virtual goods — like premium content, digital goods, and subscriptions — securely within your app.
+- [Inclusion](https://developer.apple.com/design/human-interface-guidelines/inclusion) — Inclusive apps and games put people first by prioritizing respectful communication and presenting content and functionality in ways that everyone can access and understand.
+- [Keyboards](https://developer.apple.com/design/human-interface-guidelines/keyboards) — A physical keyboard can be an essential input device for entering text, playing games, controlling apps, and more.
+- [Labels](https://developer.apple.com/design/human-interface-guidelines/labels) — A label is a static piece of text that people can read and often copy, but not edit.
+- [Launching](https://developer.apple.com/design/human-interface-guidelines/launching) — A streamlined launch experience helps people start using your app or game immediately.
+- [Layout](https://developer.apple.com/design/human-interface-guidelines/layout) — A consistent layout that adapts to various contexts makes your experience more approachable and helps people enjoy their favorite apps and games on all their devices.
+- [Lists and tables](https://developer.apple.com/design/human-interface-guidelines/lists-and-tables) — Lists and tables present data in one or more columns of rows.
+- [Live Activities](https://developer.apple.com/design/human-interface-guidelines/live-activities) — A Live Activity lets people track the progress of an activity, event, or task at a glance.
+- [Live Photos](https://developer.apple.com/design/human-interface-guidelines/live-photos) — Live Photos lets people capture favorite memories in a sound- and motion-rich interactive experience that adds vitality to traditional still photos.
+- [Live-viewing apps](https://developer.apple.com/design/human-interface-guidelines/live-viewing-apps) — As you design a live-viewing app, prioritize the content and create fun, fluid interactions that encourage immersion in the live-viewing experience.
+- [Loading](https://developer.apple.com/design/human-interface-guidelines/loading) — The best content-loading experience finishes before people become aware of it.
+- [Lockups](https://developer.apple.com/design/human-interface-guidelines/lockups) — Lockups combine multiple separate views into a single, interactive unit.
+- [Mac Catalyst](https://developer.apple.com/design/human-interface-guidelines/mac-catalyst) — When you use Mac Catalyst to create a Mac version of your iPad app, you give people the opportunity to enjoy the experience in a new environment.
+- [Machine learning](https://developer.apple.com/design/human-interface-guidelines/machine-learning) — Machine learning enables apps and games to learn from data and usage patterns, letting you improve existing experiences and create engaging new ones.
+- [Managing accounts](https://developer.apple.com/design/human-interface-guidelines/managing-accounts) — When it doesn’t create an unnecessary barrier to your experience, an account can be a convenient way for people to access their content and track personal details.
+- [Managing notifications](https://developer.apple.com/design/human-interface-guidelines/managing-notifications) — Notifications can give people timely and important information, whether the device is locked or in use.
+- [Maps](https://developer.apple.com/design/human-interface-guidelines/maps) — A map displays outdoor or indoor geographical data in your app or on your website.
+- [Materials](https://developer.apple.com/design/human-interface-guidelines/materials) — A material is a visual effect that creates a sense of depth, layering, and hierarchy between foreground and background elements.
+- [Menus](https://developer.apple.com/design/human-interface-guidelines/menus) — A menu reveals its options when people interact with it, making it a space-efficient way to present commands in your app or game.
+- [Modality](https://developer.apple.com/design/human-interface-guidelines/modality) — Modality is a design technique that presents content in a separate, dedicated mode that prevents interaction with the parent view and requires an explicit action to dismiss.
+- [Motion](https://developer.apple.com/design/human-interface-guidelines/motion) — Beautiful, fluid motions bring the interface to life, conveying status, providing feedback and instruction, and enriching the visual experience of your app or game.
+- [Multitasking](https://developer.apple.com/design/human-interface-guidelines/multitasking) — Multitasking lets people switch quickly from one app to another, performing tasks in each.
+- [Nearby interactions](https://developer.apple.com/design/human-interface-guidelines/nearby-interactions) — Nearby interactions support on-device experiences that integrate the presence of people and objects in the nearby environment.
+- [NFC](https://developer.apple.com/design/human-interface-guidelines/nfc) — Near-field communication (NFC) allows devices within a few centimeters of each other to exchange information wirelessly.
+- [Notifications](https://developer.apple.com/design/human-interface-guidelines/notifications) — A notification gives people timely, high-value information they can understand at a glance.
+- [Offering help](https://developer.apple.com/design/human-interface-guidelines/offering-help) — Although the most effective experiences are approachable and intuitive, you can provide contextual help when necessary.
+- [Onboarding](https://developer.apple.com/design/human-interface-guidelines/onboarding) — Onboarding can help people get a quick start using your app or game.
+- [Ornaments](https://developer.apple.com/design/human-interface-guidelines/ornaments) — In visionOS, an ornament presents controls and information related to a window, without crowding or obscuring the window’s contents.
+- [Outline views](https://developer.apple.com/design/human-interface-guidelines/outline-views) — An outline view presents hierarchical data in a scrolling list of cells that are organized into columns and rows.
+- [Page controls](https://developer.apple.com/design/human-interface-guidelines/page-controls) — A page control displays a row of indicator images, each of which represents a page in a flat list.
+- [Panels](https://developer.apple.com/design/human-interface-guidelines/panels) — In a macOS app, a panel typically floats above other open windows providing supplementary controls, options, or information related to the active window or current selection.
+- [Path controls](https://developer.apple.com/design/human-interface-guidelines/path-controls) — A path control shows the file system path of a selected file or folder.
+- [Photo editing](https://developer.apple.com/design/human-interface-guidelines/photo-editing) — Photo-editing extensions let people modify photos and videos within the Photos app by applying filters or making other changes.
+- [Pickers](https://developer.apple.com/design/human-interface-guidelines/pickers) — A picker displays one or more scrollable lists of distinct values that people can choose from.
+- [Playing audio](https://developer.apple.com/design/human-interface-guidelines/playing-audio) — People expect rich audio experiences that automatically adjust when the context changes on the device.
+- [Playing haptics](https://developer.apple.com/design/human-interface-guidelines/playing-haptics) — Playing haptics can engage people’s sense of touch and bring their familiarity with the physical world into your app or game.
+- [Playing video](https://developer.apple.com/design/human-interface-guidelines/playing-video) — People expect to enjoy rich video experiences on their devices, regardless of the app or game they’re using.
+- [Pointing devices](https://developer.apple.com/design/human-interface-guidelines/pointing-devices) — People can use a pointing device like a trackpad or mouse to navigate the interface and initiate actions.
+- [Pop-up buttons](https://developer.apple.com/design/human-interface-guidelines/pop-up-buttons) — A pop-up button displays a menu of mutually exclusive options.
+- [Popovers](https://developer.apple.com/design/human-interface-guidelines/popovers) — A popover is a transient view that appears above other content when people click or tap a control or interactive area.
+- [Printing](https://developer.apple.com/design/human-interface-guidelines/printing) — An iOS, iPadOS, macOS, or visionOS app can integrate system-provided print functionality when it makes sense, presenting custom printer- and document-specific options if necessary.
+- [Privacy](https://developer.apple.com/design/human-interface-guidelines/privacy) — Privacy is paramount: it’s critical to be transparent about the privacy-related data and resources you require and essential to protect the data people allow you to access.
+- [Progress indicators](https://developer.apple.com/design/human-interface-guidelines/progress-indicators) — Progress indicators let people know that your app isn’t stalled while it loads content or performs lengthy operations.
+- [Pull-down buttons](https://developer.apple.com/design/human-interface-guidelines/pull-down-buttons) — A pull-down button displays a menu of items or actions that directly relate to the button’s purpose.
+- [Rating indicators](https://developer.apple.com/design/human-interface-guidelines/rating-indicators) — A rating indicator uses a series of horizontally arranged graphical symbols — by default, stars — to communicate a ranking level.
+- [Ratings and reviews](https://developer.apple.com/design/human-interface-guidelines/ratings-and-reviews) — People often view the ratings and reviews for an app or game before they download it.
+- [Remotes](https://developer.apple.com/design/human-interface-guidelines/remotes) — The Siri Remote is the primary input method for Apple TV, helping people feel connected to onscreen content from across the room.
+- [ResearchKit](https://developer.apple.com/design/human-interface-guidelines/researchkit) — A research app lets people everywhere participate in important medical research studies.
+- [Right to left](https://developer.apple.com/design/human-interface-guidelines/right-to-left) — Support right-to-left languages like Arabic and Hebrew by reversing your interface as needed to match the reading direction of the related scripts.
+- [Scroll views](https://developer.apple.com/design/human-interface-guidelines/scroll-views) — A scroll view lets people view content that’s larger than the view’s boundaries by moving the content vertically or horizontally.
+- [Search fields](https://developer.apple.com/design/human-interface-guidelines/search-fields) — A search field lets people search a collection of content for specific terms they enter.
+- [Searching](https://developer.apple.com/design/human-interface-guidelines/searching) — People use various search techniques to find content on their device, within an app, and within a document or file.
+- [Segmented controls](https://developer.apple.com/design/human-interface-guidelines/segmented-controls) — A segmented control is a linear set of two or more segments, each of which functions as a button.
+- [Settings](https://developer.apple.com/design/human-interface-guidelines/settings) — People expect apps and games to just work, but they also appreciate having ways to customize the experience to fit their needs.
+- [SF Symbols](https://developer.apple.com/design/human-interface-guidelines/sf-symbols) — SF Symbols provides thousands of consistent, highly configurable symbols that integrate seamlessly with the San Francisco system font, automatically aligning with text in all weights and sizes.
+- [SharePlay](https://developer.apple.com/design/human-interface-guidelines/shareplay) — SharePlay helps multiple people share activities — like viewing a movie, listening to music, playing a game, or sketching ideas on a whiteboard — while they’re in a FaceTime call or Messages conversation.
+- [ShazamKit](https://developer.apple.com/design/human-interface-guidelines/shazamkit) — ShazamKit supports audio recognition by matching an audio sample against the ShazamKit catalog or a custom audio catalog.
+- [Sheets](https://developer.apple.com/design/human-interface-guidelines/sheets) — A sheet helps people perform a scoped task that’s closely related to their current context.
+- [Sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars) — A sidebar appears on the leading side of a view and lets people navigate between sections in your app or game.
+- [Sign in with Apple](https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple) — Sign in with Apple provides a fast, private way to sign into apps and websites, giving people a consistent experience they can trust and the convenience of not having to remember multiple accounts and passwords.
+- [Siri](https://developer.apple.com/design/human-interface-guidelines/siri) — Siri makes it easy for people to accomplish everyday tasks quickly, using voice, touch, or automation.
+- [Sliders](https://developer.apple.com/design/human-interface-guidelines/sliders) — A slider is a horizontal track with a control, called a thumb, that people can adjust between a minimum and maximum value.
+- [Spatial layout](https://developer.apple.com/design/human-interface-guidelines/spatial-layout) — Spatial layout techniques help you take advantage of the infinite canvas of Apple Vision Pro and present your content in engaging, comfortable ways.
+- [Split views](https://developer.apple.com/design/human-interface-guidelines/split-views) — A split view manages the presentation of multiple adjacent panes of content, each of which can contain a variety of components, including tables, collections, images, and custom views.
+- [Status bars](https://developer.apple.com/design/human-interface-guidelines/status-bars) — A status bar appears along the upper edge of the screen and displays information about the device’s current state, like the time, cellular carrier, and battery level.
+- [Steppers](https://developer.apple.com/design/human-interface-guidelines/steppers) — A stepper is a two-segment control that people use to increase or decrease an incremental value.
+- [Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars) — A tab bar lets people navigate between top-level sections of your app.
+- [Tab views](https://developer.apple.com/design/human-interface-guidelines/tab-views) — A tab view presents multiple mutually exclusive panes of content in the same area, which people can switch between using a tabbed control.
+- [Tap to Pay on iPhone](https://developer.apple.com/design/human-interface-guidelines/tap-to-pay-on-iphone) — Tap to Pay on iPhone lets merchants accept contactless payments using an app on their iPhone, without having to connect external hardware.
+- [Text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields) — A text field is a rectangular area in which people enter or edit small, specific pieces of text.
+- [Text views](https://developer.apple.com/design/human-interface-guidelines/text-views) — A text view displays multiline, styled text content, which can optionally be editable.
+- [The menu bar](https://developer.apple.com/design/human-interface-guidelines/the-menu-bar) — On a Mac or an iPad, the menu bar at the top of the screen displays the top-level menus in your app or game.
+- [Toggles](https://developer.apple.com/design/human-interface-guidelines/toggles) — A toggle lets people choose between a pair of opposing states, like on and off, using a different appearance to indicate each state.
+- [Token fields](https://developer.apple.com/design/human-interface-guidelines/token-fields) — A token field is a type of text field that can convert text into  that are easy to select and manipulate.
+- [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars) — A toolbar provides convenient access to frequently used commands, controls, navigation, and search.
+- [Top Shelf](https://developer.apple.com/design/human-interface-guidelines/top-shelf) — The Apple TV Home Screen provides an area called Top Shelf, which showcases your content in a rich, engaging way while also giving people access to their favorite apps in the Dock.
+- [Typography](https://developer.apple.com/design/human-interface-guidelines/typography) — Your typographic choices can help you display legible text, convey an information hierarchy, communicate important content, and express your brand or style.
+- [Undo and redo](https://developer.apple.com/design/human-interface-guidelines/undo-and-redo) — Undo and redo gives people easy ways to reverse many types of actions, which can also help people explore and experiment safely as they learn a new interface or task.
+- [Virtual keyboards](https://developer.apple.com/design/human-interface-guidelines/virtual-keyboards) — On devices without physical keyboards, the system offers various types of virtual keyboards people can use to enter data.
+- [VoiceOver](https://developer.apple.com/design/human-interface-guidelines/voiceover) — VoiceOver is a screen reader that lets people experience your app’s interface without needing to see the screen.
+- [Wallet](https://developer.apple.com/design/human-interface-guidelines/wallet) — Wallet helps people securely store their credit and debit cards, driver’s license or state ID, transit cards, event tickets, keys, and more on iPhone and Apple Watch.
+- [Watch faces](https://developer.apple.com/design/human-interface-guidelines/watch-faces) — A watch face is a view that people choose as their primary view in watchOS.
+- [Web views](https://developer.apple.com/design/human-interface-guidelines/web-views) — A web view loads and displays rich web content, such as embedded HTML and websites, directly within your app.
+- [Widgets](https://developer.apple.com/design/human-interface-guidelines/widgets) — A widget provides quick access to essential information and focused interactions from your app or game in additional contexts.
+- [Windows](https://developer.apple.com/design/human-interface-guidelines/windows) — A window presents UI views and components in your app or game.
+- [Workouts](https://developer.apple.com/design/human-interface-guidelines/workouts) — A great workout or fitness experience encourages people to engage with their current activity and helps them track their progress on their devices.
+- [Writing](https://developer.apple.com/design/human-interface-guidelines/writing) — The words you choose within your app are an essential part of its user experience.
+
+## collection
+
+- [Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines) — The HIG contains guidance and best practices that can help you design a great experience for any Apple platform.
+
+## collectionGroup
+
+- [Components](https://developer.apple.com/design/human-interface-guidelines/components) — Learn how to use and customize system-defined components to give people a familiar and consistent experience.
+- [Content](https://developer.apple.com/design/human-interface-guidelines/content)
+- [Foundations](https://developer.apple.com/design/human-interface-guidelines/foundations) — Understand how fundamental design elements help you create rich experiences.
+- [Getting started](https://developer.apple.com/design/human-interface-guidelines/getting-started) — Create an app or game that feels at home on every platform you support.
+- [Inputs](https://developer.apple.com/design/human-interface-guidelines/inputs) — Learn about the various methods people use to control your app or game and enter data.
+- [Layout and organization](https://developer.apple.com/design/human-interface-guidelines/layout-and-organization)
+- [Menus and actions](https://developer.apple.com/design/human-interface-guidelines/menus-and-actions)
+- [Navigation and search](https://developer.apple.com/design/human-interface-guidelines/navigation-and-search)
+- [Patterns](https://developer.apple.com/design/human-interface-guidelines/patterns) — Get design guidance for supporting common user actions, tasks, and experiences.
+- [Presentation](https://developer.apple.com/design/human-interface-guidelines/presentation)
+- [Selection and input](https://developer.apple.com/design/human-interface-guidelines/selection-and-input)
+- [Status](https://developer.apple.com/design/human-interface-guidelines/status)
+- [System experiences](https://developer.apple.com/design/human-interface-guidelines/system-experiences)
+- [Technologies](https://developer.apple.com/design/human-interface-guidelines/technologies) — Discover the Apple technologies, features, and services you can integrate into your app or game.

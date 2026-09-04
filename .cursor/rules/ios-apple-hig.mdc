@@ -1,0 +1,17 @@
+---
+description: Apply Apple HIG when designing or reviewing Ring Promoter iOS / SwiftUI UI
+globs: ios/**/*.{swift,swiftui}
+alwaysApply: false
+---
+
+# iOS Apple HIG
+
+When changing Ring Promoter iOS UI (SwiftUI, widgets, navigation, controls):
+
+1. Read and follow the project skill at `.cursor/skills/hig/SKILL.md` (local Apple HIG corpus).
+2. For design reviews or UI specs, also use `.cursor/skills/human-interface-guidelines/SKILL.md`.
+3. Prefer system components (`NavigationStack`, `TabView`, sheets, lists, SF Symbols, semantic colors/fonts) over custom chrome.
+4. Respect Dynamic Type, ≥44pt touch targets, safe areas, VoiceOver labels, and Reduce Motion.
+5. Cite the specific HIG page URL when recommending a pattern.
+
+Canonical Apple docs: https://developer.apple.com/design/human-interface-guidelines/
