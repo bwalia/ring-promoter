@@ -20,15 +20,15 @@ import { SOLAR_R_MAX, SOLAR_R_MIN, latencyToRadius } from "@/lib/solar-layout";
 /** Canonical design size the fractions below were authored against. */
 export const DESIGN_SIZE = 400;
 
-/** Earth disc radius on the 400×400 design. Smaller = more sky for rings. */
-export const EARTH_R = 40;
+/** Earth disc radius on the 400×400 design. Sized for a cinematic hub. */
+export const EARTH_R = 46;
 
 /**
  * Sun (= Ring Promoter) parks in the top-left corner of the stage, well
  * clear of the ring band — `globeMetrics` caps the outermost orbit so the
  * sun's glow can never touch it.
  */
-export const SUN_R = 13;
+export const SUN_R = 15;
 /** Design-unit margin from the stage's top-left corner (inside insets). */
 export const SUN_MARGIN = 36;
 /** The glow halo reaches about this many sun radii from the disc centre. */

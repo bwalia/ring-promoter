@@ -64,19 +64,19 @@ export default function LandingPage() {
 
 function Nav() {
   const links = [
+    ["Watch", "#watch"],
     ["Protocol", "#protocol"],
     ["Live ops", "#live-ops"],
     ["Deployers", "#deployers"],
     ["Config", "#config"],
-    ["Roadmap", "#roadmap"],
     ["FAQ", "#faq"],
   ] as const;
   return (
     <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-[#090909]/85 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
         <a href="#" className="flex items-center gap-2.5">
-          <RingMark className="size-5" />
-          <span className="text-sm font-semibold tracking-tight text-neutral-100">
+          <RingMark className="size-6" />
+          <span className="font-display text-[15px] font-semibold tracking-tight text-neutral-50">
             Ring Promoter
           </span>
         </a>
@@ -161,16 +161,29 @@ function Hero() {
           maskImage: "radial-gradient(ellipse 90% 70% at 50% 0%, black 45%, transparent 100%)",
         }}
       />
-      <div className="relative mx-auto max-w-6xl px-4 pb-20 pt-20 sm:px-6 sm:pt-28">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-0 h-[28rem] w-[44rem] -translate-x-1/2 rounded-full bg-emerald-500/[0.07] blur-3xl"
+      />
+      <div className="relative mx-auto max-w-6xl px-4 pb-20 pt-16 sm:px-6 sm:pt-24">
         <div className="mx-auto max-w-3xl text-center">
+          <div
+            className="ls-rise flex flex-col items-center gap-4"
+            style={{ "--d": "0.08s" } as React.CSSProperties}
+          >
+            <RingMark className="size-10 sm:size-12" />
+            <p className="font-display text-2xl font-semibold tracking-tight text-neutral-50 sm:text-3xl">
+              Ring Promoter
+            </p>
+          </div>
           <p
-            className="ls-rise inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-xs text-neutral-400"
-            style={{ "--d": "0.3s" } as React.CSSProperties}
+            className="ls-rise mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-xs text-neutral-400"
+            style={{ "--d": "0.28s" } as React.CSSProperties}
           >
             <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden />
             int → test → acc → prod
           </p>
-          <h1 className="mt-6 text-4xl font-semibold leading-[1.06] tracking-tight text-neutral-50 sm:text-6xl">
+          <h1 className="mt-6 font-display text-4xl font-semibold leading-[1.06] tracking-tight text-neutral-50 sm:text-6xl">
             <span className="ls-mask-line">
               <span>Every release</span>
             </span>
@@ -182,10 +195,9 @@ function Hero() {
             className="ls-rise mx-auto mt-6 max-w-2xl text-pretty text-base leading-relaxed text-neutral-400 sm:text-lg"
             style={{ "--d": "0.4s" } as React.CSSProperties}
           >
-            Ring Promoter is a small control plane that moves application versions
-            through deployment rings — health-gated at every hop, rolled back
-            automatically on failure, and written to history every time.
-            Kubernetes and VM apps, one Go binary.
+            A small control plane that moves application versions through deployment
+            rings — health-gated at every hop, rolled back automatically on failure,
+            and written to history every time. Kubernetes and VM apps, one Go binary.
           </p>
           <div
             className="ls-rise mt-8 flex flex-wrap items-center justify-center gap-3"

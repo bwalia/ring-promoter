@@ -52,14 +52,16 @@ export const EarthGlobe = forwardRef<
     const earthR = m.earthR;
     const strokeK = Math.min(cssW, cssH) / 400;
 
-    // Atmosphere
-    const atm = ctx.createRadialGradient(cx, cy, earthR * 0.92, cx, cy, earthR * 1.28);
+    // Atmosphere halo — slightly stronger for a cinematic limb without
+    // competing with the emerald console chrome.
+    const atm = ctx.createRadialGradient(cx, cy, earthR * 0.9, cx, cy, earthR * 1.36);
     atm.addColorStop(0, "rgba(56, 189, 248, 0)");
-    atm.addColorStop(0.72, "rgba(56, 189, 248, 0.07)");
+    atm.addColorStop(0.65, "rgba(56, 189, 248, 0.05)");
+    atm.addColorStop(0.88, "rgba(125, 211, 252, 0.14)");
     atm.addColorStop(1, "rgba(56, 189, 248, 0)");
     ctx.fillStyle = atm;
     ctx.beginPath();
-    ctx.arc(cx, cy, earthR * 1.28, 0, Math.PI * 2);
+    ctx.arc(cx, cy, earthR * 1.36, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.save();
@@ -93,9 +95,9 @@ export const EarthGlobe = forwardRef<
     }
 
     // Land
-    ctx.fillStyle = "rgba(134, 168, 128, 0.78)";
-    ctx.strokeStyle = "rgba(190, 210, 170, 0.18)";
-    ctx.lineWidth = 0.4 * strokeK;
+    ctx.fillStyle = "rgba(148, 180, 138, 0.86)";
+    ctx.strokeStyle = "rgba(210, 225, 190, 0.22)";
+    ctx.lineWidth = 0.45 * strokeK;
     for (const poly of LAND_POLYS) {
       drawLand(ctx, poly, spin, m);
     }
@@ -128,16 +130,16 @@ export const EarthGlobe = forwardRef<
 
     ctx.restore();
 
-    // Limb
+    // Limb — cool rim + faint sun-warm secondary ring
     ctx.beginPath();
     ctx.arc(cx, cy, earthR, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(125, 211, 252, 0.28)";
-    ctx.lineWidth = 1.1 * strokeK;
+    ctx.strokeStyle = "rgba(186, 230, 253, 0.38)";
+    ctx.lineWidth = 1.25 * strokeK;
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(cx, cy, earthR + 1.6 * strokeK, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(245, 185, 66, 0.12)";
-    ctx.lineWidth = 0.7 * strokeK;
+    ctx.arc(cx, cy, earthR + 2.1 * strokeK, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(245, 185, 66, 0.16)";
+    ctx.lineWidth = 0.8 * strokeK;
     ctx.stroke();
   };
 
