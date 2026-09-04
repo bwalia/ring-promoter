@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "hig": {
+      "source": "prisma-labs-dev/apple-skills",
+      "sourceType": "github",
+      "skillPath": "skills/hig/SKILL.md",
+      "computedHash": "3839609ff8a442600b64ff35c483b0c3297407647301f745a17e46bf7a0e2287"
+    },
+    "human-interface-guidelines": {
+      "source": "zanwei/human-interface-guidelines-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "88bb6f5df8b3c8157c654c1288e7777cdd41ccd1931ac8b8750040dae5ed0fa7"
+    }
+  }
+}
