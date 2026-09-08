@@ -7,6 +7,11 @@
 # ConfigMap. A ConfigMap change does not restart the pod on its own, so the
 # deploy workflow issues a rollout restart after applying it; by hand it is
 # `kubectl rollout restart deploy/ring-promoter -n workstation-ring-promoter`.
+#
+# THIS FILE IS THE SOURCE OF TRUTH and the deploy workflow applies it verbatim,
+# so anything added to the live ConfigMap by hand and not mirrored here is
+# silently deleted on the next push to main. jobshout-com and wslvault had
+# drifted that way and were restored into this file on 2026-09-08.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -80,7 +85,7 @@ data:
               # pods went on to converge seconds later (int stayed up the whole
               # time because maxUnavailable:0 keeps the old pods serving). 12m
               # covers the cold-pull worst case and still finishes inside this
-              # job's 15m timeout below, so a genuinely stuck deploy still fails.
+              # job's 20m timeout below, so a genuinely stuck deploy still fails.
               helm upgrade --install jobshout /src/deploy/helm/jobshout \
                 --namespace "${ns}" \
                 -f "/src/deploy/helm/jobshout/values-${ns}.yaml" \
@@ -91,7 +96,13 @@ data:
                 --wait --timeout 12m
               echo "jobshout ${RP_VERSION} live in ${ns}"
           resources: { cpu_request: 100m, memory_limit: 512Mi }
-          timeout: 15m
+          # 20m, not 15m: helm --wait above is already 12m, so 15m left just 3m
+          # for the git clone and helm's own startup. A cold pull that used most
+          # of helm's budget got the whole Job killed before helm could report,
+          # turning a slow-but-successful deploy into a reported failure (the
+          # same class of false failure as bwalia/ring-promoter#102). The other
+          # apps here already use 20m; this makes all five consistent.
+          timeout: 20m
           retries: 0
           ttl_after_finished: 1h
         rings:
@@ -99,3 +110,323 @@ data:
           test: { target_env: test, health_url: "http://jobshout-api.test.svc.cluster.local:8080/health" }
           acc:  { target_env: acc,  health_url: "http://jobshout-api.acc.svc.cluster.local:8080/health" }
           prod: { target_env: prod, health_url: "http://jobshout-api.prod.svc.cluster.local:8080/health" }
+
+      # jobshout-com — AI employment marketplace (Rust API + Next.js).
+      # Separate Helm chart under jobshout-com/deploy/helm/jobshout-com.
+      # Images: int-spectoncr…/jobshout-com/{api,web}:jsc-vX.Y.Z
+      # UI: https://rp.workstation.co.uk/?app=jobshout-com
+      # Public int: https://int.jobshout.com
+      - name: jobshout-com
+        display_name: "JobShout.com"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: k8sjob
+        k8sjob:
+          namespace: ring-exec
+          image: docker.io/dtzar/helm-kubectl:3.15.4
+          service_account: ring-deploy-job
+          env_from_secrets: [jobshout-registry-creds]
+          host_network: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              ns="${RP_TARGET_ENV}"
+              echo "deploy jobshout-com ${RP_VERSION} -> ns ${ns}"
+              rm -rf /src
+              n=0
+              until git clone --depth 1 --branch "${RP_VERSION}" https://github.com/bwalia/jobshout /src; do
+                n=$((n+1))
+                if [ "$n" -ge 5 ]; then
+                  echo "tag clone failed; falling back to default branch"
+                  git clone --depth 1 https://github.com/bwalia/jobshout /src || exit 1
+                  break
+                fi
+                echo "git clone failed (attempt $n), retrying..."
+                sleep $((n*5))
+              done
+              helm upgrade --install jobshout-com /src/jobshout-com/deploy/helm/jobshout-com \
+                --namespace "${ns}" \
+                -f "/src/jobshout-com/deploy/helm/jobshout-com/values-${ns}.yaml" \
+                --set image.tag="${RP_VERSION}" \
+                --set-string secrets.registryUsername="${REGISTRY_USERNAME}" \
+                --set-string secrets.registryPassword="${REGISTRY_PASSWORD}" \
+                --wait --timeout 15m
+              echo "jobshout-com ${RP_VERSION} live in ${ns}"
+          resources: { cpu_request: 100m, memory_limit: 512Mi }
+          timeout: 20m
+          retries: 0
+          ttl_after_finished: 1h
+        rings:
+          int:  { target_env: int,  health_url: "http://jobshout-com-api.int.svc.cluster.local:8088/health" }
+          test: { target_env: test, health_url: "http://jobshout-com-api.test.svc.cluster.local:8088/health" }
+          acc:  { target_env: acc,  health_url: "http://jobshout-com-api.acc.svc.cluster.local:8088/health" }
+          prod: { target_env: prod, health_url: "http://jobshout-com-api.prod.svc.cluster.local:8088/health" }
+      - name: wslvault
+        display_name: "WSLVault (k3s1 HA)"
+        location: { lat: 53.4808, lng: -2.2426, city: Manchester, region: GB }
+        deployer: k8sjob
+        k8sjob:
+          namespace: ring-exec
+          image: docker.io/dtzar/helm-kubectl:3.15.4
+          service_account: ring-deploy-job
+          # CNI overlay egress to github.com is flaky on some nodes; hostNetwork
+          # uses the node's path (same as jobshout).
+          host_network: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              env="${RP_TARGET_ENV}"
+              ver="${RP_VERSION}"
+              case "${env}" in
+                region-a)
+                  ns="wslvault"
+                  values="deploy/gitops/regions/region-a.values.yaml"
+                  ;;
+                region-b)
+                  ns="wslvault-b"
+                  values="deploy/gitops/regions/region-b.values.yaml"
+                  ;;
+                *)
+                  echo "unknown RP_TARGET_ENV=${env} (expected region-a|region-b)"
+                  exit 1
+                  ;;
+              esac
+              echo "deploy wslvault ${ver} -> ns ${ns} (${env}, ring ${RP_RING})"
+              rm -rf /src
+              n=0
+              until git clone --depth 1 --branch "${ver}" https://github.com/bwalia/wslvault /src; do
+                n=$((n+1))
+                if [ "$n" -ge 5 ]; then exit 1; fi
+                echo "git clone failed (attempt $n), retrying..."
+                sleep $((n*5))
+              done
+              cd /src
+              # Region values pin explicit per-service tags; --set overrides all of
+              # them plus global.imageTag so lease-manager / sync-scheduler (which
+              # fall back to global) cannot lag behind.
+              # No --create-namespace: wslvault / wslvault-b already exist; the
+              # ring-deploy-job SA has no cluster-scoped namespace rights.
+              helm upgrade --install wslvault ./deploy/helm/wslvault \
+                --namespace "${ns}" \
+                -f "${values}" \
+                --set global.imageTag="${ver}" \
+                --set ui.image.tag="${ver}" \
+                --set identityService.image.tag="${ver}" \
+                --set regionHealth.image.tag="${ver}" \
+                --set secretEngine.image.tag="${ver}" \
+                --set policyEngine.image.tag="${ver}" \
+                --set transitEngine.image.tag="${ver}" \
+                --set auditService.image.tag="${ver}" \
+                --set pkiEngine.image.tag="${ver}" \
+                --set mcpServer.image.tag="${ver}" \
+                --set cryptoService.image.tag="${ver}" \
+                --set replicationAgent.image.tag="${ver}" \
+                --wait --timeout 15m
+              echo "wslvault ${ver} live in ${ns}"
+          resources: { cpu_request: 100m, memory_limit: 512Mi }
+          timeout: 20m
+          retries: 0
+          ttl_after_finished: 1h
+        rings:
+          # Wave 0 — Manchester. Auto-promote onward so a seed rolls London too.
+          int:
+            target_env: region-a
+            display_name: "region-a · Manchester"
+            health_url: "https://vault-ui.workstation.co.uk/api/version"
+            health_version_field: version
+            auto_promote: true
+          # Wave 1 — London. Stop here; higher rings are unused for this app.
+          test:
+            target_env: region-b
+            display_name: "region-b · London"
+            health_url: "https://vault-ha.workstation.co.uk/api/version"
+            health_version_field: version
+            auto_promote: false
+
+      # beacon (BeaconPulse) — multi-tenant monitoring platform. PUBLIC repo
+      # bwalia/beaconpulse, so the Job clones it unauthenticated at the promoted
+      # tag. Chart deploy/helm/beacon with one values file per ring; the release is
+      # named `beacon` to match the releases already live in int/test/acc/prod —
+      # a different name here would create a SECOND parallel release instead of
+      # upgrading the existing one.
+      #
+      # No registry creds: the chart pulls from int-spectoncr.diytaxreturn.co.uk
+      # using each namespace's pre-existing `nebulacr-login` secret
+      # (image.pullSecretCreate: false), which the chart references but does not own.
+      #
+      # networkPolicy and controlPlaneMonitoring are both `enabled: false` in the
+      # chart's base values and no ring overrides them, so nothing cluster-scoped
+      # (ClusterRole/ClusterRoleBinding) or NetworkPolicy-shaped is rendered — which
+      # matters because ring-deploy-job is denied networkpolicies. If either is ever
+      # switched on for a ring, this deploy starts failing on RBAC.
+      - name: beacon
+        display_name: "BeaconPulse"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: k8sjob
+        k8sjob:
+          namespace: ring-exec
+          image: docker.io/dtzar/helm-kubectl:3.15.4
+          service_account: ring-deploy-job
+          # Same CNI-egress workaround as jobshout: clone over the node's path.
+          host_network: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              ns="${RP_TARGET_ENV}"
+              echo "deploy beacon ${RP_VERSION} -> ns ${ns}"
+              rm -rf /src
+              n=0
+              until git clone --depth 1 --branch "${RP_VERSION}" https://github.com/bwalia/beaconpulse /src; do
+                n=$((n+1))
+                if [ "$n" -ge 5 ]; then exit 1; fi
+                echo "git clone failed (attempt $n), retrying..."
+                sleep $((n*5))
+              done
+              # No --create-namespace: int/test/acc/prod are shared platform
+              # namespaces that pre-exist; ring-deploy-job has no cluster-scoped
+              # namespace rights.
+              helm upgrade --install beacon /src/deploy/helm/beacon \
+                --namespace "${ns}" \
+                -f "/src/deploy/helm/beacon/values-${ns}.yaml" \
+                --set image.tag="${RP_VERSION}" \
+                --wait --timeout 12m
+              echo "beacon ${RP_VERSION} live in ${ns}"
+          resources: { cpu_request: 100m, memory_limit: 512Mi }
+          # 20m, not 15m: helm --wait above is already 12m, so 15m left just 3m
+          # for the git clone and helm's own startup. A cold pull that used most
+          # of helm's budget got the whole Job killed before helm could report,
+          # turning a slow-but-successful deploy into a reported failure (the
+          # same class of false failure as bwalia/ring-promoter#102). The other
+          # apps here already use 20m; this makes all five consistent.
+          timeout: 20m
+          retries: 0
+          ttl_after_finished: 1h
+        rings:
+          int:  { target_env: int,  health_url: "http://beacon-api.int.svc.cluster.local:8080/readyz" }
+          test: { target_env: test, health_url: "http://beacon-api.test.svc.cluster.local:8080/readyz" }
+          acc:  { target_env: acc,  health_url: "http://beacon-api.acc.svc.cluster.local:8080/readyz" }
+          prod: { target_env: prod, health_url: "http://beacon-api.prod.svc.cluster.local:8080/readyz" }
+
+      # workstation-opsapi — the OpsAPI (Lua/Lapis) serving *-opsapi.workstation.co.uk.
+      # PUBLIC repo bwalia/opsapi. It SHARES the diytaxreturn-lapis chart with the
+      # legacy `diytaxreturn-lapis` release but is a deliberately separate release on
+      # its own isolated database, driven by the values-workstation-<ring>.yaml files
+      # (NOT values-<ring>.yaml, which belong to the diytaxreturn release). Release
+      # name and values prefix must both stay `workstation-opsapi` /
+      # `values-workstation-` or this would redeploy the wrong product.
+      #
+      # Note: only int and prod exist today; the first promote into test/acc creates
+      # them, which requires that ring's Vault key to exist for the chart's
+      # ExternalSecret.
+      - name: workstation-opsapi
+        display_name: "Workstation OpsAPI"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: k8sjob
+        k8sjob:
+          namespace: ring-exec
+          image: docker.io/dtzar/helm-kubectl:3.15.4
+          service_account: ring-deploy-job
+          host_network: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              ns="${RP_TARGET_ENV}"
+              echo "deploy workstation-opsapi ${RP_VERSION} -> ns ${ns}"
+              rm -rf /src
+              n=0
+              until git clone --depth 1 --branch "${RP_VERSION}" https://github.com/bwalia/opsapi /src; do
+                n=$((n+1))
+                if [ "$n" -ge 5 ]; then exit 1; fi
+                echo "git clone failed (attempt $n), retrying..."
+                sleep $((n*5))
+              done
+              helm upgrade --install workstation-opsapi /src/devops/helm-charts/diytaxreturn-lapis \
+                --namespace "${ns}" \
+                -f "/src/devops/helm-charts/diytaxreturn-lapis/values-workstation-${ns}.yaml" \
+                --set image.tag="${RP_VERSION}" \
+                --wait --timeout 12m
+              echo "workstation-opsapi ${RP_VERSION} live in ${ns}"
+          resources: { cpu_request: 100m, memory_limit: 512Mi }
+          # 20m, not 15m: helm --wait above is already 12m, so 15m left just 3m
+          # for the git clone and helm's own startup. A cold pull that used most
+          # of helm's budget got the whole Job killed before helm could report,
+          # turning a slow-but-successful deploy into a reported failure (the
+          # same class of false failure as bwalia/ring-promoter#102). The other
+          # apps here already use 20m; this makes all five consistent.
+          timeout: 20m
+          retries: 0
+          ttl_after_finished: 1h
+        # PUBLIC health URLs, not the in-cluster Service DNS the other apps use.
+        # The prod pod is scheduled on cloud003, an EDGE node, and the CNI
+        # overlay from in-cluster pods to the edge nodes does not carry traffic:
+        # http://workstation-opsapi.prod.svc.cluster.local:80/ready times out
+        # (20s, no response) while the pod is Running and its endpoint is
+        # registered. That is the same overlay problem the k8sjob apps work
+        # around with host_network. Going through the wslproxy edge is the one
+        # path that reaches every ring wherever its pods land — the same reason
+        # wslvault above uses public URLs. Hosts come from each ring's
+        # values-workstation-<ring>.yaml `host:` field.
+        rings:
+          int:  { target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready" }
+          test: { target_env: test, health_url: "https://test-opsapi.workstation.co.uk/ready" }
+          acc:  { target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready" }
+          prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready" }
+
+      # ── academy (Workstation Academy) — REGISTERED BUT DISABLED ──────────────
+      # Uncomment the block below to enable. It is commented out for one reason
+      # only: the github deployer is a HARD boot requirement, not a soft one —
+      # with the app registered and no token the process exits at startup with
+      #   fatal: app "academy" uses the github deployer but env RP_GITHUB_TOKEN is empty
+      # and the whole control plane (jobshout, beacon, opsapi…) goes down with it.
+      # Verified on 2026-09-08: enabling it crash-looped the new pod; only
+      # maxUnavailable:0 kept the old one serving.
+      #
+      # TO ENABLE — add the key, then uncomment:
+      #   kubectl -n workstation-ring-promoter patch secret ring-promoter \
+      #     --type merge -p '{"stringData":{"RP_GITHUB_TOKEN":"<PAT>"}}'
+      #   kubectl -n workstation-ring-promoter rollout restart deploy/ring-promoter
+      # The PAT needs actions:write on bwalia/workstation-academy (private repo).
+      # The ring-system and fictionally instances already carry such a token.
+      # # academy (Workstation Academy) — the learner-facing Next.js site.
+      # #
+      # # GITHUB deployer, not k8sjob, for one hard reason: bwalia/workstation-academy
+      # # is a PRIVATE repo, so the unauthenticated `git clone` every k8sjob app uses
+      # # returns 401. Dispatching the repo's own deploy-k3s.yml instead reuses the
+      # # deploy path that already builds the image, syncs the environment's secrets,
+      # # publishes DNS and registers the edge vhost — none of which a bare `helm
+      # # upgrade` from a Job would do.
+      # #
+      # # Input mapping for deploy-k3s.yml's workflow_dispatch schema (its names differ
+      # # from the wslproxy defaults ENV/DEPLOY_BRANCH/DEPLOY_MODE):
+      # #   TARGET_ENV      <- RP_TARGET_ENV   (int|test|acc|prod)
+      # #   IMAGE_TAG       <- RP_VERSION      (the tag being promoted)
+      # #   DEPLOYMENT_TYPE <- deploy_mode     ("deploy": promotion moves an image that
+      # #                                       already exists, it never rebuilds)
+      # #
+      # # REQUIRES the RP_GITHUB_TOKEN key on secret/ring-promoter in this namespace —
+      # # it is NOT there yet, and the pod marks it optional, so until it is added
+      # # every academy promote fails on an unauthenticated dispatch.
+      # - name: academy
+      #   display_name: "Workstation Academy"
+      #   location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+      #   deployer: github
+      #   github:
+      #     owner: bwalia
+      #     repo: workstation-academy
+      #     workflow: deploy-k3s.yml
+      #     ref: main
+      #     env_input: TARGET_ENV
+      #     version_input: IMAGE_TAG
+      #     mode_input: DEPLOYMENT_TYPE
+      #     deploy_mode: deploy
+      #     token_env: RP_GITHUB_TOKEN
+      #     poll_interval: 20s
+      #     run_lookup_timeout: 90s
+      #   rings:
+      #     int:  { target_env: int,  health_url: "http://academy-web.int.svc.cluster.local:80/api/health" }
+      #     test: { target_env: test, health_url: "http://academy-web.test.svc.cluster.local:80/api/health" }
+      #     acc:  { target_env: acc,  health_url: "http://academy-web.acc.svc.cluster.local:80/api/health" }
+      #     prod: { target_env: prod, health_url: "http://academy-web.prod.svc.cluster.local:80/api/health" }
