@@ -85,7 +85,7 @@ data:
               # pods went on to converge seconds later (int stayed up the whole
               # time because maxUnavailable:0 keeps the old pods serving). 12m
               # covers the cold-pull worst case and still finishes inside this
-              # job's 15m timeout below, so a genuinely stuck deploy still fails.
+              # job's 20m timeout below, so a genuinely stuck deploy still fails.
               helm upgrade --install jobshout /src/deploy/helm/jobshout \
                 --namespace "${ns}" \
                 -f "/src/deploy/helm/jobshout/values-${ns}.yaml" \
@@ -96,7 +96,13 @@ data:
                 --wait --timeout 12m
               echo "jobshout ${RP_VERSION} live in ${ns}"
           resources: { cpu_request: 100m, memory_limit: 512Mi }
-          timeout: 15m
+          # 20m, not 15m: helm --wait above is already 12m, so 15m left just 3m
+          # for the git clone and helm's own startup. A cold pull that used most
+          # of helm's budget got the whole Job killed before helm could report,
+          # turning a slow-but-successful deploy into a reported failure (the
+          # same class of false failure as bwalia/ring-promoter#102). The other
+          # apps here already use 20m; this makes all five consistent.
+          timeout: 20m
           retries: 0
           ttl_after_finished: 1h
         rings:
@@ -288,7 +294,13 @@ data:
                 --wait --timeout 12m
               echo "beacon ${RP_VERSION} live in ${ns}"
           resources: { cpu_request: 100m, memory_limit: 512Mi }
-          timeout: 15m
+          # 20m, not 15m: helm --wait above is already 12m, so 15m left just 3m
+          # for the git clone and helm's own startup. A cold pull that used most
+          # of helm's budget got the whole Job killed before helm could report,
+          # turning a slow-but-successful deploy into a reported failure (the
+          # same class of false failure as bwalia/ring-promoter#102). The other
+          # apps here already use 20m; this makes all five consistent.
+          timeout: 20m
           retries: 0
           ttl_after_finished: 1h
         rings:
@@ -338,7 +350,13 @@ data:
                 --wait --timeout 12m
               echo "workstation-opsapi ${RP_VERSION} live in ${ns}"
           resources: { cpu_request: 100m, memory_limit: 512Mi }
-          timeout: 15m
+          # 20m, not 15m: helm --wait above is already 12m, so 15m left just 3m
+          # for the git clone and helm's own startup. A cold pull that used most
+          # of helm's budget got the whole Job killed before helm could report,
+          # turning a slow-but-successful deploy into a reported failure (the
+          # same class of false failure as bwalia/ring-promoter#102). The other
+          # apps here already use 20m; this makes all five consistent.
+          timeout: 20m
           retries: 0
           ttl_after_finished: 1h
         # PUBLIC health URLs, not the in-cluster Service DNS the other apps use.
