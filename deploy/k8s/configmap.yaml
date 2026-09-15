@@ -375,7 +375,7 @@ data:
           acc:  { target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready" }
           prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready" }
 
-      # wslproxy-k3s1 — WSLProxy ingress + pgsql control plane on k3s1
+      # wslproxy-k3s1 — WSLProxy control plane on k3s1
       # (https://cp.pop0.uk). Owning UI: https://rp.workstation.co.uk/?app=wslproxy-k3s1
       # Canonical snippet also in bwalia/wslproxy deploy/ring-promoter/k3s1.yaml.
       # Auto-seed on merge to wslproxy main:
@@ -384,7 +384,7 @@ data:
       #   --from-literal=VAULT_ADDR=… --from-literal=VAULT_TOKEN=…
       #   and kubectl apply -f deploy/ring-promoter/k3s1-rbac.yaml (from wslproxy).
       - name: wslproxy-k3s1
-        display_name: "WSLProxy Ingress (k3s1)"
+        display_name: "WSLProxy Control Plane"
         location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
         deployer: k8sjob
         k8sjob:
