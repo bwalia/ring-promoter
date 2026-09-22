@@ -62,7 +62,16 @@ in **configuration**, not code.
   version the endpoint reports** (e.g. `v1.0.36`) instead of the ref name.
 - If the target is still unhealthy after all retries, it is **automatically
   rolled back** to its previous version.
-- Every **seed / promote / rollback** is written to history, success or failure.
+- Every **seed / promote / rollback / restart** is written to history, success or failure.
+- **Restart in place.** `POST /api/apps/{app}/rings/{ring}/restart` restarts a
+  ring's running instances on the version they already run (kubectl:
+  `rollout restart` + `rollout status`) and health-checks them — e.g. so pods
+  pick up a rotated Secret, which re-seeding the same version cannot do (an
+  unchanged image tag is a no-op). It never changes the ring's versions, is not
+  a promotion (so maintenance-window / sign-off / change-request / Grafana gates
+  do not apply), holds the same per-app lock as a deploy, and needs the
+  production password for the prod ring. Deployers backed by a CI workflow or
+  one-shot Job cannot restart in place and answer `409`.
 - **Auto-promote (optional, per ring).** A ring can be flagged so that a
   version landing there healthy is promoted onward automatically — the chain
   runs inside the same operation and lock, hop by hop, and stops at the first
@@ -221,6 +230,7 @@ are unauthenticated.
 | `POST /api/apps/{app}/seed`      | `{"ring","version","cr_code?"}`  | Set an initial version for a ring.        |
 | `POST /api/apps/{app}/promote`   | `{"from_ring","cr_code?"}`       | Promote to the next ring.                 |
 | `POST /api/apps/{app}/rollback`  | `{"ring"}`            | Roll a ring back to its previous version. |
+| `POST /api/apps/{app}/rings/{ring}/restart` | `{"reason?","password?"}` | Restart a ring on its current version (see above). `409` if the ring has no version or the deployer cannot restart. |
 | `PUT  /api/apps/{app}/rings/{ring}/auto-promote` | `{"enabled"}` | Toggle auto-promote for a ring (see below). `409` if the ring declares `auto_promote` in config. |
 | `GET  /api/apps/{app}/maintenance-windows` | –           | Maintenance view: recurring + ad-hoc windows, guarded rings, open status. |
 | `POST /api/apps/{app}/maintenance-windows` | `{"ring?","starts_at","ends_at","reason?","created_by?"}` | Open an ad-hoc maintenance window (RFC3339 times; empty ring = all guarded rings). |
@@ -234,19 +244,19 @@ are unauthenticated.
 | `PUT  /api/groups/{id}`          | `{"name","apps"}`     | Rename a group / replace its members.     |
 | `DELETE /api/groups/{id}`        | –                     | Delete a group.                           |
 
-**Sync vs async.** `seed`/`promote`/`rollback` run **synchronously** by default and
+**Sync vs async.** `seed`/`promote`/`rollback`/`restart` run **synchronously** by default and
 return the final `Result` (200 success / 422 ran-but-failed) — ideal for CI
 (`curl --fail`). Add `?async=1` to run in the background: the call returns **202**
 with `{"job_id": "..."}` immediately, and you poll `GET /api/apps/{app}/jobs/{id}`
 for live step-by-step progress (per-step status + logs and the final result). The
 web UI uses the async path to render its live deployment view.
 
-**Status codes.** `seed`/`promote`/`rollback` return **200** when the operation
+**Status codes.** `seed`/`promote`/`rollback`/`restart` return **200** when the operation
 succeeded (deployed and healthy), **422** when it ran but failed (e.g. health
 check failed and the target was rolled back — details in the JSON body), and
 **4xx** for precondition errors: `404` (unknown app/ring), `400` (empty version
 / promoting past the last ring / seeding a version that does not exist in the
-app's source repository), `409` (nothing to promote/roll back), `401`
+app's source repository), `409` (nothing to promote/roll back/restart, or restart unsupported by the deployer), `401`
 (bad token). This lets CI treat a non-2xx response as "promotion failed".
 
 **Production password.** When `RP_PROD_PASSWORD` is set, any request that

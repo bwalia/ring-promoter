@@ -34,7 +34,18 @@ type Deployer interface {
 	// waits for the rollout to become available. It returns an error if the
 	// rollout does not succeed.
 	Deploy(ctx context.Context, t Target, version string) error
+	// Restart re-creates the target's running instances on the version they
+	// already run (e.g. so pods pick up a rotated Secret) and waits for them to
+	// become available again. It must not change the deployed version. It
+	// returns ErrRestartUnsupported (wrapped) when the backend has no notion of
+	// restarting in place.
+	Restart(ctx context.Context, t Target) error
 }
+
+// ErrRestartUnsupported is returned by Deployer.Restart when the deployment
+// backend cannot restart a target without redeploying it (e.g. a CI workflow
+// or a one-shot Job, whose only lever is "run the deploy again").
+var ErrRestartUnsupported = errors.New("restart is not supported by this app's deployer")
 
 // LiveVersioner is an optional capability: reporting the version currently
 // running in the cluster (as opposed to the version we believe we deployed).

@@ -16,6 +16,8 @@ function describe(h: HistoryEntry): string {
       return `promoted ${h.to_version} to ${h.ring}`;
     case "rollback":
       return `rolled ${h.ring} back to ${h.to_version}`;
+    case "restart":
+      return `restarted ${h.ring} on ${h.to_version}`;
     default:
       return `${h.action} ${h.to_version} (${h.ring})`;
   }

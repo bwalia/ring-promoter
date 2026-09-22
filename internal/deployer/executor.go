@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -101,6 +102,14 @@ func (d *ExecDeployer) Deploy(ctx context.Context, t Target, version string) err
 			return d.cancelled(ctx, ex, rep)
 		}
 	}
+}
+
+// Restart implements Deployer. An execution backend (GitHub workflow, one-shot
+// Kubernetes Job) can only run the deploy again, which for an unchanged
+// version is either a no-op or a full redeploy through the pipeline — neither
+// is "restart in place", so it is refused rather than approximated.
+func (d *ExecDeployer) Restart(_ context.Context, t Target) error {
+	return fmt.Errorf("%w (app %s, ring %s uses an execution backend)", ErrRestartUnsupported, t.App, t.Ring)
 }
 
 // cancelled tears the execution down after ctx was cancelled (user cancel or

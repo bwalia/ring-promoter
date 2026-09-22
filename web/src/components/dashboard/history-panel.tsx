@@ -127,6 +127,7 @@ export function HistoryPanel({
               <SelectItem value="seed">Seed</SelectItem>
               <SelectItem value="promote">Promote</SelectItem>
               <SelectItem value="rollback">Rollback</SelectItem>
+              <SelectItem value="restart">Restart</SelectItem>
             </SelectContent>
           </Select>
           <Select value={result} onValueChange={setResult}>

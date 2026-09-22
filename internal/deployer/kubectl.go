@@ -63,6 +63,33 @@ func (d *KubectlDeployer) Deploy(ctx context.Context, t Target, version string) 
 	return nil
 }
 
+// Restart implements Deployer: it triggers a rolling restart of the Deployment
+// (new pods, same image — so they re-read env from Secrets/ConfigMaps) and
+// waits for the rollout to complete. Re-running Deploy with the unchanged tag
+// would be a no-op, which is why this is a separate operation.
+func (d *KubectlDeployer) Restart(ctx context.Context, t Target) error {
+	d.log.Info("kubectl restart",
+		"app", t.App, "ring", t.Ring, "namespace", t.Namespace,
+		"deployment", t.Deployment)
+
+	if _, err := d.run(ctx, 30*time.Second,
+		"-n", t.Namespace, "rollout", "restart",
+		"deployment/"+t.Deployment,
+	); err != nil {
+		return fmt.Errorf("rollout restart: %w", err)
+	}
+
+	// Wait for the restarted ReplicaSet to become available.
+	if _, err := d.run(ctx, d.rollout,
+		"-n", t.Namespace, "rollout", "status",
+		"deployment/"+t.Deployment,
+		fmt.Sprintf("--timeout=%s", d.rollout),
+	); err != nil {
+		return fmt.Errorf("rollout status: %w", err)
+	}
+	return nil
+}
+
 // LiveVersion implements LiveVersioner by reading the running image tag.
 func (d *KubectlDeployer) LiveVersion(ctx context.Context, t Target) (string, error) {
 	jsonpath := fmt.Sprintf(

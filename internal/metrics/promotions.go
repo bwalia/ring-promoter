@@ -3,17 +3,19 @@ package metrics
 import "github.com/prometheus/client_golang/prometheus"
 
 // Promotion metrics. A "promotion" here is any Ring Promoter operation that
-// deploys a version into a ring and health-checks it — seed, promote, and
-// rollback all funnel through the promoter and are counted the same way, keyed
-// by the `action` label. Labels are bounded: application/ring come from config,
+// deploys (or restarts) a version in a ring and health-checks it — seed,
+// promote, rollback and restart all funnel through the promoter and are counted
+// the same way, keyed by the `action` label. Labels are bounded: application/ring come from config,
 // action is one of a fixed set, and result is success|failure.
 
 const (
-	// ActionSeed / ActionPromote / ActionRollback are the fixed `action` label
-	// values, matching Result.Action so dashboards line up with the API.
+	// ActionSeed / ActionPromote / ActionRollback / ActionRestart are the fixed
+	// `action` label values, matching Result.Action so dashboards line up with
+	// the API.
 	ActionSeed     = "seed"
 	ActionPromote  = "promote"
 	ActionRollback = "rollback"
+	ActionRestart  = "restart"
 )
 
 var (
@@ -22,7 +24,7 @@ var (
 			Namespace: namespace,
 			Subsystem: "promotion",
 			Name:      "operations_total",
-			Help:      "Promoter operations (seed/promote/rollback) by application, ring, action and result.",
+			Help:      "Promoter operations (seed/promote/rollback/restart) by application, ring, action and result.",
 		},
 		[]string{"application", "ring", "action", "result"},
 	)
@@ -32,7 +34,7 @@ var (
 			Namespace: namespace,
 			Subsystem: "promotion",
 			Name:      "duration_seconds",
-			Help:      "Wall-clock duration of a promoter operation (deploy + health check).",
+			Help:      "Wall-clock duration of a promoter operation (deploy or restart + health check).",
 			Buckets:   promotionDurationBuckets,
 		},
 		[]string{"application", "ring", "action"},
