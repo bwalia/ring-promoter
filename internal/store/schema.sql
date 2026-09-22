@@ -132,3 +132,21 @@ CREATE TABLE IF NOT EXISTS audit_event (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_app_id ON audit_event (app, id DESC);
+
+-- Latest status from an external QA agent: workflow go/no-go + environment
+-- health per (app, ring). Ring '' is an app-level summary. Upserted in place —
+-- only the newest report for each key is kept.
+CREATE TABLE IF NOT EXISTS qa_report (
+    app               TEXT        NOT NULL,
+    ring              TEXT        NOT NULL DEFAULT '',
+    workflow_verdict  TEXT        NOT NULL DEFAULT 'unknown',
+    env_healthy       BOOLEAN,
+    summary           TEXT        NOT NULL DEFAULT '',
+    detail            TEXT        NOT NULL DEFAULT '',
+    source            TEXT        NOT NULL DEFAULT '',
+    checked_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (app, ring)
+);
+
+CREATE INDEX IF NOT EXISTS idx_qa_report_updated ON qa_report (updated_at DESC);

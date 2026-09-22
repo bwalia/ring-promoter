@@ -8,6 +8,7 @@ import type {
   Job,
   MaintenanceView,
   MaintenanceWindow,
+  QAStatus,
   RingView,
   Signoff,
   TopologyResponse,
@@ -231,6 +232,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(so),
     }),
+
+  /** External QA agent status. Returns {enabled:false} when not configured. */
+  qa: (app?: string) =>
+    request<QAStatus>(
+      app ? `/api/qa?app=${encodeURIComponent(app)}` : "/api/qa",
+    ),
 
   rollback: (name: string, ring: string) =>
     request<{ job_id: string }>(`${app(name)}/rollback?async=1`, {

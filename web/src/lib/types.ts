@@ -25,6 +25,8 @@ export interface AppsResponse {
   prod_protected?: boolean;
   /** True when the server can explain failed jobs with AI (diagnose endpoint). */
   ai_enabled?: boolean;
+  /** True when an external QA agent is registered in config. */
+  qa_enabled?: boolean;
 }
 
 /** Which promotion-policy gates guard entering a ring, plus live window state. */
@@ -129,6 +131,28 @@ export interface Signoff {
   qa_status: string;
   note?: string;
   updated_at: string;
+}
+
+/** Latest status push from an external QA agent for one (app, ring). */
+export interface QAReport {
+  app: string;
+  /** Empty = app-level summary. */
+  ring?: string;
+  workflow_verdict: GateState;
+  env_healthy?: boolean;
+  summary?: string;
+  detail?: string;
+  source: string;
+  checked_at: string;
+  updated_at: string;
+}
+
+/** GET /api/qa — registration + latest reports (or {enabled:false}). */
+export interface QAStatus {
+  enabled: boolean;
+  name?: string;
+  url?: string;
+  reports?: QAReport[];
 }
 
 /** An operator-created ad-hoc maintenance window. */

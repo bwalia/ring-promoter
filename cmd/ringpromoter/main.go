@@ -143,7 +143,8 @@ func run(configPath string, logger *slog.Logger) error {
 
 	logger.Info("ring promoter started",
 		"addr", cfg.ListenAddr, "deployer", cfg.Deployer, "health", cfg.Health,
-		"store", cfg.Database.Driver, "apps", len(cfg.Apps), "rings", ring.Names())
+		"store", cfg.Database.Driver, "apps", len(cfg.Apps), "rings", ring.Names(),
+		"qa_agent", cfg.QAAgent.Enabled())
 
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err

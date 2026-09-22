@@ -24,6 +24,7 @@ full history **per (application, ring)**.
 - [Add a ring (single-place change)](#add-a-ring-single-place-change)
 - [Deploy on k3s](#deploy-on-k3s)
 - [How an app's CI calls the API](#how-an-apps-ci-calls-the-api)
+- [Connect a QA agent](#connect-a-qa-agent)
 - [Postgres schema](#postgres-schema)
 - [Configuration reference](#configuration-reference)
 - [Testing](#testing)
@@ -226,6 +227,8 @@ are unauthenticated.
 | `DELETE /api/apps/{app}/maintenance-windows/{id}` | –    | Close (delete) an ad-hoc window. |
 | `GET  /api/apps/{app}/signoffs`  | –                     | List QA/release Go-No-Go sign-offs. |
 | `POST /api/apps/{app}/signoffs`  | `{"ring","version","decision","engineer","qa_status?","note?"}` | Record a Go-No-Go sign-off for an exact version. |
+| `GET  /api/qa`                   | –                     | QA agent status + latest reports (`{enabled:false}` when not configured). Optional `?app=`. |
+| `POST /api/qa/reports`           | `{"app","ring?","workflow_verdict","env_healthy?","summary?","detail?","checked_at?"}` | External QA agent pushes workflow go/no-go + env health. `409` when `qa_agent` is absent. |
 | `GET  /api/groups`               | –                     | List application groups (server-side, shared by all users). |
 | `POST /api/groups`               | `{"name","apps"}`     | Create a group (members must be configured apps). |
 | `PUT  /api/groups/{id}`          | `{"name","apps"}`     | Rename a group / replace its members.     |
@@ -641,6 +644,43 @@ separate approved job using the same `promote` call.
 
 ---
 
+## Connect a QA agent
+
+An external QA agent (built in another repository) can report into Ring Promoter
+the same way app CI seeds versions: **push status in**, authenticate with
+`RP_API_TOKEN`. Register it in config (absent = off, V1 unchanged):
+
+```yaml
+qa_agent:
+  name: qa-bot                    # identity shown in the UI + audit ledger
+  url: https://qa-agent.example.com   # optional deep-link
+  apps: []                        # empty = every app on this instance
+```
+
+The agent POSTs the two signals operators care about — workflow go/no-go and
+environment up/down:
+
+```bash
+curl --fail -sS -X POST "$RP/api/qa/reports" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app": "web-frontend",
+    "ring": "int",
+    "workflow_verdict": "no_go",
+    "env_healthy": true,
+    "summary": "E2E Register & Login red"
+  }'
+```
+
+`workflow_verdict` is `go` | `check` | `no_go` | `unknown`. Omit `ring` for an
+app-level summary. The UI shows a minimal strip (fleet + per-app) when the
+agent is registered; until the first report arrives it reads “waiting for
+reports”. This does **not** replace the per-version `qa_signoff` promotion gate
+— it is a live status feed. Wiring reports into a blocking gate can come later.
+
+---
+
 ## Postgres schema
 
 Applied automatically on start-up (idempotent). Source of truth:
@@ -720,6 +760,8 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 | `RP_OLLAMA_URL`   | `ollama.url`        | – (optional)   | Ollama server for AI diagnosis of failed jobs (e.g. `https://ollama.workstation.co.uk`). |
 | `RP_OLLAMA_MODEL` | `ollama.model`      | `qwen3-coder:30b` | Model used to explain failures.      |
 | `RP_OLLAMA_JWT_SECRET` | `ollama.jwt_secret` | – (optional) | Signs the HS256 JWT sent as `x-api-key` to the Ollama auth gateway. AI diagnosis is enabled only when both URL and secret are set. |
+| `RP_QA_AGENT_NAME` | `qa_agent.name`     | – (optional)   | Display/actor name for an external QA agent. Integration is off until a name is set (file or env). |
+| `RP_QA_AGENT_URL`  | `qa_agent.url`      | – (optional)   | Optional deep-link to the QA agent's own UI. |
 | `RP_CONFIG_FILE`  | – (flag `--config`) | `config.yaml`  | Path to the config file.               |
 
 The application registry (`apps:`) lives in the file only.

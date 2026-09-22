@@ -17,6 +17,7 @@ type Memory struct {
 	topologySuppressions map[string]TopologyEdge
 	windows              map[string]MaintenanceWindow // key: id
 	signoffs             map[string]Signoff           // key: app + "\x00" + ring + "\x00" + version
+	qaReports            map[string]QAReport          // key: app + "\x00" + ring
 	pending              map[int64]PendingOp
 	audit                []AuditEvent
 	nextID               int64
@@ -47,6 +48,7 @@ func NewMemoryWithClock(clock func() time.Time) *Memory {
 		topologySuppressions: make(map[string]TopologyEdge),
 		windows:              make(map[string]MaintenanceWindow),
 		signoffs:             make(map[string]Signoff),
+		qaReports:            make(map[string]QAReport),
 		pending:              make(map[int64]PendingOp),
 		nextID:               1,
 		nextOpID:             1,
@@ -382,6 +384,36 @@ func (m *Memory) ListSignoffs(_ context.Context, app string) ([]Signoff, error) 
 	for _, s := range m.signoffs {
 		if s.App == app {
 			out = append(out, s)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, nil
+}
+
+func qaReportKey(app, ring string) string {
+	return app + "\x00" + ring
+}
+
+// UpsertQAReport implements Store.
+func (m *Memory) UpsertQAReport(_ context.Context, r QAReport) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r.UpdatedAt = m.now().UTC()
+	if r.CheckedAt.IsZero() {
+		r.CheckedAt = r.UpdatedAt
+	}
+	m.qaReports[qaReportKey(r.App, r.Ring)] = r
+	return nil
+}
+
+// ListQAReports implements Store, newest first. Empty app lists every report.
+func (m *Memory) ListQAReports(_ context.Context, app string) ([]QAReport, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []QAReport
+	for _, r := range m.qaReports {
+		if app == "" || r.App == app {
+			out = append(out, r)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })

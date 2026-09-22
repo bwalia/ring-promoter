@@ -600,6 +600,20 @@ export function useSignoffs(app: string | null) {
   });
 }
 
+/** External QA agent status (workflow go/no-go + env health). Idle when off. */
+export function useQAStatus(app?: string | null) {
+  const token = useAuthStore((s) => s.token);
+  const apps = useApps();
+  const enabled = !!apps.data?.qa_enabled;
+  const autoRefresh = usePrefsStore((s) => s.autoRefresh);
+  return useQuery({
+    queryKey: ["qa", app ?? ""],
+    queryFn: () => api.qa(app || undefined),
+    enabled: !!token && enabled,
+    refetchInterval: autoRefresh ? GATES_INTERVAL : false,
+  });
+}
+
 export function useRecordSignoff(app: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
