@@ -41,12 +41,15 @@ func (d *LogDeployer) Deploy(_ context.Context, t Target, version string) error 
 
 // Restart implements Deployer by logging the intended restart. The recorded
 // live version is left untouched — a restart never changes it.
-func (d *LogDeployer) Restart(_ context.Context, t Target) error {
+func (d *LogDeployer) Restart(_ context.Context, t Target, req RestartRequest) error {
 	d.log.Info("log deployer: would restart",
 		"app", t.App, "ring", t.Ring, "namespace", t.Namespace,
-		"deployment", t.Deployment)
+		"deployment", t.Deployment, "deployments", req.Deployments)
 	return nil
 }
+
+// ValidateRestart implements Deployer: a no-op deployer can "restart" anything.
+func (d *LogDeployer) ValidateRestart(Target, RestartRequest) error { return nil }
 
 // LiveVersion implements LiveVersioner from the in-memory record.
 func (d *LogDeployer) LiveVersion(_ context.Context, t Target) (string, error) {

@@ -29,6 +29,10 @@ type fakeDeployer struct {
 	// set, is returned by Restart instead of succeeding.
 	restarts   []string
 	restartErr error
+	// lastRestart is the RestartRequest of the most recent Restart call;
+	// validateErr, when set, is returned by ValidateRestart.
+	lastRestart deployer.RestartRequest
+	validateErr error
 }
 
 func newFakeDeployer() *fakeDeployer {
@@ -49,11 +53,22 @@ func (f *fakeDeployer) Deploy(_ context.Context, t deployer.Target, version stri
 }
 
 // Restart records the call and leaves the live version untouched.
-func (f *fakeDeployer) Restart(_ context.Context, t deployer.Target) error {
+func (f *fakeDeployer) Restart(_ context.Context, t deployer.Target, req deployer.RestartRequest) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.restarts = append(f.restarts, key(t.App, t.Ring))
+	f.lastRestart = req
 	return f.restartErr
+}
+
+// ValidateRestart applies the generic name checks, then validateErr.
+func (f *fakeDeployer) ValidateRestart(_ deployer.Target, req deployer.RestartRequest) error {
+	if err := deployer.ValidateDeploymentNames(req.Deployments); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.validateErr
 }
 
 func (f *fakeDeployer) restartCalls() []string {

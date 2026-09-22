@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,6 +48,12 @@ var (
 	// ErrNothingToRestart rejects a restart of a ring that has never been
 	// deployed (no current version): there is nothing running to restart.
 	ErrNothingToRestart = errors.New("ring has no current version to restart")
+	// ErrRestartUnsupported rejects a restart the app's deployer cannot perform
+	// in place (github_actions, or k8sjob without restart_args).
+	ErrRestartUnsupported = deployer.ErrRestartUnsupported
+	// ErrInvalidDeployments rejects a restart's Deployment list (bad name, too
+	// many, or — kubectl — not a configured target of the ring).
+	ErrInvalidDeployments = deployer.ErrInvalidDeployments
 	// ErrVersionNotFound rejects a seed whose version does not exist in the
 	// application's source repository (only checked for deployers that can
 	// verify it — see deployer.VersionSource).
@@ -825,18 +832,30 @@ func (p *Promoter) Rollback(ctx context.Context, app, ringName string) (outcome 
 	return res, nil
 }
 
+// RestartOptions are the caller's inputs to a restart.
+type RestartOptions struct {
+	// Reason is free text recorded in the history entry (e.g. "rotated DB
+	// password").
+	Reason string
+	// Deployments optionally narrows the restart to these Deployment names;
+	// empty = every target of the ring. Validated by the app's deployer.
+	Deployments []string
+}
+
 // ValidateRestart checks a restart's preconditions without performing it: the
-// ring must be configured and have a current version. The API layer calls it
-// before accepting an async restart so a bad request is rejected with a 4xx
-// instead of spawning a doomed job.
-func (p *Promoter) ValidateRestart(ctx context.Context, app, ringName string) error {
-	_, _, err := p.restartPreconditions(ctx, app, ringName)
+// ring must be configured and have a current version, and the app's deployer
+// must be able to restart it with the requested Deployments. The API layer
+// calls it before accepting an async restart so a bad request is rejected with
+// a 4xx instead of spawning a doomed job.
+func (p *Promoter) ValidateRestart(ctx context.Context, app, ringName string, deployments []string) error {
+	_, _, err := p.restartPreconditions(ctx, app, ringName, deployments)
 	return err
 }
 
 // restartPreconditions resolves the ring's config and stored state, failing
-// when the ring is unknown or has nothing running.
-func (p *Promoter) restartPreconditions(ctx context.Context, app, ringName string) (config.RingConfig, store.RingState, error) {
+// when the ring is unknown, has nothing running, or the deployer refuses the
+// request (restart unsupported / invalid Deployment names).
+func (p *Promoter) restartPreconditions(ctx context.Context, app, ringName string, deployments []string) (config.RingConfig, store.RingState, error) {
 	rc, err := p.ringConfig(app, ringName)
 	if err != nil {
 		return config.RingConfig{}, store.RingState{}, err
@@ -844,6 +863,15 @@ func (p *Promoter) restartPreconditions(ctx context.Context, app, ringName strin
 	st, err := p.store.GetRingState(ctx, app, ringName)
 	if err != nil || st.CurrentVersion == "" {
 		return config.RingConfig{}, store.RingState{}, ErrNothingToRestart
+	}
+	// Name shape (DNS-1123, at most 20) is checked for every deployer; the
+	// deployer then decides whether it can act on those names.
+	if err := deployer.ValidateDeploymentNames(deployments); err != nil {
+		return config.RingConfig{}, store.RingState{}, err
+	}
+	req := deployer.RestartRequest{Version: st.CurrentVersion, Deployments: deployments}
+	if err := p.deployerFor(app).ValidateRestart(p.target(app, ringName, rc), req); err != nil {
+		return config.RingConfig{}, store.RingState{}, err
 	}
 	return rc, st, nil
 }
@@ -863,12 +891,12 @@ func (p *Promoter) restartPreconditions(ctx context.Context, app, ringName strin
 // auto-rollback (nothing to roll back to — the version is unchanged) and no
 // write-ahead journal entry: an interrupted restart leaves no state transition
 // to recover, since the ring still runs the version it ran before.
-func (p *Promoter) Restart(ctx context.Context, app, ringName, reason string) (outcome Result, outErr error) {
+func (p *Promoter) Restart(ctx context.Context, app, ringName string, opts RestartOptions) (outcome Result, outErr error) {
 	start := time.Now()
 	defer func() {
 		metrics.ObservePromotion(app, ringName, metrics.ActionRestart, outcome.Success, time.Since(start).Seconds())
 	}()
-	if _, _, err := p.restartPreconditions(ctx, app, ringName); err != nil {
+	if _, _, err := p.restartPreconditions(ctx, app, ringName, opts.Deployments); err != nil {
 		return Result{}, err
 	}
 
@@ -882,7 +910,7 @@ func (p *Promoter) Restart(ctx context.Context, app, ringName, reason string) (o
 
 	// Re-read under the lock: a deploy that finished while we waited may have
 	// moved the ring to a new version, and that is the one to restart.
-	rc, st, err := p.restartPreconditions(ctx, app, ringName)
+	rc, st, err := p.restartPreconditions(ctx, app, ringName, opts.Deployments)
 	if err != nil {
 		return Result{}, err
 	}
@@ -890,23 +918,18 @@ func (p *Promoter) Restart(ctx context.Context, app, ringName, reason string) (o
 	// from_version: no version transition happened, and the UI renders an entry
 	// without a "from" as just the version.
 	version := st.CurrentVersion
-	suffix := ""
-	if reason != "" {
-		suffix = " (reason: " + reason + ")"
-	}
+	suffix := restartSuffix(opts)
 
 	rep := reporterFrom(ctx)
 	tgt := p.target(app, ringName, rc)
+	req := deployer.RestartRequest{Version: version, Deployments: opts.Deployments}
 	res := Result{App: app, Action: store.ActionRestart, Ring: ringName, Version: version}
 
 	rep.StartStep("restart", fmt.Sprintf("Restart %s on %s", ringName, version))
-	if err := p.deployerFor(app).Restart(ctx, tgt); err != nil {
-		// A backend that cannot restart in place is a precondition error, not
-		// an attempted-but-failed operation: nothing ran, so nothing is recorded.
-		if errors.Is(err, deployer.ErrRestartUnsupported) {
-			rep.FinishStep(StepSkipped, err.Error())
-			return Result{}, err
-		}
+	if len(opts.Deployments) > 0 {
+		rep.Log("deployments: " + strings.Join(opts.Deployments, " "))
+	}
+	if err := p.deployerFor(app).Restart(ctx, tgt, req); err != nil {
 		// The restart never happened (or did not complete), so leave the stored
 		// state untouched.
 		res.Message = "restart failed: " + err.Error() + suffix
@@ -938,6 +961,19 @@ func (p *Promoter) Restart(ctx context.Context, app, ringName, reason string) (o
 	res.Message = "restarted but health check failed: " + healthErr.Error() + suffix
 	p.record(ctx, app, ringName, store.ActionRestart, "", version, store.ResultFailure, res.Message)
 	return res, nil
+}
+
+// restartSuffix renders a restart's Deployment list and reason for its history
+// message, e.g. " [deployments: jobshout-api jobshout-web] (reason: rotated)".
+func restartSuffix(opts RestartOptions) string {
+	var b strings.Builder
+	if len(opts.Deployments) > 0 {
+		b.WriteString(" [deployments: " + strings.Join(opts.Deployments, " ") + "]")
+	}
+	if opts.Reason != "" {
+		b.WriteString(" (reason: " + opts.Reason + ")")
+	}
+	return b.String()
 }
 
 // rollbackTo deploys `to` on the target, health-checks it, persists the state

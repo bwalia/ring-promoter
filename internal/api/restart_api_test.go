@@ -72,9 +72,22 @@ func TestRestart_SyncAsyncAndProdPassword(t *testing.T) {
 		t.Fatalf("prod with password: expected 200, got %d %s", rec.Code, rec.Body)
 	}
 
-	// History shows the restarts with the reason.
+	// Named deployments: DNS-1123 labels, at most 20 — else 400, before any job.
+	if rec := doJSON(t, h, "POST", "/api/apps/web/rings/int/restart?async=1", `{"deployments":["Bad_Name"]}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid deployment name: expected 400, got %d %s", rec.Code, rec.Body)
+	}
+	many := `"d0"` + strings.Repeat(`,"d0"`, 20)
+	if rec := doJSON(t, h, "POST", "/api/apps/web/rings/int/restart", `{"deployments":[`+many+`]}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("21 deployments: expected 400, got %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, "POST", "/api/apps/web/rings/int/restart", `{"deployments":["jobshout-api","jobshout-web"]}`); rec.Code != http.StatusOK {
+		t.Fatalf("named deployments: expected 200, got %d %s", rec.Code, rec.Body)
+	}
+
+	// History shows the restarts with the reason and the deployment list.
 	rec = doJSON(t, h, "GET", "/api/apps/web/history", "")
-	if !strings.Contains(rec.Body.String(), `"action":"restart"`) || !strings.Contains(rec.Body.String(), "rotate db password") {
+	if !strings.Contains(rec.Body.String(), `"action":"restart"`) || !strings.Contains(rec.Body.String(), "rotate db password") ||
+		!strings.Contains(rec.Body.String(), "[deployments: jobshout-api jobshout-web]") {
 		t.Fatalf("history missing restart entries: %s", rec.Body)
 	}
 }

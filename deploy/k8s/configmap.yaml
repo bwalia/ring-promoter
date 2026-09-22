@@ -95,6 +95,26 @@ data:
                 --set-string secrets.registryPassword="${REGISTRY_PASSWORD}" \
                 --wait --timeout 12m
               echo "jobshout ${RP_VERSION} live in ${ns}"
+          # Restart in place (POST /api/apps/jobshout/rings/{ring}/restart) —
+          # e.g. after the Secrets Rotation agent rotates a Vault secret and ESO
+          # re-syncs the k8s Secret, so pods re-read their env. Same Job as a
+          # deploy (image, SA, env, host_network, timeout) but no helm/git: it
+          # restarts the named Deployments, RP_RESTART_DEPLOYMENTS
+          # (space-separated; empty = api + web), then waits for each rollout.
+          # Names are listed explicitly, never selected by
+          # app.kubernetes.io/instance=jobshout — that label also matches
+          # redis, langfuse and minio in the ring namespaces. rp-deploy-jobshout
+          # (rbac.yaml, bound in int/test/acc/prod) already allows patching
+          # deployments, so no extra RBAC is needed.
+          restart_args:
+            - |
+              set -eu
+              ns="${RP_TARGET_ENV}"
+              deps="${RP_RESTART_DEPLOYMENTS:-jobshout-api jobshout-web}"
+              echo "restart jobshout ${RP_VERSION} in ns ${ns}: ${deps}"
+              for d in $deps; do kubectl -n "$ns" rollout restart "deployment/$d"; done
+              for d in $deps; do kubectl -n "$ns" rollout status "deployment/$d" --timeout=10m; done
+              echo "jobshout restarted in ${ns}"
           resources: { cpu_request: 100m, memory_limit: 512Mi }
           # 20m, not 15m: helm --wait above is already 12m, so 15m left just 3m
           # for the git clone and helm's own startup. A cold pull that used most
