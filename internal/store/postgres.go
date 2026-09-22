@@ -402,6 +402,66 @@ func (p *Postgres) ListSignoffs(ctx context.Context, app string) ([]Signoff, err
 	return out, rows.Err()
 }
 
+// UpsertQAReport implements Store.
+func (p *Postgres) UpsertQAReport(ctx context.Context, r QAReport) error {
+	const q = `
+		INSERT INTO qa_report (app, ring, workflow_verdict, env_healthy, summary, detail, source, checked_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, now()), now())
+		ON CONFLICT (app, ring) DO UPDATE SET
+			workflow_verdict = EXCLUDED.workflow_verdict,
+			env_healthy      = EXCLUDED.env_healthy,
+			summary          = EXCLUDED.summary,
+			detail           = EXCLUDED.detail,
+			source           = EXCLUDED.source,
+			checked_at       = EXCLUDED.checked_at,
+			updated_at       = now()`
+	checkedAt := r.CheckedAt
+	if checkedAt.IsZero() {
+		checkedAt = time.Now().UTC()
+	}
+	if _, err := p.db.ExecContext(ctx, q, r.App, r.Ring, r.WorkflowVerdict, r.EnvHealthy, r.Summary, r.Detail, r.Source, checkedAt); err != nil {
+		return fmt.Errorf("upsert qa report: %w", err)
+	}
+	return nil
+}
+
+// ListQAReports implements Store, newest first. Empty app lists every report.
+func (p *Postgres) ListQAReports(ctx context.Context, app string) ([]QAReport, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if app == "" {
+		rows, err = p.db.QueryContext(ctx, `
+			SELECT app, ring, workflow_verdict, env_healthy, summary, detail, source, checked_at, updated_at
+			FROM qa_report ORDER BY updated_at DESC`)
+	} else {
+		rows, err = p.db.QueryContext(ctx, `
+			SELECT app, ring, workflow_verdict, env_healthy, summary, detail, source, checked_at, updated_at
+			FROM qa_report WHERE app = $1 ORDER BY updated_at DESC`, app)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list qa reports: %w", err)
+	}
+	defer rows.Close()
+	var out []QAReport
+	for rows.Next() {
+		var (
+			r         QAReport
+			envHealthy sql.NullBool
+		)
+		if err := rows.Scan(&r.App, &r.Ring, &r.WorkflowVerdict, &envHealthy, &r.Summary, &r.Detail, &r.Source, &r.CheckedAt, &r.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan qa report: %w", err)
+		}
+		if envHealthy.Valid {
+			v := envHealthy.Bool
+			r.EnvHealthy = &v
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // CreatePendingOp implements Store.
 func (p *Postgres) CreatePendingOp(ctx context.Context, op PendingOp) (int64, error) {
 	const q = `

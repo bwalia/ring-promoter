@@ -41,6 +41,18 @@ ollama:
   url: "https://ollama.workstation.co.uk"
   model: "qwen3-coder:30b"
 
+# External QA agent (optional). Register a QA bot from another repository that
+# POSTs workflow go/no-go and environment up/down into this instance:
+#   POST /api/qa/reports  {app, ring?, workflow_verdict, env_healthy?, summary?}
+#   GET  /api/qa          → {enabled, name, url, reports}
+# Absent (or empty) = integration off; UI hides the status strip. The agent
+# authenticates with the same RP_API_TOKEN as every other API client. Override
+# name/url with RP_QA_AGENT_NAME / RP_QA_AGENT_URL if useful.
+qa_agent:
+  name: qa-bot
+  # url: https://qa-agent.example.com   # optional deep-link once connected
+  # apps: []                            # empty = every app on this instance
+
 # ---------------------------------------------------------------------------
 # Application registry. Add a new managed app by adding an entry here — no code
 # change and no rebuild required (edit the ConfigMap in k3s).

@@ -69,7 +69,10 @@ type Config struct {
 	Retry    RetryConfig    `yaml:"retry"`
 	Database DatabaseConfig `yaml:"database"`
 	Ollama   OllamaConfig   `yaml:"ollama"`
-	Apps     []AppConfig    `yaml:"apps"`
+	// QAAgent registers an optional external QA agent that reports workflow
+	// go/no-go and environment health. Nil / absent = integration off.
+	QAAgent *QAAgentConfig `yaml:"qa_agent"`
+	Apps    []AppConfig    `yaml:"apps"`
 }
 
 // OllamaConfig configures the optional AI failure-diagnosis feature: when a
@@ -531,6 +534,18 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("RP_OLLAMA_JWT_SECRET"); v != "" {
 		c.Ollama.JWTSecret = v
 	}
+	if v := os.Getenv("RP_QA_AGENT_URL"); v != "" {
+		if c.QAAgent == nil {
+			c.QAAgent = &QAAgentConfig{}
+		}
+		c.QAAgent.URL = v
+	}
+	if v := os.Getenv("RP_QA_AGENT_NAME"); v != "" {
+		if c.QAAgent == nil {
+			c.QAAgent = &QAAgentConfig{}
+		}
+		c.QAAgent.Name = v
+	}
 	if v := os.Getenv("RP_DB_DRIVER"); v != "" {
 		c.Database.Driver = v
 	}
@@ -620,6 +635,10 @@ func (c *Config) Validate() error {
 	}
 	if len(c.Apps) == 0 {
 		return fmt.Errorf("no applications configured")
+	}
+
+	if err := c.validateQAAgent(); err != nil {
+		return err
 	}
 
 	seen := map[string]bool{}

@@ -161,6 +161,9 @@ func (s *Server) Handler() http.Handler {
 	// Audit ledger — append-only record of every mutating action, gate verdict
 	// and override, with actor attribution and per-operation correlation ids.
 	api.HandleFunc("GET /api/audit", s.handleAudit)
+	// External QA agent — optional; inert when qa_agent is absent from config.
+	api.HandleFunc("GET /api/qa", s.handleQAStatus)
+	api.HandleFunc("POST /api/qa/reports", s.handleCreateQAReport)
 	mux.Handle("/api/", s.authenticate(api))
 
 	// Web UI (single-page app) — served at the root.
@@ -258,6 +261,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, _ *http.Request) {
 		"prod_protected": s.prodPass != "",
 		// Tells the UI to offer "Diagnose with AI" on failed jobs.
 		"ai_enabled": s.diag != nil,
+		// Tells the UI to show the QA agent status strip.
+		"qa_enabled": s.prom.QAAgentEnabled(),
 	})
 }
 

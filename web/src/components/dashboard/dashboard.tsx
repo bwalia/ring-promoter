@@ -6,6 +6,7 @@ import { JobProgress } from "@/components/dashboard/job-progress";
 import { OverviewCards } from "@/components/dashboard/overview-cards";
 import { Pipeline } from "@/components/dashboard/pipeline";
 import { ErrorState } from "@/components/error-state";
+import { QaStatusBar } from "@/components/qa-status-bar";
 import { useHistory, useRings } from "@/lib/queries";
 import { ApiError } from "@/lib/api";
 
@@ -33,6 +34,8 @@ export function Dashboard({ app }: { app: string }) {
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 p-4 md:p-6 xl:p-8">
+      <QaStatusBar app={app} />
+
       <OverviewCards
         app={app}
         rings={rings.data}

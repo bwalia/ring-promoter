@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { NodeStatus } from "@/components/group-ring";
 import { GroupDialog } from "@/components/group-dialog";
+import { QaStatusBar } from "@/components/qa-status-bar";
 import { SolarSystem } from "@/components/solar-system";
 import { Button } from "@/components/ui/button";
 import { summarizeRings } from "@/lib/app-health";
@@ -218,6 +219,7 @@ export function FleetView() {
               New ring
             </Button>
           )}
+          <QaStatusBar compact />
         </div>
       </div>
 

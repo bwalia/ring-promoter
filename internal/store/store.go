@@ -28,6 +28,15 @@ const (
 	DecisionNoGo = "no_go"
 )
 
+// QA agent workflow verdicts (align with Grafana gate states so the UI can
+// reuse the same go / check / no-go vocabulary).
+const (
+	QAVerdictGo      = "go"
+	QAVerdictCheck   = "check"
+	QAVerdictNoGo    = "no_go"
+	QAVerdictUnknown = "unknown"
+)
+
 // ErrNotFound is returned when a ring state does not yet exist.
 var ErrNotFound = errors.New("ring state not found")
 
@@ -137,6 +146,27 @@ type Signoff struct {
 
 // IsGo reports whether the decision authorizes promotion.
 func (s Signoff) IsGo() bool { return s.Decision == DecisionGo }
+
+// QAReport is the latest status an external QA agent posted for one
+// (app, ring). Ring may be empty for an app-level summary. The agent reports
+// whether a workflow is go/no-go and whether the environment is up — the two
+// signals operators care about before promoting.
+type QAReport struct {
+	App string `json:"app"`
+	// Ring is the environment the report covers, or "" for an app-wide summary.
+	Ring string `json:"ring,omitempty"`
+	// WorkflowVerdict is go | check | no_go | unknown.
+	WorkflowVerdict string `json:"workflow_verdict"`
+	EnvHealthy      *bool  `json:"env_healthy,omitempty"`
+	// Summary is a one-line human status (e.g. "E2E red on int").
+	Summary string `json:"summary,omitempty"`
+	// Detail is optional free-form evidence (plain text or JSON).
+	Detail string `json:"detail,omitempty"`
+	// Source is the reporting agent name (from config qa_agent.name).
+	Source    string    `json:"source"`
+	CheckedAt time.Time `json:"checked_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
 
 // PendingOp is the write-ahead record of a deploy operation in flight: created
 // just before the deploy starts and deleted once the operation records its
@@ -292,6 +322,12 @@ type Store interface {
 	GetSignoff(ctx context.Context, app, ring, version string) (Signoff, error)
 	// ListSignoffs returns an app's sign-offs, newest first.
 	ListSignoffs(ctx context.Context, app string) ([]Signoff, error)
+	// UpsertQAReport stores (or replaces) the latest QA agent report for the
+	// exact (App, Ring) key. An empty Ring means an app-level summary.
+	UpsertQAReport(ctx context.Context, r QAReport) error
+	// ListQAReports returns every stored QA report, newest first. When app is
+	// non-empty, only that application's reports are returned.
+	ListQAReports(ctx context.Context, app string) ([]QAReport, error)
 	// CreatePendingOp journals a deploy operation about to start and returns
 	// its assigned ID.
 	CreatePendingOp(ctx context.Context, op PendingOp) (int64, error)
