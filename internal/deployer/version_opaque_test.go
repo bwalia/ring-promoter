@@ -16,6 +16,10 @@ func (f *fakeVersionSource) Deploy(_ context.Context, _ Target, version string) 
 	return nil
 }
 
+func (f *fakeVersionSource) Restart(context.Context, Target, RestartRequest) error { return nil }
+
+func (f *fakeVersionSource) ValidateRestart(Target, RestartRequest) error { return nil }
+
 func (f *fakeVersionSource) ListVersions(context.Context) ([]Version, error) {
 	return []Version{{Name: "main", Type: "branch"}}, nil
 }

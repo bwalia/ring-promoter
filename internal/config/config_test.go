@@ -513,3 +513,53 @@ apps:
 		t.Fatal("longitude out of range must be rejected")
 	}
 }
+
+func TestK8sJobDeployer_RestartArgs(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+
+	// Unset: restart disabled, deploy config untouched.
+	cfg, err := Load(writeConfig(t, k8sjobApp))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	app, _ := cfg.App("myapp")
+	if app.K8sJob.RestartEnabled() {
+		t.Fatal("restart must be disabled without restart_args")
+	}
+
+	// restart_args enables it; restart_command defaults to command.
+	withArgs := strings.Replace(k8sjobApp, `      command: ["/scripts/deploy.sh"]`,
+		"      command: [\"/scripts/deploy.sh\"]\n      restart_args: [\"--restart\"]", 1)
+	cfg, err = Load(writeConfig(t, withArgs))
+	if err != nil {
+		t.Fatalf("load with restart_args: %v", err)
+	}
+	app, _ = cfg.App("myapp")
+	if !app.K8sJob.RestartEnabled() || app.K8sJob.RestartArgs[0] != "--restart" ||
+		strings.Join(app.K8sJob.ResolvedRestartCommand(), " ") != "/scripts/deploy.sh" {
+		t.Fatalf("restart config parsed wrong: %+v", app.K8sJob)
+	}
+
+	// An explicit restart_command overrides command.
+	withCmd := strings.Replace(withArgs, `      restart_args: ["--restart"]`,
+		"      restart_args: [\"--restart\"]\n      restart_command: [\"/scripts/restart.sh\"]", 1)
+	cfg, err = Load(writeConfig(t, withCmd))
+	if err != nil {
+		t.Fatalf("load with restart_command: %v", err)
+	}
+	app, _ = cfg.App("myapp")
+	if got := strings.Join(app.K8sJob.ResolvedRestartCommand(), " "); got != "/scripts/restart.sh" {
+		t.Fatalf("restart command = %q", got)
+	}
+
+	for name, body := range map[string]string{
+		"restart_command without restart_args": strings.Replace(k8sjobApp, `      command: ["/scripts/deploy.sh"]`,
+			"      command: [\"/scripts/deploy.sh\"]\n      restart_command: [\"/scripts/restart.sh\"]", 1),
+		"empty restart_args entry": strings.Replace(k8sjobApp, `      command: ["/scripts/deploy.sh"]`,
+			"      command: [\"/scripts/deploy.sh\"]\n      restart_args: [\"  \"]", 1),
+	} {
+		if _, err := Load(writeConfig(t, body)); err == nil {
+			t.Errorf("%s: expected a validation error", name)
+		}
+	}
+}

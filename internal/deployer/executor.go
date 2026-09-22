@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -28,6 +29,9 @@ type ExecDeployer struct {
 	exec executor.Executor
 	spec SpecFunc
 	poll time.Duration
+	// restartSpec, when set, makes Restart run that execution; nil = restart
+	// unsupported.
+	restartSpec RestartSpecFunc
 }
 
 // FromExecutor builds the adapter. poll is the status poll cadence.
@@ -41,12 +45,28 @@ func FromExecutor(log *slog.Logger, exec executor.Executor, spec SpecFunc, poll 
 	return &ExecDeployer{log: log, exec: exec, spec: spec, poll: poll}
 }
 
+// RestartSpecFunc maps a restart request onto the execution to run for it.
+type RestartSpecFunc func(t Target, req RestartRequest) (executor.Spec, error)
+
+// WithRestartSpec enables Restart on this deployer: each restart runs the
+// execution fn describes. Without it, Restart returns ErrRestartUnsupported.
+func (d *ExecDeployer) WithRestartSpec(fn RestartSpecFunc) *ExecDeployer {
+	d.restartSpec = fn
+	return d
+}
+
 // Deploy implements Deployer.
 func (d *ExecDeployer) Deploy(ctx context.Context, t Target, version string) error {
 	spec, err := d.spec(t, version)
 	if err != nil {
 		return err
 	}
+	return d.execute(ctx, t, spec)
+}
+
+// execute starts one execution and drives it to a terminal phase, mapping the
+// outcome onto the Deployer error contract (nil only on success).
+func (d *ExecDeployer) execute(ctx context.Context, t Target, spec executor.Spec) error {
 	ex, err := d.exec.Start(ctx, spec)
 	if err != nil {
 		return err
@@ -101,6 +121,33 @@ func (d *ExecDeployer) Deploy(ctx context.Context, t Target, version string) err
 			return d.cancelled(ctx, ex, rep)
 		}
 	}
+}
+
+// Restart implements Deployer. Without a restart spec (WithRestartSpec) an
+// execution backend can only run the deploy again, which for an unchanged
+// version is either a no-op or a full redeploy through the pipeline — neither
+// is "restart in place", so it is refused rather than approximated. With one,
+// the restart is an ordinary execution of that spec, driven exactly like a
+// deploy (log streaming, status polling, cancellation, error contract).
+func (d *ExecDeployer) Restart(ctx context.Context, t Target, req RestartRequest) error {
+	if err := d.ValidateRestart(t, req); err != nil {
+		return err
+	}
+	spec, err := d.restartSpec(t, req)
+	if err != nil {
+		return err
+	}
+	return d.execute(ctx, t, spec)
+}
+
+// ValidateRestart implements Deployer: supported only when a restart spec is
+// configured. Deployment names are passed through to the restart task, which
+// owns their meaning, so only their shape is checked here.
+func (d *ExecDeployer) ValidateRestart(t Target, req RestartRequest) error {
+	if d.restartSpec == nil {
+		return fmt.Errorf("%w (app %s, ring %s: no restart task configured for this execution backend)", ErrRestartUnsupported, t.App, t.Ring)
+	}
+	return ValidateDeploymentNames(req.Deployments)
 }
 
 // cancelled tears the execution down after ctx was cancelled (user cancel or

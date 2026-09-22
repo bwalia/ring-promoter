@@ -140,6 +140,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/apps/{app}/seed", s.handleSeed)
 	api.HandleFunc("POST /api/apps/{app}/promote", s.handlePromote)
 	api.HandleFunc("POST /api/apps/{app}/rollback", s.handleRollback)
+	api.HandleFunc("POST /api/apps/{app}/rings/{ring}/restart", s.handleRestart)
 	api.HandleFunc("PUT /api/apps/{app}/rings/{ring}/auto-promote", s.handleAutoPromote)
 	// Promotion-policy gates: maintenance windows and QA/release sign-offs.
 	api.HandleFunc("GET /api/apps/{app}/maintenance-windows", s.handleListWindows)
@@ -420,6 +421,46 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, res, err)
 }
 
+// handleRestart restarts a ring's running instances on the version they
+// already run (e.g. after a Secret rotation) and health-checks the ring. It is
+// not a promotion, so no promotion-policy gate applies — but restarting
+// production still needs the production password.
+func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Reason   string `json:"reason,omitempty"`
+		Password string `json:"password,omitempty"`
+		// Deployments optionally narrows the restart to these Deployment names
+		// (DNS-1123 labels, at most 20); empty = every target of the ring.
+		Deployments []string `json:"deployments,omitempty"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	app, ringName := r.PathValue("app"), r.PathValue("ring")
+	if ringName == prodRing() && !s.checkProdPassword(w, body.Password) {
+		return
+	}
+	opts := promoter.RestartOptions{Reason: body.Reason, Deployments: body.Deployments}
+	if wantsAsync(r) {
+		// Reject precondition failures (unknown app/ring, nothing deployed,
+		// restart unsupported, invalid deployments) on the request itself
+		// instead of spawning a doomed job.
+		if err := s.prom.ValidateRestart(r.Context(), app, ringName, body.Deployments); err != nil {
+			writeError(w, statusForErr(err), err)
+			return
+		}
+		job := s.jobs.run(r.Context(), s.opTimeout, app, "restart", func(ctx context.Context) (promoter.Result, error) {
+			return s.prom.Restart(ctx, app, ringName, opts)
+		})
+		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.id()})
+		return
+	}
+	ctx, cancel := s.opContext(r)
+	defer cancel()
+	res, err := s.prom.Restart(ctx, app, ringName, opts)
+	writeResult(w, res, err)
+}
+
 // handleAutoPromote flips a ring's auto-promote setting: when a version lands
 // healthy in that ring, it is promoted onward automatically (the chain runs
 // inside the seed/promote operation itself).
@@ -696,10 +737,11 @@ func statusForErr(err error) int {
 		errors.Is(err, promoter.ErrUnknownApp),
 		errors.Is(err, promoter.ErrSelfDependency), errors.Is(err, promoter.ErrEmptyEdge),
 		errors.Is(err, promoter.ErrChangeRequestRequired), errors.Is(err, promoter.ErrChangeRequestInvalid),
-		errors.Is(err, promoter.ErrGrafanaOverrideReason),
+		errors.Is(err, promoter.ErrGrafanaOverrideReason), errors.Is(err, promoter.ErrInvalidDeployments),
 		errors.Is(err, promoter.ErrInvalidWindow), errors.Is(err, promoter.ErrInvalidSignoff):
 		return http.StatusBadRequest
 	case errors.Is(err, promoter.ErrNothingToPromote), errors.Is(err, promoter.ErrNothingToRollback),
+		errors.Is(err, promoter.ErrNothingToRestart), errors.Is(err, promoter.ErrRestartUnsupported),
 		errors.Is(err, promoter.ErrMaintenanceWindowClosed), errors.Is(err, promoter.ErrSignoffRequired),
 		errors.Is(err, promoter.ErrSignoffNoGo), errors.Is(err, promoter.ErrGrafanaNoGo),
 		errors.Is(err, promoter.ErrAutoPromoteConfigOwned):

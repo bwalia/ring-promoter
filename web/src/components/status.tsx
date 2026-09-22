@@ -6,6 +6,7 @@ import {
   CircleDashed,
   CircleX,
   Download,
+  RotateCw,
   Undo2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -111,6 +112,7 @@ export const ACTION_META: Record<
   seed: { label: "Seed", Icon: Download },
   promote: { label: "Promote", Icon: ArrowUpRight },
   rollback: { label: "Rollback", Icon: Undo2 },
+  restart: { label: "Restart", Icon: RotateCw },
 };
 
 export function ActionBadge({ action }: { action: Action }) {

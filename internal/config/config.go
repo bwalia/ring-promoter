@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/example/ring-promoter/internal/ring"
@@ -266,6 +267,15 @@ type K8sJobConfig struct {
 	// command: ["/scripts/deploy.sh"].
 	Command []string `yaml:"command"`
 	Args    []string `yaml:"args"`
+	// RestartArgs, when set, enables POST .../rings/{ring}/restart for this
+	// app: the restart runs as a Job exactly like a deploy (same image, service
+	// account, env, resources, timeout, ttl) but with these args, plus
+	// RP_ACTION=restart and RP_RESTART_DEPLOYMENTS (space-separated names, ""
+	// = the script's default set). RP_VERSION is the ring's current version.
+	// Unset = restart unsupported (409). RestartCommand overrides Command for
+	// the restart Job; default Command.
+	RestartCommand []string `yaml:"restart_command"`
+	RestartArgs    []string `yaml:"restart_args"`
 	// Env are additional environment variables, merged with the injected RP_*
 	// contract variables (the contract wins on a name clash).
 	Env map[string]string `yaml:"env"`
@@ -335,6 +345,18 @@ type K8sJobSecurityContext struct {
 	RunAsGroup             *int64 `yaml:"run_as_group"`
 	RunAsNonRoot           *bool  `yaml:"run_as_non_root"`
 	ReadOnlyRootFilesystem *bool  `yaml:"read_only_root_filesystem"`
+}
+
+// RestartEnabled reports whether this app configured a restart task.
+func (k *K8sJobConfig) RestartEnabled() bool { return len(k.RestartArgs) > 0 }
+
+// ResolvedRestartCommand is the restart Job's command: restart_command, else
+// the deploy command.
+func (k *K8sJobConfig) ResolvedRestartCommand() []string {
+	if len(k.RestartCommand) > 0 {
+		return k.RestartCommand
+	}
+	return k.Command
 }
 
 // Defaults applied to an unset k8sjob field.
@@ -776,6 +798,16 @@ func (c *Config) validateAppDeployer(a AppConfig) error {
 		}
 		if j.ResolvedTimeout() <= 0 {
 			return fmt.Errorf("application %q k8sjob timeout must be positive", a.Name)
+		}
+		// restart_command alone would be silently ignored (restart is enabled
+		// by restart_args), so refuse it rather than leave a dead setting.
+		if len(j.RestartCommand) > 0 && !j.RestartEnabled() {
+			return fmt.Errorf("application %q k8sjob restart_command requires restart_args", a.Name)
+		}
+		for _, arg := range j.RestartArgs {
+			if strings.TrimSpace(arg) == "" {
+				return fmt.Errorf("application %q k8sjob restart_args must not contain empty entries", a.Name)
+			}
 		}
 	}
 	return nil

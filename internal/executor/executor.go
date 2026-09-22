@@ -21,6 +21,11 @@ const (
 	EnvVersion     = "RP_VERSION"
 	EnvTargetEnv   = "RP_TARGET_ENV"
 	EnvExecutionID = "RP_EXECUTION_ID"
+	// EnvAction and EnvRestartDeployments are set only on a restart execution:
+	// RP_ACTION=restart, and the space-separated Deployment names the caller
+	// asked to restart ("" = the script's own default set).
+	EnvAction             = "RP_ACTION"
+	EnvRestartDeployments = "RP_RESTART_DEPLOYMENTS"
 )
 
 // ErrLogsUnsupported is returned by Execution.Logs when the backend cannot
@@ -61,7 +66,7 @@ type Spec struct {
 	// HostNetwork runs the Job on the node's network namespace. Needed when
 	// the CNI overlay cannot reach GitHub (or similar) but the node can.
 	HostNetwork bool
-	Tolerations    []Toleration
+	Tolerations []Toleration
 	// SecurityContext, when set, is applied to the task container. Most
 	// deployment tasks need none (the default hardened context is fine), but a
 	// task that builds container images in-cluster (e.g. a BuildKit-based deploy

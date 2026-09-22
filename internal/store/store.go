@@ -14,6 +14,9 @@ const (
 	ActionSeed     = "seed"
 	ActionPromote  = "promote"
 	ActionRollback = "rollback"
+	// ActionRestart restarts a ring's running instances on the version they
+	// already run. It never changes current/previous version.
+	ActionRestart = "restart"
 )
 
 // Result values recorded in history.
@@ -179,7 +182,7 @@ type PendingOp struct {
 	ID     int64  `json:"id"`
 	App    string `json:"app"`
 	Ring   string `json:"ring"`   // target ring being deployed to
-	Action string `json:"action"` // ActionSeed | ActionPromote | ActionRollback
+	Action string `json:"action"` // ActionSeed | ActionPromote | ActionRollback | ActionRestart
 	// FromRing is the promotion's source ring ("" for seed/rollback).
 	FromRing string `json:"from_ring"`
 	// Version is the effective version being deployed to Ring.

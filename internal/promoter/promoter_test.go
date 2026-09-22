@@ -25,6 +25,14 @@ type fakeDeployer struct {
 	live    map[string]string // app/ring -> version
 	failVer map[string]bool   // version -> Deploy returns error
 	deploys []string          // "app/ring=version" in order
+	// restarts records Restart calls ("app/ring") in order; restartErr, when
+	// set, is returned by Restart instead of succeeding.
+	restarts   []string
+	restartErr error
+	// lastRestart is the RestartRequest of the most recent Restart call;
+	// validateErr, when set, is returned by ValidateRestart.
+	lastRestart deployer.RestartRequest
+	validateErr error
 }
 
 func newFakeDeployer() *fakeDeployer {
@@ -42,6 +50,31 @@ func (f *fakeDeployer) Deploy(_ context.Context, t deployer.Target, version stri
 	}
 	f.live[key(t.App, t.Ring)] = version
 	return nil
+}
+
+// Restart records the call and leaves the live version untouched.
+func (f *fakeDeployer) Restart(_ context.Context, t deployer.Target, req deployer.RestartRequest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.restarts = append(f.restarts, key(t.App, t.Ring))
+	f.lastRestart = req
+	return f.restartErr
+}
+
+// ValidateRestart applies the generic name checks, then validateErr.
+func (f *fakeDeployer) ValidateRestart(_ deployer.Target, req deployer.RestartRequest) error {
+	if err := deployer.ValidateDeploymentNames(req.Deployments); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.validateErr
+}
+
+func (f *fakeDeployer) restartCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.restarts...)
 }
 
 func (f *fakeDeployer) LiveVersion(_ context.Context, t deployer.Target) (string, error) {

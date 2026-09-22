@@ -194,7 +194,7 @@ export interface RingState {
   updated_at: string;
 }
 
-export type Action = "seed" | "promote" | "rollback";
+export type Action = "seed" | "promote" | "rollback" | "restart";
 export type HistoryResult = "success" | "failure";
 
 export interface HistoryEntry {

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -225,8 +226,17 @@ func buildDeployers(cfg *config.Config, logger *slog.Logger) (map[string]deploye
 // streaming, cancellation) behind the ordinary Deployer contract.
 func buildK8sJobDeployer(app config.AppConfig, logger *slog.Logger, ex *k8sjob.Executor) deployer.Deployer {
 	j := app.K8sJob // guaranteed non-nil by config validation
+	specFor := k8sJobSpec(j)
+	d := deployer.FromExecutor(logger, ex, specFor, j.ResolvedPollInterval())
+	if j.RestartEnabled() {
+		d.WithRestartSpec(k8sJobRestartSpec(j, specFor))
+	}
+	return d
+}
 
-	specFor := func(t deployer.Target, version string) (executor.Spec, error) {
+// k8sJobSpec maps Deploy(target, version) onto the app's deploy Job.
+func k8sJobSpec(j *config.K8sJobConfig) deployer.SpecFunc {
+	return func(t deployer.Target, version string) (executor.Spec, error) {
 		env := make(map[string]string, len(j.Env)+5)
 		for k, v := range j.Env {
 			env[k] = v
@@ -272,8 +282,23 @@ func buildK8sJobDeployer(app config.AppConfig, logger *slog.Logger, ex *k8sjob.E
 			Annotations:       j.Annotations,
 		}, nil
 	}
+}
 
-	return deployer.FromExecutor(logger, ex, specFor, j.ResolvedPollInterval())
+// k8sJobRestartSpec builds the restart Job: the deploy Job for the ring's
+// current version (same image, service account, env, resources, timeout, ttl)
+// with the restart command/args and the restart half of the runner contract.
+func k8sJobRestartSpec(j *config.K8sJobConfig, specFor deployer.SpecFunc) deployer.RestartSpecFunc {
+	return func(t deployer.Target, req deployer.RestartRequest) (executor.Spec, error) {
+		spec, err := specFor(t, req.Version)
+		if err != nil {
+			return executor.Spec{}, err
+		}
+		spec.Command = j.ResolvedRestartCommand()
+		spec.Args = j.RestartArgs
+		spec.Env[executor.EnvAction] = "restart"
+		spec.Env[executor.EnvRestartDeployments] = strings.Join(req.Deployments, " ")
+		return spec, nil
+	}
 }
 
 // securityContextOf maps an app's optional k8sjob security_context config onto

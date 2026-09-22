@@ -63,6 +63,78 @@ func (d *KubectlDeployer) Deploy(ctx context.Context, t Target, version string) 
 	return nil
 }
 
+// Restart implements Deployer: it triggers a rolling restart of the ring's
+// Deployment (new pods, same image — so they re-read env from Secrets and
+// ConfigMaps) and waits for the rollout to complete. Re-running Deploy with the
+// unchanged tag would be a no-op, which is why this is a separate operation.
+// req.Deployments, when set, must name the ring's configured Deployment (see
+// ValidateRestart); a ring configures exactly one, so either way that one is
+// restarted.
+func (d *KubectlDeployer) Restart(ctx context.Context, t Target, req RestartRequest) error {
+	if err := d.ValidateRestart(t, req); err != nil {
+		return err
+	}
+	names := restartTargets(t, req)
+	d.log.Info("kubectl restart",
+		"app", t.App, "ring", t.Ring, "namespace", t.Namespace,
+		"deployments", names)
+
+	// Restart everything first, then wait: the rollouts proceed in parallel.
+	for _, name := range names {
+		if _, err := d.run(ctx, 30*time.Second,
+			"-n", t.Namespace, "rollout", "restart",
+			"deployment/"+name,
+		); err != nil {
+			return fmt.Errorf("rollout restart: %w", err)
+		}
+	}
+
+	// Wait for each restarted ReplicaSet to become available.
+	for _, name := range names {
+		if _, err := d.run(ctx, d.rollout,
+			"-n", t.Namespace, "rollout", "status",
+			"deployment/"+name,
+			fmt.Sprintf("--timeout=%s", d.rollout),
+		); err != nil {
+			return fmt.Errorf("rollout status: %w", err)
+		}
+	}
+	return nil
+}
+
+// ValidateRestart implements Deployer: named Deployments must be a subset of
+// the ring's configured targets — kubectl never restarts something Ring
+// Promoter does not manage.
+func (d *KubectlDeployer) ValidateRestart(t Target, req RestartRequest) error {
+	if err := ValidateDeploymentNames(req.Deployments); err != nil {
+		return err
+	}
+	for _, name := range req.Deployments {
+		if name != t.Deployment {
+			return fmt.Errorf("%w: %q is not a configured deployment of %s/%s (configured: %q)",
+				ErrInvalidDeployments, name, t.App, t.Ring, t.Deployment)
+		}
+	}
+	return nil
+}
+
+// restartTargets returns the Deployments a kubectl restart acts on: the
+// requested ones (deduplicated, already validated) or every configured target.
+func restartTargets(t Target, req RestartRequest) []string {
+	if len(req.Deployments) == 0 {
+		return []string{t.Deployment}
+	}
+	seen := make(map[string]bool, len(req.Deployments))
+	out := make([]string, 0, len(req.Deployments))
+	for _, n := range req.Deployments {
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // LiveVersion implements LiveVersioner by reading the running image tag.
 func (d *KubectlDeployer) LiveVersion(ctx context.Context, t Target) (string, error) {
 	jsonpath := fmt.Sprintf(
