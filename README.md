@@ -765,7 +765,7 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 |-------------------|---------------------|----------------|----------------------------------------|
 | `RP_LISTEN_ADDR`  | `listen_addr`       | `:8080`        | HTTP bind address.                     |
 | `RP_API_TOKEN`    | `api_token`         | – (required)   | Bearer token for `/api`.               |
-| `RP_PROD_PASSWORD`| `production_password`| – (optional)  | Extra password required to deploy to the last ring (promote into prod, seed prod, enable auto-promote into prod). Rollbacks are exempt. Empty = disabled. |
+| `RP_PROD_PASSWORD`| `production_password`| – (optional)  | Extra password required to deploy to the last ring (promote into prod, seed prod, enable auto-promote into prod). Rollbacks are exempt. Empty = disabled. Set it on any instance that deploys real production apps; see [docs/deploy-k3s1.md](docs/deploy-k3s1.md) for adding it to an existing Secret. |
 | `RP_DEPLOYER`     | `deployer`          | `log`          | Global default: `kubectl`, `log` or `github`. Overridable per app via `deployer:`. |
 | `RP_GITHUB_TOKEN` | – (per-app `token_env`) | –          | API token for apps using the `github` deployer (needs `actions:write` + `contents:read`). From a Secret. |
 | `RP_JIRA_TOKEN`   | – (per-app `change_request.jira.token_env`) | – | API token for the `jira` change-request provider (JIRA Cloud email + token basic auth). From a Secret. |

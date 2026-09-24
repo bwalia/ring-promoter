@@ -123,7 +123,7 @@ jobs:
           kubectl get nodes -o wide
           if ! kubectl -n "${NAMESPACE}" get secret ring-promoter >/dev/null 2>&1; then
             echo "::error::secret/ring-promoter is missing in namespace ${NAMESPACE} on k3s1."
-            echo "::error::Run the one-time bootstrap (see docs/deploy-k3s1.md): create it with RP_API_TOKEN and RP_DB_DSN. CI never creates secrets."
+            echo "::error::Run the one-time bootstrap (see docs/deploy-k3s1.md): create it with RP_API_TOKEN, RP_DB_DSN and RP_PROD_PASSWORD. CI never creates secrets."
             exit 1
           fi
           echo "secret/ring-promoter present — proceeding."

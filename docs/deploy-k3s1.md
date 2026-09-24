@@ -37,16 +37,41 @@ Do this once by hand; CI takes over afterwards.
 1. **Postgres on k3s1** — ensure a Postgres is reachable from the cluster (e.g.
    the Zalando operator as on k3s0, or a managed instance) and note its DSN.
 
-2. **Create the real Secret** (never committed):
+2. **Create the real Secret** (never committed) in the namespace this workflow
+   deploys to, `workstation-ring-promoter`:
    ```bash
-   kubectl --kubeconfig ~/.kube/k3s1.yaml -n ring-system create namespace ring-system 2>/dev/null || true
-   kubectl --kubeconfig ~/.kube/k3s1.yaml -n ring-system create secret generic ring-promoter \
+   kubectl --kubeconfig ~/.kube/k3s1.yaml create namespace workstation-ring-promoter 2>/dev/null || true
+   kubectl --kubeconfig ~/.kube/k3s1.yaml -n workstation-ring-promoter create secret generic ring-promoter \
      --from-literal=RP_API_TOKEN='<a-strong-random-token>' \
-     --from-literal=RP_DB_DSN='postgres://<user>:<pass>@<host>:5432/ringpromoter?sslmode=require' \
-     --from-literal=RP_GITHUB_TOKEN='<github-dispatch-token>'
+     --from-literal=RP_DB_DSN='postgres://<user>:<pass>@<host>:5432/ringpromoter_ws?sslmode=require' \
+     --from-literal=RP_GITHUB_TOKEN='<github-dispatch-token>' \
+     --from-literal=RP_PROD_PASSWORD="$(openssl rand -base64 36 | tr -d '/+=' | cut -c1-32)"
    ```
-   (`RP_GITHUB_TOKEN` needs `actions:write` + `contents:read` on the repos of any
-   `deployer: github` app — e.g. `bwalia/wslproxy`, `bwalia/diy-tax-return-uk`.)
+   - `RP_GITHUB_TOKEN` needs `actions:write` + `contents:read` on the repos of any
+     `deployer: github` app — e.g. `bwalia/wslproxy`, `bwalia/diy-tax-return-uk`.
+   - `RP_PROD_PASSWORD` gates every deploy into the **last ring** (promote into
+     prod, seed prod, enable auto-promote into prod). This instance promotes
+     live production apps (jobshout, jobshout-com), so **always set it here**.
+     The Deployment reads it as `optional`, so a Secret without it does not
+     fail — Ring Promoter just starts with production unprotected
+     (`GET /api/apps` reports `"prod_protected": false`). Read it back with:
+     ```bash
+     kubectl --kubeconfig ~/.kube/k3s1.yaml -n workstation-ring-promoter get secret ring-promoter \
+       -o jsonpath='{.data.RP_PROD_PASSWORD}' | base64 -d
+     ```
+
+   **Adding or rotating a key later:** patch the one key, then restart so the
+   pod picks it up. Don't re-create or re-`apply` the Secret from a manifest
+   that lists only some keys: `kubectl apply` deletes any key that the previous
+   apply listed and the new one leaves out. That is how `RP_PROD_PASSWORD`
+   silently disappeared from this Secret once.
+   ```bash
+   kubectl --kubeconfig ~/.kube/k3s1.yaml -n workstation-ring-promoter patch secret ring-promoter \
+     --type merge -p '{"stringData":{"RP_PROD_PASSWORD":"<new-password>"}}'
+   kubectl --kubeconfig ~/.kube/k3s1.yaml -n workstation-ring-promoter rollout restart deploy/ring-promoter
+   # Verify: prod_protected must be true.
+   curl -s -H "Authorization: Bearer $RP_API_TOKEN" https://rp.workstation.co.uk/api/apps | jq .prod_protected
+   ```
 
 3. **GitHub repo secrets** (Settings → Secrets and variables → Actions):
    - `DOCKER_USER`, `DOCKER_PASSWD` — Docker Hub push creds (org already uses these).
