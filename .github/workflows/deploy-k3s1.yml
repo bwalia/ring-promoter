@@ -127,6 +127,14 @@ jobs:
             exit 1
           fi
           echo "secret/ring-promoter present — proceeding."
+          # Key names only — never read values into the log.
+          keys=$(kubectl -n "${NAMESPACE}" get secret ring-promoter \
+            -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}')
+          if ! printf '%s\n' "$keys" | grep -qx RP_PROD_PASSWORD; then
+            # Not fatal: the Deployment reads it as optional. But without it every
+            # production ring on this instance can be deployed to with no password.
+            echo "::warning::secret/ring-promoter has no RP_PROD_PASSWORD — production is unprotected (prod_protected=false). Add it with kubectl patch: see docs/deploy-k3s1.md, 'Adding or rotating a key later'."
+          fi
 
       - name: Apply manifests (GitOps; never secret.yaml)
         run: |

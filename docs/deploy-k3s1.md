@@ -19,7 +19,8 @@ self-hosted **Mac Studio** runner (`runs-on: [self-hosted, mac-studio]`).
      and in the UI footer).
    - Load the k3s1 kubeconfig from the `KUBE_CONFIG_DATA_K3S1` secret.
    - **Preflight**: fail fast if `secret/ring-promoter` is missing (CI never
-     creates secrets).
+     creates secrets), and warn (non-fatal) if it has no `RP_PROD_PASSWORD`.
+     The check reads key names only, never values.
    - **Apply** `namespace.yaml`, `rbac.yaml`, `configmap.yaml`, `service.yaml`,
      and `kubernetes/ingress/ring-promoter.yaml`. **`secret.yaml` is never
      applied** (it holds placeholders and would clobber the real Secret).
