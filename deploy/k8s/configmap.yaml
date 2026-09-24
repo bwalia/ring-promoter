@@ -411,6 +411,7 @@ data:
           namespace: ring-exec
           image: docker.io/dtzar/helm-kubectl:3.15.4
           service_account: ring-deploy-job
+          # Node path reaches WSLVault UI/API; CNI overlay is flaky on some nodes.
           host_network: true
           env_from_secrets: [wslproxy-vault]
           command: ["/bin/sh", "-c"]
@@ -444,6 +445,14 @@ data:
               cd /src
               git checkout "${ver}" || echo "RP_VERSION ${ver} is not a git ref; chart from default branch, image tag ${tag}"
               kubectl apply -f ingress-controller/deploy/crds/
+              # IngressClass.spec.controller is immutable. If a prior install left
+              # the wrong controller (e.g. traefik.io/…), delete so helm can recreate.
+              want_ctrl="wslproxy.io/ingress-controller"
+              have_ctrl="$(kubectl get ingressclass "${class}" -o jsonpath='{.spec.controller}' 2>/dev/null || true)"
+              if [ -n "${have_ctrl}" ] && [ "${have_ctrl}" != "${want_ctrl}" ]; then
+                echo "IngressClass ${class} controller='${have_ctrl}' != '${want_ctrl}' — deleting for recreate"
+                kubectl delete ingressclass "${class}" --ignore-not-found
+              fi
               if [ "${control_plane}" = "1" ]; then
                 if [ -z "${VAULT_TOKEN:-}" ] || [ -z "${VAULT_ADDR:-}" ]; then
                   echo "VAULT_ADDR/VAULT_TOKEN missing — create secret ring-exec/wslproxy-vault" >&2
@@ -453,11 +462,21 @@ data:
                 export WSLPROXY_VAULT_ENV=prod
                 chmod +x scripts/k3s1-bootstrap-control-plane.sh
                 ./scripts/k3s1-bootstrap-control-plane.sh
+                # Pin OpenResty + controller to cloud003 (CF → 77.68.126.63).
+                # Overlay also enables controlPlane Ingress/NodePort 32080 + Next.js dashboard.
                 extra="${extra} -f ./ingress-controller/deploy/helm/values-control-plane-cloud003.yaml"
                 extra="${extra} --set openresty.settings.existingSecret=wslproxy-settings --set openresty.pgsql.existingSecret=wslproxy-pgsql"
+                extra="${extra} --set openresty.controlPlane.dashboard.enabled=true"
+                extra="${extra} --set openresty.controlPlane.dashboard.image.tag=${tag}"
+                extra="${extra} --set openresty.controlPlane.dashboard.image.pullPolicy=Always"
               fi
-              # Pin openresty only — controller image is not rebuilt on every main merge.
+              # No --create-namespace: ring-deploy-job has no cluster-scoped
+              # namespace rights. Namespaces come from k3s1-rbac.yaml.
+              # Control-plane image is bwalia/wslproxy (openresty). Do not pin
+              # controller.image.tag — that image is not rebuilt on every main merge.
               # shellcheck disable=SC2086
+              # Do not --wait on LoadBalancer readiness: ServiceLB EXTERNAL-IP can
+              # stay empty while NodePort 32080 + traefik-edge already serve cp.pop0.uk.
               helm upgrade --install "${release}" ./ingress-controller/deploy/helm \
                 --namespace "${ns}" \
                 --set fullnameOverride="${fullname}" \
@@ -466,11 +485,22 @@ data:
                 --set openresty.image.tag="${tag}" \
                 --set openresty.image.pullPolicy=Always \
                 ${extra} \
-                --wait --timeout 10m
-              echo "wslproxy-ingress ${tag} live in ${ns}"
+                --timeout 10m \
+                --wait=false
+              # Apply Traefik path split BEFORE waiting on rollouts — RP's sync
+              # seed often 504s at the gateway while the Job is still running, and
+              # skipping this left cp.pop0.uk stuck on the legacy Vite SPA.
               if [ "${control_plane}" = "1" ]; then
-                echo "control-plane pinned to cloud003; UI NodePort 32080 on 77.68.126.63"
+                kubectl apply -f deploy/k3s1/wslproxy-cp-traefik-ingress.yaml
               fi
+              # Still wait for OpenResty pods so seed reports a useful failure.
+              kubectl -n "${ns}" rollout status "deploy/${fullname}-openresty" --timeout=5m
+              kubectl -n "${ns}" rollout status "deploy/${fullname}-controller" --timeout=3m || true
+              if [ "${control_plane}" = "1" ]; then
+                kubectl -n "${ns}" rollout status "deploy/${fullname}-dashboard" --timeout=5m
+                echo "control-plane pinned to cloud003; UI NodePort 32080 + Next.js dashboard on 77.68.126.63"
+              fi
+              echo "wslproxy-ingress ${tag} live in ${ns}"
           resources: { cpu_request: 100m, memory_limit: 512Mi }
           timeout: 25m
           retries: 0
