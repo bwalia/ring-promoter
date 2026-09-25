@@ -38,7 +38,7 @@ struct RingsUniverseTests {
         #expect(DescentLayout.nodeR == 8)
         #expect(DescentLayout.emptyR == 3)
         #expect(DescentLayout.maxSpokes == 36)
-        #expect(DescentLayout.minWidth == 560)
+        #expect(DescentLayout.minWidth == 320)
         #expect(DescentLayout.gateHalf == 11)
         #expect(DescentLayout.cometSeconds == 1.6)
     }
@@ -111,12 +111,12 @@ struct RingsUniverseTests {
         #expect(DescentLayout.labelAnchor(.pi - edge + 0.001) == .end)
     }
 
-    @Test("orbit fits only on wide stages with at most 36 spokes")
+    @Test("orbit fits on phone-width stages with at most 36 spokes")
     func descentFitsThresholds() {
-        #expect(DescentLayout.descentFits(stageWidth: 560, spokes: 36))
-        #expect(!DescentLayout.descentFits(stageWidth: 559.9, spokes: 5))
+        #expect(DescentLayout.descentFits(stageWidth: 320, spokes: 36))
+        #expect(DescentLayout.descentFits(stageWidth: 390, spokes: 12))
+        #expect(!DescentLayout.descentFits(stageWidth: 319.9, spokes: 5))
         #expect(!DescentLayout.descentFits(stageWidth: 1200, spokes: 37))
-        #expect(!DescentLayout.descentFits(stageWidth: 402, spokes: 3))
         #expect(DescentLayout.descentFits(stageWidth: 874, spokes: 0))
     }
 
