@@ -34,8 +34,9 @@ export const DESCENT_NODE_R = 8;
 export const DESCENT_EMPTY_R = 3;
 /** Past this many spokes the labels crowd — fall back to lanes. */
 export const DESCENT_MAX_SPOKES = 36;
-/** Below this stage width (CSS px / points) the orbit is unreadable — lanes. */
-export const DESCENT_MIN_WIDTH = 560;
+/** Below this stage width (CSS px / points) the orbit is unreadable — lanes.
+ *  320 covers phones; the stage scales labels to fit (keep in lockstep with iOS). */
+export const DESCENT_MIN_WIDTH = 320;
 /** Half-width of the amber gate bar drawn across a spoke. */
 export const DESCENT_GATE_HALF = 11;
 /** One comet pass between two rings, seconds. */

@@ -8,9 +8,9 @@ import SwiftUI
 /// version has travelled toward production. Geometry lives in
 /// `DescentLayout` (a port of the web console's `descent-layout.ts`).
 ///
-/// Where the orbit can't be read — a narrow stage (iPhone portrait) or a fleet
-/// past `DescentLayout.maxSpokes` — the same data renders as "lanes": one row
-/// per app, one column per ring.
+/// Where the orbit can't be read — a stage narrower than
+/// `DescentLayout.minWidth` or a fleet past `DescentLayout.maxSpokes` — the
+/// same data renders as "lanes": one row per app, one column per ring.
 ///
 /// Reuses `OverviewStore` for data: the same summaries, jobs and groups the
 /// Overview list shows, so the two screens can never disagree about health.
@@ -447,9 +447,11 @@ struct DescentFrame: Equatable {
     }
 
     /// Fit the rings plus label room into `size`, leaving the chrome insets
-    /// clear. Labels need ~150 pt beside the circle and ~36 pt under it.
+    /// clear. On wide stages labels reserve ~150 pt beside the circle; on
+    /// phones the side reserve shrinks so the rings stay readable.
     static func fit(size: CGSize, topInset: Double, bottomInset: Double) -> DescentFrame {
-        let labelSide = 150.0, labelBelow = 36.0, labelAbove = 12.0
+        let labelSide = min(150.0, max(48.0, size.width * 0.22))
+        let labelBelow = 36.0, labelAbove = 12.0
         let r = DescentLayout.labelR
         let availH = max(1, size.height - topInset - bottomInset)
         let s = max(0.12, min(

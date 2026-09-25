@@ -39,7 +39,8 @@ enum DescentLayout {
     /// Past this many spokes the labels crowd — fall back to lanes.
     static let maxSpokes = 36
     /// Below this stage width (points) the orbit is unreadable — lanes.
-    static let minWidth: Double = 560
+    /// 320 covers iPhone SE and up; the stage scales labels to fit.
+    static let minWidth: Double = 320
     /// Half-width of the amber gate bar drawn across a spoke.
     static let gateHalf: Double = 11
     /// One comet pass between two rings, seconds.
