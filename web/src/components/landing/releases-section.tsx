@@ -55,7 +55,7 @@ export function ReleasesSection() {
             Happy Friday — Ring Promoter v1.0.2
           </p>
           <h2 className="mt-3 font-display text-balance text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
-            Orbit and Lanes, side by side.
+            CI/CD Orbit and Lanes, side by side.
           </h2>
           <p className="mt-4 text-pretty text-[15px] leading-relaxed text-neutral-400 sm:text-base">
             Two views of the same promotion truth: where versions sit across
