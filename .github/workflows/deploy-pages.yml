@@ -85,6 +85,11 @@ jobs:
           cp web/out/landing.html site/index.html
           cp web/out/404.html web/out/favicon.ico site/
           cp -R web/out/_next site/_next
+          # Public assets (e.g. release screenshots) land at out/<dir>/;
+          # copy them so /releases/*.png resolves on Pages.
+          if [ -d web/out/releases ]; then
+            cp -R web/out/releases site/releases
+          fi
           # Pages runs Jekyll by default, which drops _next/; opt out.
           touch site/.nojekyll
           # An Actions deploy replaces the whole site, so the CNAME has to be
