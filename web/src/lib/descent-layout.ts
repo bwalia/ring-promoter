@@ -209,7 +209,8 @@ export type GroupSpan = { id: string; name: string; from: number; to: number };
 
 /**
  * Order apps so each group's spokes sit together, groups in config order,
- * ungrouped apps last. An app in several groups goes with the first one.
+ * ungrouped apps last. An app in several groups goes with the first one;
+ * an app listed twice in one group appears once.
  */
 export function orderByGroup(
   apps: string[],
@@ -220,7 +221,7 @@ export function orderByGroup(
   const ordered: string[] = [];
   const spans: GroupSpan[] = [];
   for (const g of groups) {
-    const members = g.apps.filter((a) => known.has(a) && !placed.has(a));
+    const members = [...new Set(g.apps)].filter((a) => known.has(a) && !placed.has(a));
     if (!members.length) continue;
     spans.push({ id: g.id, name: g.name, from: ordered.length, to: ordered.length + members.length - 1 });
     for (const a of members) {
