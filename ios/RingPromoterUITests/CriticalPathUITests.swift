@@ -221,8 +221,8 @@ final class CriticalPathUITests: XCTestCase {
             app.navigationBars["Rings of Applications"].waitForExistence(timeout: 5)
         )
 
-        // Every demo application orbits the stage as a tappable body.
-        let planet = app.buttons["planet-payments-api"]
+        // Every demo application owns a tappable spoke (orbit) or lane (portrait).
+        let planet = app.buttons["spoke-payments-api"]
         XCTAssertTrue(planet.waitForExistence(timeout: 10))
         planet.tap()
 
