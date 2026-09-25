@@ -180,40 +180,31 @@
   }
 }
 
-/* ── Solar-system stage (components/solar-system.tsx) ───────────────────
-   The orbit itself is driven imperatively in JS (one rAF loop writing
-   transforms, no React state), so only the ambient effects live here.
-   Everything decorative and infinite is gated on reduced motion below. */
-
-/* Corona breathing. Scale only — opacity alone reads as a flicker at this
-   size, and animating width/height would trigger layout every frame. */
-@keyframes sun-corona {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0.55;
-  }
-  50% {
-    transform: scale(1.06);
-    opacity: 0.78;
-  }
+/* ── Descent stage (components/descent-stage.tsx) ──────────────────────
+   Spokes are static SVG; Earth spin is one rAF loop and a promotion in
+   flight is an SMIL comet. Focus dims every other spoke so the active one's
+   trail, gate and label read on their own. */
+.descent-spoke {
+  transition: opacity 0.2s ease;
 }
-
-/* Slow counter-rotating shimmer on the occupied orbit tracks, so an
-   otherwise static ring reads as "live" without moving anything. */
-@keyframes orbit-shimmer {
-  to {
-    stroke-dashoffset: -360;
-  }
+.descent-focusing .descent-spoke:not(.is-on) {
+  opacity: 0.22;
+}
+.descent-spoke:focus-visible .descent-rail {
+  stroke-opacity: 0.7;
+  stroke-width: 2.4;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Freeze every ambient loop on the stage. Earth spin and satellite drift
-     are pinned to t=0 by the component; this only kills leftover CSS loops. */
+  /* Freeze every ambient loop on the stage. Earth spin and the comet are
+     skipped by the component; this only kills leftover CSS loops. */
   [data-testid="solar-system"] *,
   [data-solar-ambient],
   [data-solar-ambient] * {
     animation: none !important;
+  }
+  .descent-spoke {
+    transition: none;
   }
 }
 
