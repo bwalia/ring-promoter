@@ -1,14 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { NodeStatus } from "@/components/group-ring";
 import { GroupDialog } from "@/components/group-dialog";
 import { QaStatusBar } from "@/components/qa-status-bar";
-import { SolarSystem } from "@/components/solar-system";
+import { DescentStage } from "@/components/descent-stage";
 import { Button } from "@/components/ui/button";
 import { summarizeRings } from "@/lib/app-health";
-import { centroidLocation } from "@/lib/globe-layout";
-import { appLatencyMs, appTtfbMs } from "@/lib/solar-layout";
 import {
   useAddTopologyEdge,
   useAppLocations,
@@ -22,12 +20,6 @@ import {
 } from "@/lib/queries";
 import { usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
-import type { AppGroup, TopologyEdge } from "@/lib/types";
-import { cn } from "@/lib/utils";
-
-const UNGROUPED_ID = "__ungrouped__";
-
-type ViewMode = "apps" | "rings";
 
 function baseStatus(r: GroupAppRings): NodeStatus {
   if (r.isPending || !r.rings) return "loading";
@@ -50,41 +42,10 @@ function aggregateStatuses(statuses: NodeStatus[]): NodeStatus {
   return AGGREGATE_PRIORITY.find((s) => statuses.includes(s)) ?? "empty";
 }
 
-function groupMemberApps(group: AppGroup, known: string[]): string[] {
-  return group.apps.filter((a) => known.includes(a));
-}
-
-/** Derive group↔group edges from app dependency topology. */
-function groupEdges(
-  groups: AppGroup[],
-  appEdges: TopologyEdge[],
-  known: string[],
-): TopologyEdge[] {
-  const appToGroup = new Map<string, string>();
-  for (const g of groups) {
-    for (const a of groupMemberApps(g, known)) {
-      if (!appToGroup.has(a)) appToGroup.set(a, g.id);
-    }
-  }
-  const seen = new Set<string>();
-  const out: TopologyEdge[] = [];
-  for (const e of appEdges) {
-    const fromG = appToGroup.get(e.from);
-    const toG = appToGroup.get(e.to);
-    if (!fromG || !toG || fromG === toG) continue;
-    const key = `${fromG}\0${toG}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ from: fromG, to: toG, source: e.source });
-  }
-  return out;
-}
-
 /**
  * "Rings of Applications" in the nav; the stage itself is titled "Rings of
- * Apps". Two views:
- * - All apps: every app orbits Rings
- * - Rings: each group orbits as a cluster of apps
+ * Apps". One Descent stage: every app is a spoke through the promotion
+ * rings, and groups ("rings" in the nav) are arcs around the outside.
  */
 export function FleetView() {
   const { data } = useApps();
@@ -98,76 +59,13 @@ export function FleetView() {
   const selectGroup = usePrefsStore((s) => s.selectGroup);
   const setPendingAction = useUiStore((s) => s.setPendingAction);
   const [createOpen, setCreateOpen] = useState(false);
-  const [view, setView] = useState<ViewMode>("apps");
-
-  const ringPlanets = useMemo(() => {
-    const listed = groups.map((g) => ({
-      id: g.id,
-      name: g.name,
-      apps: groupMemberApps(g, known),
-    }));
-    const grouped = new Set(listed.flatMap((g) => g.apps));
-    const ungrouped = known.filter((a) => !grouped.has(a));
-    if (ungrouped.length > 0) {
-      listed.push({
-        id: UNGROUPED_ID,
-        name: "Ungrouped",
-        apps: ungrouped,
-      });
-    }
-    return listed;
-  }, [groups, known]);
 
   const appResults = useGroupRings(known);
   const deploying = useDeployingApps(known);
-  const appResultByName = useMemo(() => {
-    const m = new Map<string, GroupAppRings>();
-    for (const r of appResults) m.set(r.app, r);
-    return m;
-  }, [appResults]);
-
   const appStatuses: NodeStatus[] = appResults.map((r) =>
     deploying.has(r.app) ? "deploying" : baseStatus(r),
   );
-  const appAggregate = aggregateStatuses(appStatuses);
 
-  const ringIds = ringPlanets.map((p) => p.id);
-  const ringResults: GroupAppRings[] = ringPlanets.map((p) => {
-    const rings = p.apps.flatMap((a) => appResultByName.get(a)?.rings ?? []);
-    const pending = p.apps.some((a) => appResultByName.get(a)?.isPending);
-    return { app: p.id, rings, isPending: pending, error: null };
-  });
-  const ringStatuses: NodeStatus[] = ringPlanets.map((p) => {
-    if (p.apps.some((a) => deploying.has(a))) return "deploying";
-    const memberStatuses = p.apps.map((a) => {
-      const r = appResultByName.get(a);
-      return r ? baseStatus(r) : ("loading" as NodeStatus);
-    });
-    return aggregateStatuses(memberStatuses);
-  });
-  const ringLatency: Record<string, number | null> = {};
-  const ringTtfb: Record<string, number | null> = {};
-  const ringLocations: Record<string, ReturnType<typeof centroidLocation>> = {};
-  const ringSubtitles: Record<string, string> = {};
-  for (const p of ringPlanets) {
-    const lats = p.apps
-      .map((a) => appLatencyMs(appResultByName.get(a)?.rings))
-      .filter((n): n is number => n != null);
-    const ttfbs = p.apps
-      .map((a) => appTtfbMs(appResultByName.get(a)?.rings))
-      .filter((n): n is number => n != null);
-    ringLatency[p.id] = lats.length ? Math.max(...lats) : null;
-    ringTtfb[p.id] = ttfbs.length ? Math.max(...ttfbs) : null;
-    ringLocations[p.id] = centroidLocation(p.apps.map((a) => appLocations[a]));
-    ringSubtitles[p.id] =
-      p.apps.length === 1 ? "1 app" : `${p.apps.length} apps`;
-  }
-  const ringTitles = useMemo(() => {
-    const m = new Map(ringPlanets.map((p) => [p.id, p.name]));
-    return (id: string) => m.get(id) ?? id;
-  }, [ringPlanets]);
-
-  const openApp = (app: string) => selectApp(app);
   const seedApp = (app: string) => {
     setPendingAction({ type: "seed", app });
     selectApp(app);
@@ -175,54 +73,6 @@ export function FleetView() {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex justify-center p-3">
-        <div className="pointer-events-auto flex flex-wrap items-center gap-2">
-          <div
-            className="inline-flex rounded-lg border border-white/15 bg-[#07070a]/75 p-0.5 shadow-[0_8px_32px_-12px_rgba(0,0,0,0.8)] backdrop-blur-md"
-            role="group"
-            aria-label="Rings of Apps view"
-          >
-            <button
-              type="button"
-              onClick={() => setView("apps")}
-              className={cn(
-                "rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors",
-                view === "apps"
-                  ? "bg-white/12 text-neutral-50 shadow-sm"
-                  : "text-neutral-400 hover:text-neutral-100",
-              )}
-              data-testid="solar-view-apps"
-            >
-              All apps
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("rings")}
-              className={cn(
-                "rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors",
-                view === "rings"
-                  ? "bg-white/12 text-neutral-50 shadow-sm"
-                  : "text-neutral-400 hover:text-neutral-100",
-              )}
-              data-testid="solar-view-rings"
-            >
-              Rings
-            </button>
-          </div>
-          {view === "rings" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-white/15 bg-[#07070a]/70 text-neutral-100 backdrop-blur-md hover:bg-white/10"
-              onClick={() => setCreateOpen(true)}
-            >
-              New ring
-            </Button>
-          )}
-          <QaStatusBar compact />
-        </div>
-      </div>
-
       {known.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
           <p className="text-sm font-medium">No apps configured</p>
@@ -230,63 +80,36 @@ export function FleetView() {
             Add apps under <code>apps:</code> in the server config.
           </p>
         </div>
-      ) : view === "apps" ? (
-        <SolarSystem
+      ) : (
+        <DescentStage
           className="min-h-0 flex-1"
-          sunLabel="Ring Promoter"
-          members={known}
+          apps={known}
           results={appResults}
           statuses={appStatuses}
-          aggregate={appAggregate}
+          aggregate={aggregateStatuses(appStatuses)}
+          deploying={deploying}
           edges={appEdges}
           groups={groups}
-          mode="apps"
+          locations={appLocations}
           editable
           onAddEdge={(from, to) => addEdge.mutate({ from, to })}
           onRemoveEdge={(from, to) => removeEdge.mutate({ from, to })}
-          locations={appLocations}
-          onOpen={openApp}
+          onOpen={selectApp}
           onSeed={seedApp}
-        />
-      ) : ringPlanets.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
-          <p className="text-sm font-medium">No rings yet</p>
-          <p className="text-sm text-muted-foreground">
-            Create a group of apps — or switch to All apps to see every app
-            around Rings.
-          </p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => setView("apps")}>
-              All apps
-            </Button>
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              Create a ring
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <SolarSystem
-          className="min-h-0 flex-1"
-          sunLabel="Ring Promoter"
-          members={ringIds}
-          results={ringResults}
-          statuses={ringStatuses}
-          aggregate={aggregateStatuses(ringStatuses)}
-          edges={groupEdges(groups, appEdges, known)}
-          mode="groups"
-          resolveTitle={ringTitles}
-          subtitles={ringSubtitles}
-          latencyById={ringLatency}
-          ttfbById={ringTtfb}
-          locations={ringLocations}
-          groupMembers={Object.fromEntries(ringPlanets.map((p) => [p.id, p.apps]))}
-          onOpen={(id) => {
-            if (id === UNGROUPED_ID) {
-              setView("apps");
-              return;
-            }
-            selectGroup(id);
-          }}
+          onOpenGroup={selectGroup}
+          actions={
+            <>
+              <QaStatusBar compact />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 border-white/15 bg-[#07070a]/70 text-xs text-neutral-100 backdrop-blur-md hover:bg-white/10"
+                onClick={() => setCreateOpen(true)}
+              >
+                New ring
+              </Button>
+            </>
+          }
         />
       )}
 

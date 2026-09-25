@@ -3,122 +3,292 @@ import Testing
 
 @testable import RingPromoter
 
-/// The Rings of Applications screen's layout maths and status roll-ups.
+/// The Rings of Applications screen ("Descent"): layout maths, spoke state and
+/// status roll-ups.
 ///
-/// The geometry is a port of the web console's `solar-layout.ts`; these tests
-/// pin the numbers so the two clients keep drawing the same sky.
+/// The geometry is a port of the web console's `descent-layout.ts`; these tests
+/// pin the numbers so the two clients keep drawing the same stage.
 @Suite("Rings of Applications")
 struct RingsUniverseTests {
 
+    private let order = ["int", "test", "acc", "prod"]
+
+    private func ring(
+        _ name: String, _ version: String = "", healthy: Bool = true,
+        configured: Bool = true, gates: RingGates = .none, latency: Int? = nil
+    ) -> RingStatus {
+        PreviewData.ring(
+            name, label: name.capitalized, version: version, healthy: healthy,
+            configured: configured, gates: gates, latency: latency
+        )
+    }
+
+    // MARK: - Constants
+
+    @Test("constants match web descent-layout.ts")
+    func constantsMatchWeb() {
+        #expect(DescentLayout.design == 1000)
+        #expect(DescentLayout.earthR == 86)
+        #expect(DescentLayout.ringInner == 132)
+        #expect(DescentLayout.ringOuter == 318)
+        #expect(DescentLayout.groupArcR == 334)
+        #expect(DescentLayout.labelR == 350)
+        #expect(DescentLayout.topGap == 0.34)
+        #expect(DescentLayout.labelCenterBand == 0.12)
+        #expect(DescentLayout.nodeR == 8)
+        #expect(DescentLayout.emptyR == 3)
+        #expect(DescentLayout.maxSpokes == 36)
+        #expect(DescentLayout.minWidth == 560)
+        #expect(DescentLayout.gateHalf == 11)
+        #expect(DescentLayout.cometSeconds == 1.6)
+    }
+
     // MARK: - Geometry
 
-    @Test("the hash is deterministic and stays in 0..<1")
-    func hashDeterminism() {
-        for name in ["web-frontend", "payments-api", "batch-worker", "", "α-app"] {
-            let first = SolarLayout.hash01(name)
-            #expect(first == SolarLayout.hash01(name))
-            #expect(first >= 0 && first < 1)
+    @Test("the first ring is outermost, the last sits just above Earth")
+    func ringRadiusEndpoints() {
+        #expect(DescentLayout.ringRadius(index: 0, count: 4) == DescentLayout.ringOuter)
+        #expect(DescentLayout.ringRadius(index: 3, count: 4) == DescentLayout.ringInner)
+        #expect(abs(DescentLayout.ringRadius(index: 1, count: 4) - 256) < 1e-9)
+        #expect(abs(DescentLayout.ringRadius(index: 2, count: 4) - 194) < 1e-9)
+        // A single ring sits midway.
+        #expect(DescentLayout.ringRadius(index: 0, count: 1) == 225)
+        #expect(DescentLayout.ringRadius(index: 0, count: 0) == 225)
+        #expect(DescentLayout.ringInner > DescentLayout.earthR)
+    }
+
+    @Test("spokes leave a symmetric gap at 12 o'clock")
+    func spokeAngleGapSymmetry() {
+        for count in [1, 2, 3, 7, 14, 36] {
+            let first = DescentLayout.spokeAngle(index: 0, count: count)
+            let last = DescentLayout.spokeAngle(index: count - 1, count: count)
+            let top = -Double.pi / 2
+            // Distance from 12 o'clock to the first spoke (clockwise) equals
+            // the distance from the last spoke to 12 o'clock (clockwise).
+            let before = first - top
+            let after = (top + 2 * .pi) - last
+            #expect(abs(before - after) < 1e-9)
+            #expect(before >= DescentLayout.topGap / 2)
+            // Even spacing.
+            if count > 1 {
+                let step = DescentLayout.spokeAngle(index: 1, count: count) - first
+                #expect(abs(step - 2 * DescentLayout.spokeHalfWidth(count: count)) < 1e-9)
+            }
         }
-        #expect(SolarLayout.hash01("a") != SolarLayout.hash01("b"))
+        // One spoke points straight down.
+        #expect(abs(DescentLayout.spokeAngle(index: 0, count: 1) - .pi / 2) < 1e-9)
     }
 
-    @Test("no latency parks a body on the default track")
-    func defaultRadius() {
-        #expect(SolarLayout.radius(forLatencyMs: nil) == SolarLayout.defaultRadius)
-    }
-
-    @Test("latency maps onto the discrete tracks, monotonically")
-    func latencyToTracks() {
-        #expect(SolarLayout.radius(forLatencyMs: 0) == SolarLayout.tracks.first)
-        #expect(SolarLayout.radius(forLatencyMs: 800) == SolarLayout.tracks.last)
-        // Anything past the compression ceiling stays on the outermost track.
-        #expect(SolarLayout.radius(forLatencyMs: 5_000) == SolarLayout.tracks.last)
-
-        var previous = 0.0
-        for ms in [1, 10, 50, 100, 250, 500, 800] {
-            let radius = SolarLayout.radius(forLatencyMs: ms)
-            #expect(SolarLayout.tracks.contains(radius))
-            #expect(radius >= previous)
-            previous = radius
-        }
-    }
-
-    @Test("bodies on one track are spread evenly and ordered alphabetically")
-    func evenSpread() {
-        let planets = SolarLayout.planets(for: [
-            ("charlie", 100), ("alpha", 100), ("bravo", 100),
-        ])
-        #expect(planets.map(\.id) == ["alpha", "bravo", "charlie"])
-        #expect(Set(planets.map(\.angle0)).count == 3)
-
-        // Even spread: successive seed angles are 2π/3 apart, give or take the
-        // small deterministic jitter (±0.06 rad each). Axis clearance is shared.
-        let gap = 2 * Double.pi / 3
-        for pair in zip(planets, planets.dropFirst()) {
-            let delta = pair.1.angle0 - pair.0.angle0
-            #expect(abs(delta - gap) < 0.15)
+    @Test("spoke index inverts spoke angle and the gap hits nothing")
+    func spokeIndexInverse() {
+        for count in [1, 5, 36] {
+            for i in 0..<count {
+                let a = DescentLayout.spokeAngle(index: i, count: count)
+                #expect(DescentLayout.spokeIndex(atAngle: a, count: count) == i)
+                #expect(DescentLayout.spokeIndex(atAngle: a + 2 * .pi, count: count) == i)
+            }
+            #expect(DescentLayout.spokeIndex(atAngle: -.pi / 2, count: count) == nil)
         }
     }
 
-    @Test("outer orbits revolve slower than inner ones")
-    func orbitalPeriods() {
-        let planets = SolarLayout.planets(for: [
-            ("inner", SolarLayout.tracks.first ?? 68),
-            ("outer", SolarLayout.tracks.last ?? 162),
-        ])
-        let inner = planets.first { $0.id == "inner" }
-        let outer = planets.first { $0.id == "outer" }
-        #expect((inner?.period ?? 0) < (outer?.period ?? 0))
+    @Test("polar is clockwise from 3 o'clock with +y down")
+    func polarConvention() {
+        let p = DescentLayout.polar(.pi / 2, 10)
+        #expect(abs(p.x) < 1e-9)
+        #expect(abs(p.y - 10) < 1e-9)
     }
 
-    @Test("a body's position stays on its orbit as time passes")
-    func positionsStayOnOrbit() {
-        let planet = SolarLayout.planets(for: [("web-frontend", 132)])[0]
-        for elapsed in [0.0, 13.7, 92.4] {
-            let pos = SolarLayout.position(of: planet, at: elapsed)
-            let dx = pos.x - SolarLayout.center
-            let dy = pos.y - SolarLayout.center
-            #expect(abs((dx * dx + dy * dy).squareRoot() - planet.r) < 0.001)
-        }
+    @Test("labels read outward: start on the right, end on the left, middle near 12/6")
+    func labelAnchorBands() {
+        #expect(DescentLayout.labelAnchor(0) == .start)
+        #expect(DescentLayout.labelAnchor(.pi) == .end)
+        #expect(DescentLayout.labelAnchor(.pi / 2) == .middle)
+        #expect(DescentLayout.labelAnchor(-.pi / 2) == .middle)
+        // Band edges: |cos| must exceed 0.12 to leave the middle.
+        let edge = acos(0.12)
+        #expect(DescentLayout.labelAnchor(edge + 0.001) == .middle)
+        #expect(DescentLayout.labelAnchor(edge - 0.001) == .start)
+        #expect(DescentLayout.labelAnchor(.pi - edge + 0.001) == .end)
     }
 
-    @Test("orbit tracks and latency bands match the web console")
-    func tracksMatchWeb() {
-        #expect(SolarLayout.tracks == [68, 100, 132, 162])
-        #expect(SolarLayout.defaultRadius == 100)
-        #expect(SolarLayout.orbitBands.map(\.r) == SolarLayout.tracks)
-        #expect(!SolarLayout.orbitBands[0].label.isEmpty)
+    @Test("orbit fits only on wide stages with at most 36 spokes")
+    func descentFitsThresholds() {
+        #expect(DescentLayout.descentFits(stageWidth: 560, spokes: 36))
+        #expect(!DescentLayout.descentFits(stageWidth: 559.9, spokes: 5))
+        #expect(!DescentLayout.descentFits(stageWidth: 1200, spokes: 37))
+        #expect(!DescentLayout.descentFits(stageWidth: 402, spokes: 3))
+        #expect(DescentLayout.descentFits(stageWidth: 874, spokes: 0))
     }
 
-    @Test("crowded tracks stagger draw radius off the latency band")
-    func crowdedStagger() {
-        let ids = (0..<8).map { "app-\($0)" }
-        let planets = SolarLayout.planets(for: ids.map { ($0, 100.0) })
-        #expect(planets.count == 8)
-        #expect(Set(planets.map(\.track)) == [100])
-        #expect(Set(planets.map(\.r)).count > 1)
+    // MARK: - Spokes
+
+    @Test("the frontier is the deepest ring holding the newest version")
+    func buildSpokeFrontier() {
+        let spoke = DescentLayout.buildSpoke(
+            [ring("int", "2.3.1"), ring("test", "2.3.1"), ring("acc", "2.3.0"), ring("prod", "2.2.9")],
+            order: order
+        )
+        #expect(spoke.newest == "2.3.1")
+        #expect(spoke.frontier == 1)
+        #expect(spoke.gateAt == -1)
+        #expect(spoke.nodes.map(\.fresh) == [true, true, false, false])
+        #expect(spoke.nodes.map(\.state) == [.healthy, .healthy, .healthy, .healthy])
+        #expect(DescentLayout.nextRingIndex(spoke) == 2)
+        #expect(DescentLayout.spokeSentence(spoke) == "2.3.1 has reached test, 2 rings to go")
     }
 
-    // MARK: - Latency selection
+    @Test("newest is the outermost deployed version, even when int is empty")
+    func buildSpokeNewestSkipsEmpty() {
+        let spoke = DescentLayout.buildSpoke(
+            [ring("int"), ring("test", "1.1"), ring("acc", "1.1"), ring("prod", "1.0")],
+            order: order
+        )
+        #expect(spoke.newest == "1.1")
+        #expect(spoke.frontier == 2)
+        #expect(spoke.nodes[0].state == .empty)
+        #expect(!spoke.nodes[0].fresh)
+    }
 
-    @Test("production's latency wins when it reported one")
-    func prodLatencyPreferred() {
-        let rings = [
-            PreviewData.ring("int", label: "Integration", version: "1.0", latency: 20),
-            PreviewData.ring("prod", label: "Production", version: "1.0", latency: 90),
+    @Test("unconfigured and unreported rings are off; failing health is failed")
+    func buildSpokeOffAndFailed() {
+        let spoke = DescentLayout.buildSpoke(
+            [
+                ring("int", "3.0", healthy: false),
+                ring("test", "2.9", configured: false),
+            ],
+            order: order
+        )
+        #expect(spoke.nodes.map(\.state) == [.failed, .off, .off, .off])
+        #expect(spoke.nodes[1].version == nil, "an unconfigured ring never shows a version")
+        #expect(spoke.nodes[2].label == "acc", "unreported rings fall back to their name")
+        #expect(spoke.frontier == 0)
+        #expect(DescentLayout.nextRingIndex(spoke) == -1)
+        #expect(DescentLayout.spokeSentence(spoke) == "3.0 is live in int")
+    }
+
+    @Test("nothing deployed: frontier -1 and a plain sentence")
+    func buildSpokeEmpty() {
+        let spoke = DescentLayout.buildSpoke(
+            order.map { ring($0) }, order: order
+        )
+        #expect(spoke.newest == nil)
+        #expect(spoke.frontier == -1)
+        #expect(spoke.gateAt == -1)
+        #expect(spoke.nodes.allSatisfy { $0.state == .empty && !$0.fresh })
+        #expect(DescentLayout.nextRingIndex(spoke) == -1)
+        #expect(DescentLayout.spokeSentence(spoke) == "Nothing deployed yet")
+
+        let none = DescentLayout.buildSpoke(nil, order: [])
+        #expect(none.nodes.isEmpty)
+        #expect(none.frontier == -1)
+    }
+
+    @Test("empty order falls back to the reported rings")
+    func buildSpokeFallbackOrder() {
+        let spoke = DescentLayout.buildSpoke([ring("a", "1"), ring("b")], order: [])
+        #expect(spoke.nodes.map(\.ring) == ["a", "b"])
+        #expect(spoke.frontier == 0)
+    }
+
+    @Test("a closed gate on the next used ring is reported, skipping off rings")
+    func buildSpokeGateAt() {
+        var grafanaNoGo = RingGates()
+        grafanaNoGo.grafana = true
+        grafanaNoGo.grafanaStatus = GrafanaVerdict(verdict: "no_go")
+        let spoke = DescentLayout.buildSpoke(
+            [
+                ring("int", "2.3.1"), ring("test", "2.3.1"),
+                ring("acc", configured: false),
+                ring("prod", "2.2.0", gates: PreviewData.fullyGated),
+            ],
+            order: order
+        )
+        #expect(spoke.frontier == 1)
+        #expect(spoke.gateAt == 3)
+        #expect(spoke.nodes[3].gateClosed == "Maintenance window closed")
+        #expect(
+            DescentLayout.spokeSentence(spoke)
+                == "2.3.1 has reached test, 1 ring to go · prod gate closed: Maintenance window closed"
+        )
+
+        // An open window doesn't block; a Grafana no-go does.
+        let open = DescentLayout.buildSpoke(
+            [ring("int", "1"), ring("test", gates: PreviewData.openWindowGates)], order: []
+        )
+        #expect(open.gateAt == -1)
+        let grafana = DescentLayout.buildSpoke(
+            [ring("int", "1"), ring("test", gates: grafanaNoGo)], order: []
+        )
+        #expect(grafana.gateAt == 1)
+        #expect(grafana.nodes[1].gateClosed == "Grafana no-go")
+
+        // Only the ring right after the frontier counts.
+        let later = DescentLayout.buildSpoke(
+            [ring("int", "1"), ring("test"), ring("acc", gates: PreviewData.fullyGated)],
+            order: []
+        )
+        #expect(later.gateAt == -1)
+
+        // A gate on an unconfigured ring is never reported.
+        #expect(DescentLayout.closedGate(nil) == nil)
+    }
+
+    @Test("TTFB prefers ttfb_ms, then latency_ms")
+    func buildSpokeTTFB() {
+        var r = ring("int", "1", latency: 40)
+        #expect(DescentLayout.buildSpoke([r], order: []).nodes[0].ttfbMs == 40)
+        r.ttfbMs = 12
+        #expect(DescentLayout.buildSpoke([r], order: []).nodes[0].ttfbMs == 12)
+    }
+
+    // MARK: - Groups
+
+    @Test("groups sit contiguously in config order, ungrouped apps last")
+    func orderByGroupContiguous() {
+        let groups = [
+            AppGroup(id: "g1", name: "Core", apps: ["c", "a", "ghost"], updatedAt: .now),
+            AppGroup(id: "g2", name: "Edge", apps: ["a", "e"], updatedAt: .now),
+            AppGroup(id: "g3", name: "Empty", apps: ["ghost"], updatedAt: .now),
         ]
-        #expect(SolarLayout.latency(for: rings) == 90)
+        let (ordered, spans) = DescentLayout.orderByGroup(["a", "b", "c", "d", "e"], groups: groups)
+        #expect(ordered == ["c", "a", "e", "b", "d"])
+        #expect(spans == [
+            .init(id: "g1", name: "Core", from: 0, to: 1),
+            // "a" already went with Core, its first group.
+            .init(id: "g2", name: "Edge", from: 2, to: 2),
+        ])
+
+        let plain = DescentLayout.orderByGroup(["x", "y"], groups: [])
+        #expect(plain.ordered == ["x", "y"])
+        #expect(plain.spans.isEmpty)
     }
 
-    @Test("without production, the prod-most ring that reported wins")
-    func fallbackLatency() {
-        let rings = [
-            PreviewData.ring("int", label: "Integration", version: "1.0", latency: 20),
-            PreviewData.ring("test", label: "Test", version: "1.0", latency: 55),
-            PreviewData.ring("acc", label: "Acceptance", version: "1.0"),
-        ]
-        #expect(SolarLayout.latency(for: rings) == 55)
-        #expect(SolarLayout.latency(for: []) == nil)
+    @Test("a group arc spans its members' spokes with a small gap each end")
+    func groupArcAngles() {
+        let span = DescentLayout.GroupSpan(id: "g", name: "G", from: 1, to: 3)
+        let (a0, a1) = DescentLayout.groupArcAngles(span, count: 8)
+        let half = DescentLayout.spokeHalfWidth(count: 8) - 0.035
+        #expect(abs(a0 - (DescentLayout.spokeAngle(index: 1, count: 8) - half)) < 1e-9)
+        #expect(abs(a1 - (DescentLayout.spokeAngle(index: 3, count: 8) + half)) < 1e-9)
+        let bounds = DescentLayout.groupArcPath(span, count: 8).boundingRect
+        #expect(bounds.width > 0)
+    }
+
+    @Test("the descent view model orders by group and reads the spoke")
+    func descentAppOrdering() {
+        let summaries = ["a", "b", "c"].map {
+            AppSummary(
+                name: $0, title: $0.uppercased(), rings: PreviewData.healthyRings,
+                latestJob: nil, loadError: nil
+            )
+        }
+        let group = AppGroup(id: "g1", name: "Core", apps: ["c"], updatedAt: .now)
+        let (apps, spans) = DescentApp.ordered(summaries: summaries, groups: [group], order: order)
+        #expect(apps.map(\.id) == ["c", "a", "b"])
+        #expect(spans.count == 1)
+        // healthyRings: 2.7.2 only on int.
+        #expect(apps[0].subtitle == "2.7.2 · int")
+        #expect(apps[0].status == .healthy)
     }
 
     // MARK: - Status
@@ -150,46 +320,9 @@ struct RingsUniverseTests {
         #expect(FleetStatus.aggregate([]) == .empty)
     }
 
-    // MARK: - Nodes
-
-    @Test("ring nodes cover every application exactly once")
-    func ringNodesPartition() {
-        let summaries = ["a", "b", "c"].map {
-            AppSummary(
-                name: $0, title: $0.uppercased(), rings: PreviewData.healthyRings,
-                latestJob: nil, loadError: nil
-            )
-        }
-        let group = AppGroup(id: "g1", name: "Core", apps: ["a", "b"], updatedAt: .now)
-        let nodes = FleetNode.ringNodes(from: summaries, groups: [group])
-
-        #expect(nodes.map(\.id) == ["g1", FleetNode.ungroupedID])
-        #expect(nodes[0].apps == ["a", "b"])
-        #expect(nodes[0].subtitle == "2 apps")
-        #expect(nodes[1].apps == ["c"])
-        #expect(nodes[1].subtitle == "1 app")
-        // Every member reported the same latency; the roll-up takes the max.
-        #expect(nodes[0].latencyMs == SolarLayout.latency(for: PreviewData.healthyRings))
-    }
-
-    @Test("an app node carries the prod-most version and deploy facts")
-    func appNodeFacts() {
-        let node = FleetNode(
-            summary: AppSummary(
-                name: "web-frontend", title: "Web Frontend",
-                rings: PreviewData.healthyRings, latestJob: nil, loadError: nil
-            )
-        )
-        #expect(node.latestVersion == "2.6.9 · prod")
-        #expect(node.activeCount == 4)
-        #expect(node.healthyCount == 4)
-        #expect(node.latencyMs == 47)
-        #expect(node.status == .healthy)
-    }
-
     // MARK: - Model & navigation
 
-    @Test("latency_ms decodes when present and defaults to nil when absent")
+    @Test("latency_ms and grafana gate fields decode when present and default when absent")
     func latencyDecoding() throws {
         let json = """
             {
@@ -200,7 +333,9 @@ struct RingsUniverseTests {
                 "updated_at": "2026-07-29T10:38:47Z", "can_promote_from": true,
                 "gates": {
                     "maintenance_window": false, "qa_signoff": false,
-                    "change_request": false, "maintenance_window_open": false
+                    "change_request": false, "maintenance_window_open": false,
+                    "grafana": true,
+                    "grafana_status": {"verdict": "no_go", "checked_at": "2026-07-29T10:38:47Z"}
                 }
             }
             """
@@ -209,223 +344,75 @@ struct RingsUniverseTests {
             RingStatus.self, from: try #require(json.data(using: .utf8))
         )
         #expect(decoded.latencyMs == 42)
+        #expect(decoded.gates.grafana == true)
+        #expect(decoded.gates.grafanaStatus?.verdict == "no_go")
+        #expect(DescentLayout.closedGate(decoded) == "Grafana no-go")
 
         let without = try decoder.decode(
             RingStatus.self,
             from: try #require(
                 json.replacingOccurrences(of: "\"latency_ms\": 42,", with: "")
+                    .replacingOccurrences(
+                        of: #",\s*"grafana": true,\s*"grafana_status": \{[^}]*\}"#,
+                        with: "", options: .regularExpression
+                    )
                     .data(using: .utf8)
             )
         )
         #expect(without.latencyMs == nil)
+        #expect(without.gates.grafana == nil)
+        #expect(without.gates.grafanaStatus == nil)
     }
 
-    @Test("a body at lat 0 lng 0 faces the camera at the disc centre")
+    // MARK: - Earth
+
+    @Test("a point at lat 0 lng 0 faces the camera at the disc centre")
     func globeNadirIsCentre() {
-        let p = SolarLayout.projectOrtho(latDeg: 0, lngDeg: 0, radius: SolarLayout.earthR, spin: 0)
-        #expect(abs(p.x - SolarLayout.center) < 0.001)
-        #expect(abs(p.y - SolarLayout.center) < 0.001)
+        let p = EarthGeometry.projectOrtho(latDeg: 0, lngDeg: 0, radius: 58, spin: 0)
+        #expect(abs(p.x) < 0.001)
+        #expect(abs(p.y) < 0.001)
         #expect(p.front)
-        #expect(abs(p.z - SolarLayout.earthR) < 0.001)
+        #expect(abs(p.z - 58) < 0.001)
     }
 
     @Test("north pole projects to the top of the disc")
     func globeNorthPole() {
-        let p = SolarLayout.projectOrtho(latDeg: 90, lngDeg: 0, radius: SolarLayout.earthR, spin: 0)
-        #expect(abs(p.x - SolarLayout.center) < 0.001)
-        #expect(p.y < SolarLayout.center)
-        #expect(abs(p.y - (SolarLayout.center - SolarLayout.earthR)) < 0.001)
+        let p = EarthGeometry.projectOrtho(
+            latDeg: 90, lngDeg: 0, radius: 58, spin: 0, center: CGPoint(x: 200, y: 200)
+        )
+        #expect(abs(p.x - 200) < 0.001)
+        #expect(abs(p.y - 142) < 0.001)
     }
 
     @Test("earth spin hides a point that started on the front")
     func globeSpinMovesPointToBack() {
-        let front = SolarLayout.projectOrtho(latDeg: 0, lngDeg: 0, radius: SolarLayout.earthR, spin: 0)
-        let back = SolarLayout.projectOrtho(latDeg: 0, lngDeg: 0, radius: SolarLayout.earthR, spin: .pi)
+        let front = EarthGeometry.projectOrtho(latDeg: 0, lngDeg: 0, radius: 58, spin: 0)
+        let back = EarthGeometry.projectOrtho(latDeg: 0, lngDeg: 0, radius: 58, spin: .pi)
         #expect(front.front)
         #expect(!back.front)
     }
 
     @Test("Earth completes one revolution every 96 seconds")
     func earthSpinPeriodMatchesWeb() {
-        #expect(SolarLayout.earthSpinPeriod == 96)
-        #expect(SolarLayout.earthSpinPeriodReduced == 20 * 60)
-        #expect(abs(SolarLayout.earthSpin(elapsed: 48, reduceMotion: false) - .pi) < 0.001)
-        #expect(abs(SolarLayout.earthSpin(elapsed: 96, reduceMotion: false)) < 0.001)
-        // Reduce Motion: freeze (elapsed 0) or a 20-minute crawl.
-        #expect(SolarLayout.earthSpin(elapsed: 0, reduceMotion: true) == 0)
-        #expect(SolarLayout.earthSpin(elapsed: 96, reduceMotion: true) < 0.6)
+        #expect(EarthGeometry.earthSpinPeriod == 96)
+        #expect(EarthGeometry.earthSpinPeriodReduced == 20 * 60)
+        #expect(abs(EarthGeometry.earthSpin(elapsed: 48, reduceMotion: false) - .pi) < 0.001)
+        #expect(abs(EarthGeometry.earthSpin(elapsed: 96, reduceMotion: false)) < 0.001)
+        #expect(EarthGeometry.earthSpin(elapsed: 0, reduceMotion: true) == 0)
+        #expect(EarthGeometry.earthSpin(elapsed: 96, reduceMotion: true) < 0.6)
     }
 
-    @Test("haversine London–New York is in the expected band")
-    func haversineLondonNY() {
-        let london = AppLocation(lat: 51.5074, lng: -0.1278, city: "London", region: "GB")
-        let ny = AppLocation(lat: 40.7128, lng: -74.0060, city: "New York", region: "US")
-        let km = SolarLayout.haversineKm(london, ny)
-        #expect(km > 5_000 && km < 6_500)
-        #expect(SolarLayout.estimateRttMs(km: km) > 40)
-    }
+    // MARK: - Stage fit
 
-    @Test("placed bodies keep their geography; unplaced ones still appear")
-    func globeBodiesPlacement() {
-        let london = AppLocation(lat: 51.5, lng: -0.1, city: "London", region: "GB")
-        let placed = FleetNode(
-            summary: AppSummary(
-                name: "web-frontend", title: "Web Frontend",
-                rings: PreviewData.healthyRings, latestJob: nil, loadError: nil,
-                location: london
-            )
-        )
-        let unplaced = FleetNode(
-            summary: AppSummary(
-                name: "batch-worker", title: "batch-worker",
-                rings: PreviewData.healthyRings, latestJob: nil, loadError: nil
-            )
-        )
-        let bodies = SolarLayout.globeBodies(for: [placed, unplaced])
-        #expect(bodies.count == 2)
-        let pin = bodies.first { $0.id == "web-frontend" }
-        let sat = bodies.first { $0.id == "batch-worker" }
-        #expect(pin?.placed == true)
-        #expect(sat?.placed == false)
-        #expect(abs((pin?.lat ?? 0) - 51.5) < 2)
-        #expect((pin?.inclination ?? 0) >= SolarLayout.minInclination - 4)
-        #expect(sat?.driftDegPerSec ?? 0 > 0)
-        #expect(pin?.driftDegPerSec ?? 0 > 0)
-        #expect(abs((pin?.r ?? 0) - (sat?.r ?? 0)) > 1)
-    }
-
-    @Test("an equatorial orbit matches lat 0 orthographic projection")
-    func orbitMatchesEquator() {
-        let fromOrbit = SolarLayout.projectOrbit(
-            radius: SolarLayout.earthR, inclinationDeg: 0, raanDeg: 0, argDeg: 40, spin: 0
-        )
-        let fromLatLng = SolarLayout.projectOrtho(
-            latDeg: 0, lngDeg: 40, radius: SolarLayout.earthR, spin: 0
-        )
-        #expect(abs(fromOrbit.x - fromLatLng.x) < 0.001)
-        #expect(abs(fromOrbit.y - fromLatLng.y) < 0.001)
-        #expect(abs(fromOrbit.z - fromLatLng.z) < 0.001)
-    }
-
-    @Test("every app gets a distinctly different ring radius")
-    func isolatedRadiiAreUnique() {
-        let radii17 = SolarLayout.isolatedRadii(count: 17)
-        #expect(radii17.count == 17)
-        #expect(Set(radii17.map { ($0 * 1000).rounded() }).count == 17)
-        let inner = SolarLayout.earthR + SolarLayout.ringInnerPad
-        #expect(abs(radii17[0] - inner) < 0.001)
-        #expect(abs(radii17[16] - SolarLayout.ringOuter) < 0.001)
-        let gap = radii17[1] - radii17[0]
-        #expect(gap > 6)
-        for pair in zip(radii17, radii17.dropFirst()) {
-            #expect(pair.1 - pair.0 > 6)
+    @Test("the stage frame keeps the label ring inside the view")
+    func stageFrameFits() {
+        for size in [CGSize(width: 874, height: 300), CGSize(width: 1024, height: 1200)] {
+            let f = DescentFrame.fit(size: size, topInset: 52, bottomInset: 44)
+            let r = DescentLayout.labelR * f.scale
+            #expect(f.center.y - r >= 52)
+            #expect(f.center.y + r <= size.height - 44)
+            #expect(f.center.x - r >= 0 && f.center.x + r <= size.width)
         }
-        #expect(SolarLayout.isolatedRadii(count: 1).count == 1)
-        #expect(SolarLayout.densityCap == 10)
-        #expect(SolarLayout.saturnInclination == 24)
-        #expect(SolarLayout.sunOffsetX == -112)
-    }
-
-    @Test("a larger stage grows Earth and the isolated ring band")
-    func stageMetricsScaleWithViewSize() {
-        let small = SolarLayout.GlobeMetrics.canonical
-        let large = SolarLayout.GlobeMetrics(width: 800, height: 800)
-        #expect(abs(large.earthR - small.earthR * 2) < 0.001)
-        #expect(abs(large.ringOuter - small.ringOuter * 2) < 0.001)
-        #expect(abs(large.sunOffsetX - small.sunOffsetX * 2) < 0.001)
-        let rSmall = SolarLayout.isolatedRadii(count: 5, metrics: small)
-        let rLarge = SolarLayout.isolatedRadii(count: 5, metrics: large)
-        #expect(rSmall.count == 5)
-        #expect(abs(rLarge[0] - rSmall[0] * 2) < 0.001)
-        #expect(abs(rLarge[4] - rSmall[4] * 2) < 0.001)
-
-        let wide = SolarLayout.GlobeMetrics(
-            width: 1600, height: 800, topInset: 0, bottomInset: 0, verticalBias: 0.5
-        )
-        #expect(abs(wide.earthR - large.earthR) < 0.001)
-        #expect(abs(wide.cx - 800) < 0.001)
-        #expect(abs(wide.cy - 400) < 0.001)
-        let pin = SolarLayout.projectOrtho(
-            latDeg: 90, lngDeg: 0, radius: wide.earthR, spin: 0, metrics: wide
-        )
-        #expect(abs(pin.x - wide.cx) < 0.001)
-        #expect(abs(pin.y - (wide.cy - wide.earthR)) < 0.001)
-
-        // Bottom roster overlay: Earth must sit in the clear band above it,
-        // not at raw mid-canvas (which reads as bottom-aligned empty sky).
-        let tall = SolarLayout.GlobeMetrics(
-            width: 390, height: 800, topInset: 78, bottomInset: 220, verticalBias: 0.46
-        )
-        let usable = 800.0 - 78 - 220
-        let expectedCy = 78 + usable * 0.46
-        #expect(abs(tall.cy - expectedCy) < 0.001)
-        #expect(tall.cy < 800 / 2)
-        #expect(tall.cy > 78)
-        #expect(tall.cy + tall.ringOuter < 800 - 220 + 8)
-    }
-
-    @Test("faster TTFB parks closer in; equal TTFB still gets different sizes")
-    func ttfbOrdersRadiiButNeverShares() {
-        func node(_ name: String, ms: Int) -> FleetNode {
-            FleetNode(
-                summary: AppSummary(
-                    name: name, title: name,
-                    rings: [
-                        PreviewData.ring("prod", label: "Production", version: "1.0", latency: ms)
-                    ],
-                    latestJob: nil, loadError: nil
-                )
-            )
-        }
-        let fast = node("alpha", ms: 12)
-        let slow = node("omega", ms: 400)
-        let alsoFast = node("beta", ms: 12)
-        let bodies = SolarLayout.globeBodies(for: [slow, alsoFast, fast])
-        let byID = Dictionary(uniqueKeysWithValues: bodies.map { ($0.id, $0) })
-        #expect((byID["alpha"]?.r ?? 0) < (byID["omega"]?.r ?? 0))
-        #expect((byID["beta"]?.r ?? 0) < (byID["omega"]?.r ?? 0))
-        #expect(abs((byID["alpha"]?.r ?? 0) - (byID["beta"]?.r ?? 0)) > 1)
-    }
-
-    @Test("apps in the same city get distinct orbital rings")
-    func sameCityRingsDiverge() {
-        let london = AppLocation(lat: 51.5, lng: -0.1, city: "London", region: "GB")
-        func node(_ name: String) -> FleetNode {
-            FleetNode(
-                summary: AppSummary(
-                    name: name, title: name,
-                    rings: PreviewData.healthyRings, latestJob: nil, loadError: nil,
-                    location: london
-                )
-            )
-        }
-        let bodies = SolarLayout.globeBodies(for: [node("web-frontend"), node("payments-api")])
-        #expect(bodies.count == 2)
-        let a = bodies[0], b = bodies[1]
-        #expect(abs(a.r - b.r) > 1)
-        #expect(a.inclination >= SolarLayout.minInclination - 4)
-        #expect(b.inclination >= SolarLayout.minInclination - 4)
-    }
-
-    @Test("orbit samples stay on a sphere of the body's radius")
-    func orbitSamplesStayOnSphere() {
-        let london = AppLocation(lat: 51.5, lng: -0.1, city: "London", region: "GB")
-        let node = FleetNode(
-            summary: AppSummary(
-                name: "web-frontend", title: "Web Frontend",
-                rings: PreviewData.healthyRings, latestJob: nil, loadError: nil,
-                location: london
-            )
-        )
-        let body = SolarLayout.globeBodies(for: [node])[0]
-        for p in SolarLayout.sampleOrbit(body, spin: 0.4) {
-            let dx = p.x - SolarLayout.center
-            let dy = p.y - SolarLayout.center
-            let radius = (dx * dx + dy * dy + p.z * p.z).squareRoot()
-            #expect(abs(radius - body.r) < 0.001)
-        }
-        #expect(SolarLayout.minInclination == 22)
-        #expect(SolarLayout.orbitSamples == 80)
     }
 
     @Test("the Rings tab exists and sits between Overview and Activity")

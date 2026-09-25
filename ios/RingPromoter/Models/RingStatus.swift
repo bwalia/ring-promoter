@@ -16,6 +16,11 @@ struct RingGates: Codable, Hashable, Sendable {
     /// Whether a window is open right now. Only meaningful when
     /// `maintenanceWindow` is true.
     var maintenanceWindowOpen: Bool = false
+    /// A Grafana dashboard's go/no-go verdict is required to enter this ring.
+    /// Optional: servers that predate the Grafana gate omit it.
+    var grafana: Bool? = nil
+    /// The live verdict, present only when `grafana` is true.
+    var grafanaStatus: GrafanaVerdict? = nil
 
     enum CodingKeys: String, CodingKey {
         case maintenanceWindow = "maintenance_window"
@@ -23,6 +28,8 @@ struct RingGates: Codable, Hashable, Sendable {
         case changeRequest = "change_request"
         case changeRequestProvider = "change_request_provider"
         case maintenanceWindowOpen = "maintenance_window_open"
+        case grafana
+        case grafanaStatus = "grafana_status"
     }
 
     /// Whether any gate guards this ring at all.
@@ -33,6 +40,22 @@ struct RingGates: Codable, Hashable, Sendable {
     var isBlockedByClosedWindow: Bool { maintenanceWindow && !maintenanceWindowOpen }
 
     static let none = RingGates()
+}
+
+/// One evaluation of a ring's Grafana go/no-go gate.
+///
+/// Mirrors `grafana.Result`. Only the fields the app reads are decoded.
+/// `verdict` is "go", "check", "no_go" or "unknown"; only "no_go" blocks.
+struct GrafanaVerdict: Codable, Hashable, Sendable {
+    var verdict: String
+    var dashboard: String?
+    var dashboardURL: String?
+    var error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case verdict, dashboard, error
+        case dashboardURL = "dashboard_url"
+    }
 }
 
 /// The tracked deploy state of one app in one ring.
