@@ -17,6 +17,8 @@ const basePath = process.env.NEXT_BASE_PATH ?? "";
 const nextConfig: NextConfig = {
   turbopack: { root: path.join(__dirname) },
   ...(basePath ? { basePath } : {}),
+  // Lets the client-side service worker registration resolve under basePath.
+  env: { NEXT_PUBLIC_BASE_PATH: basePath },
   ...(isExport
     ? { output: "export" as const }
     : {

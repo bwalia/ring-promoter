@@ -8,6 +8,7 @@ package web
 import (
 	"embed"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"strings"
@@ -18,6 +19,12 @@ import (
 //
 //go:embed all:static
 var files embed.FS
+
+// Go's built-in MIME table lacks .webmanifest; without this the PWA manifest
+// is served as text/plain.
+func init() {
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
 
 // Handler returns an http.Handler serving the embedded static assets from the
 // root path.
@@ -34,6 +41,10 @@ func Handler() http.Handler {
 	fileServer := http.FileServer(http.FS(sub))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if p == "sw.js" {
+			// Browsers must always revalidate the service worker so updates ship.
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		if p != "" && p != "." && path.Ext(p) == "" {
 			if f, err := sub.Open(p + ".html"); err == nil {
 				f.Close()

@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { ServiceWorkerRegister } from "@/components/service-worker-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,6 +30,16 @@ export const metadata: Metadata = {
   title: "Ring Promoter",
   description:
     "Promote application versions through int → test → acc → prod deployment rings.",
+  applicationName: "Ring Promoter",
+  appleWebApp: {
+    capable: true,
+    title: "Ring Promoter",
+    statusBarStyle: "black-translucent",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({
@@ -44,6 +55,7 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <Providers>{children}</Providers>
+        <ServiceWorkerRegister />
       </body>
     </html>
   );
