@@ -90,6 +90,10 @@ jobs:
           if [ -d web/out/releases ]; then
             cp -R web/out/releases site/releases
           fi
+          # PWA files referenced by every page's <head> (manifest link,
+          # apple-touch-icon) and the service worker registration.
+          cp web/out/manifest.webmanifest web/out/sw.js web/out/apple-icon.png site/
+          cp -R web/out/icons site/icons
           # Pages runs Jekyll by default, which drops _next/; opt out.
           touch site/.nojekyll
           # An Actions deploy replaces the whole site, so the CNAME has to be
