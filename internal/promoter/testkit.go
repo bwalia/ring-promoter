@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/example/ring-promoter/internal/config"
+	"github.com/example/ring-promoter/internal/llm"
 	"github.com/example/ring-promoter/internal/progress"
 	"github.com/example/ring-promoter/internal/store"
 )
@@ -454,10 +455,6 @@ func TestPlanReport(view TestKitView, kit store.TestKit) string {
 // when they reference a candidate by number or exact URL; everything else the
 // model proposes is dropped, so the plan can never introduce a new URL.
 func ParseTestPlan(raw string, candidates []store.TestLink, now time.Time) (store.TestPlan, error) {
-	raw = strings.TrimSpace(raw)
-	raw = strings.TrimPrefix(raw, "```json")
-	raw = strings.TrimPrefix(raw, "```")
-	raw = strings.TrimSuffix(raw, "```")
 	var ans struct {
 		Summary   string   `json:"summary"`
 		Checklist []string `json:"checklist"`
@@ -467,7 +464,9 @@ func ParseTestPlan(raw string, candidates []store.TestLink, now time.Time) (stor
 			Why string          `json:"why"`
 		} `json:"links"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &ans); err != nil {
+	// Lenient on purpose: extra fields the model adds are ignored, and
+	// everything kept is validated below.
+	if err := llm.Decode(raw, &ans); err != nil {
 		return store.TestPlan{}, fmt.Errorf("the model did not return valid JSON: %w", err)
 	}
 	plan := store.TestPlan{Summary: clip(ans.Summary, maxPlanTextRunes), GeneratedAt: now.UTC()}

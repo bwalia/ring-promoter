@@ -72,6 +72,28 @@ func TestParseTestPlan_OnlyCandidateLinks(t *testing.T) {
 	}
 }
 
+func TestParseTestPlan_ToleratesFencesAndExtraFields(t *testing.T) {
+	cands := []store.TestLink{{Label: "Web", URL: "https://test.example.net/", Kind: "web"}}
+	body := `{"summary":"Shipped.","priority":"high","checklist":["Sign in"],"links":[{"id":1,"why":"try it","confidence":0.9}]}`
+	for _, raw := range []string{
+		body,
+		"```json\n" + body + "\n```",
+		"```JSON\n" + body + "\n```",
+		"```json" + body + "```",
+	} {
+		plan, err := ParseTestPlan(raw, cands, time.Unix(0, 0))
+		if err != nil {
+			t.Fatalf("ParseTestPlan(%q): %v", raw, err)
+		}
+		if plan.Summary != "Shipped." || len(plan.Links) != 1 || plan.Links[0].Why != "try it" {
+			t.Fatalf("ParseTestPlan(%q) = %+v", raw, plan)
+		}
+	}
+	if _, err := ParseTestPlan(body+" Hope this helps!", cands, time.Now()); err == nil {
+		t.Fatal("want an error when the model keeps talking after the JSON")
+	}
+}
+
 func TestRingLinks_ConfigHealthAndDeploy(t *testing.T) {
 	ac := config.AppConfig{Name: "shop", Links: []config.LinkConfig{
 		{Label: "API docs", URL: "https://{target_env}.shop.example/docs", Kind: "docs"},

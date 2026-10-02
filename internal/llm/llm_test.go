@@ -55,10 +55,30 @@ func TestStripFence(t *testing.T) {
 		"```\n{\"a\":1}\n```  \n":     `{"a":1}`,
 		"```json\n{\"a\":1}\n":        `{"a":1}`, // unterminated fence
 		"```json\n\n  {\"a\":1}\n```": `{"a":1}`,
+		"```JSON\n{\"a\":1}\n```":     `{"a":1}`,
+		"```jsonc\n{\"a\":1}\n```":    `{"a":1}`,
+		"```json{\"a\":1}```":         `{"a":1}`, // tag on the fence line
+		"```{\"a\":1}```":             `{"a":1}`,
 	}
 	for in, want := range cases {
 		if got := string(stripFence([]byte(in))); got != want {
 			t.Errorf("stripFence(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestDecodeIgnoresUnknownFields(t *testing.T) {
+	var got verdict
+	if err := Decode("```json\n{\"status\":\"ok\",\"score\":2,\"priority\":\"high\"}\n```", &got); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if got != (verdict{"ok", 2}) {
+		t.Fatalf("got %+v", got)
+	}
+	// Leniency is about extra fields only: malformed or chatty answers still fail.
+	for _, in := range []string{`{"status":"ok"} and that's it`, "Sure!", `{"score":"high"}`} {
+		if err := Decode(in, &got); err == nil {
+			t.Errorf("Decode(%q) = nil, want error", in)
 		}
 	}
 }
