@@ -25,6 +25,7 @@ import (
 	"github.com/example/ring-promoter/internal/executor"
 	"github.com/example/ring-promoter/internal/executor/k8sjob"
 	"github.com/example/ring-promoter/internal/health"
+	"github.com/example/ring-promoter/internal/llm/claude"
 	"github.com/example/ring-promoter/internal/llm/ollama"
 	"github.com/example/ring-promoter/internal/metrics"
 	"github.com/example/ring-promoter/internal/promoter"
@@ -97,14 +98,18 @@ func run(configPath string, logger *slog.Logger) error {
 	}
 	prom.SetChangeRequestValidators(crValidators)
 
-	// AI failure diagnosis (optional): enabled only when both the Ollama URL
-	// and the JWT secret are configured.
+	// AI failure diagnosis and test plans (optional): Claude when an API key
+	// is set, else Ollama when both its URL and JWT secret are set.
 	var diag api.Diagnoser
-	if cfg.Ollama.Enabled() {
+	switch {
+	case cfg.Claude.Enabled():
+		diag = diagnose.New(claude.New(cfg.Claude.APIKey, cfg.Claude.Model, logger), logger)
+		logger.Info("ai diagnosis enabled", "provider", "claude", "model", cfg.Claude.Model)
+	case cfg.Ollama.Enabled():
 		diag = diagnose.New(ollama.New(cfg.Ollama.URL, cfg.Ollama.Model, cfg.Ollama.JWTSecret, logger), logger)
-		logger.Info("ai diagnosis enabled", "url", cfg.Ollama.URL, "model", cfg.Ollama.Model)
-	} else {
-		logger.Info("ai diagnosis disabled (set ollama.url and RP_OLLAMA_JWT_SECRET to enable)")
+		logger.Info("ai diagnosis enabled", "provider", "ollama", "url", cfg.Ollama.URL, "model", cfg.Ollama.Model)
+	default:
+		logger.Info("ai diagnosis disabled (set RP_CLAUDE_API_KEY, or ollama.url and RP_OLLAMA_JWT_SECRET, to enable)")
 	}
 
 	// Publish build metadata as the ringpromoter_build_info gauge (scraped from

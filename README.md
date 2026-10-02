@@ -117,7 +117,7 @@ so an operator can go straight to what was just deployed. Links come from:
   stored. The kit is kept per **(app, ring, version)** (newest 10 per ring), so
   a rollback brings back the links of the version it restores.
 
-With AI configured (`ollama`), **Suggest what to test** sends the kit and a
+With AI configured (`claude` or `ollama`), **Suggest what to test** sends the kit and a
 log excerpt to the model and stores a short summary, a checklist and the links
 worth opening. The model can only pick from the candidate links — any URL it
 proposes that the deploy did not produce is dropped — and the log excerpt is
@@ -131,7 +131,7 @@ treated as data, not instructions.
 | Execution    | `executor.Executor`  | GitHub Actions (`executor/github`), Kubernetes Jobs (`executor/k8sjob`) | scripted fakes |
 | Health check | `health.Checker`     | `HTTPChecker`                                        | `AlwaysHealthy`       |
 | Persistence  | `store.Store`        | `Postgres`                                           | `Memory`              |
-| AI model     | `llm.Provider`       | Ollama behind the JWT gateway (`llm/ollama`)         | fake provider in tests |
+| AI model     | `llm.Provider`       | Claude API (`llm/claude`), Ollama behind the JWT gateway (`llm/ollama`) | fake provider in tests |
 
 The `KubectlDeployer` shells out to `kubectl` (`set image` + `rollout status`),
 authenticating in-cluster via the pod's ServiceAccount. It keeps the binary and
@@ -165,14 +165,24 @@ VM/CI apps side by side. Apps without the field use the global `deployer`.
 **AI layer (`internal/llm`).** Failure diagnosis and test plans never talk to
 a model directly. `internal/diagnose` owns the prompts and sends them through
 `llm.Provider` (`Name()` + `Complete(ctx, Request)`); `main` picks the
-concrete provider, today `llm/ollama`, built from the `ollama.*` config. That
-provider calls Ollama's `/api/chat` and mints a fresh HS256 JWT for the
-`x-api-key` header on every request. Adding another backend means implementing
-`llm.Provider` in a new subpackage and choosing it in `main`; the prompts and
-API handlers don't change.
+concrete provider from config:
 
-- **Failures degrade safely.** If the model can't be reached, or answers with a
-  5xx, the provider returns an error wrapping `llm.ErrUnavailable`. A 4xx (bad
+- **`llm/claude`** (used when `RP_CLAUDE_API_KEY` is set) calls the Claude
+  Messages API through the official Anthropic Go SDK. It defaults to
+  `claude-opus-5-5` and opts into server-side refusal fallbacks, so a request
+  a safety classifier declines is answered by a fallback model rather than
+  failing. Temperature isn't sent (current Claude models reject it), and a
+  JSON Schema in `Request.Format` becomes a structured-output format.
+- **`llm/ollama`** (used otherwise, when the `ollama.*` config is complete)
+  calls Ollama's `/api/chat` and mints a fresh HS256 JWT for the `x-api-key`
+  header on every request.
+
+Adding another backend means implementing `llm.Provider` in a new subpackage
+and choosing it in `main`; the prompts and API handlers don't change.
+
+- **Failures degrade safely.** If the model can't be reached, is rate-limited
+  (429) or answers with a 5xx (including Claude's 529 "overloaded"), the
+  provider returns an error wrapping `llm.ErrUnavailable`. Any other 4xx (bad
   token, unknown model) is a plain error, because only a config change will fix
   it. Callers use `errors.Is(err, llm.ErrUnavailable)` to tell "no model right
   now" apart from "the model said something unusable".
@@ -214,6 +224,7 @@ internal/
   health/                Checker interface, HTTPChecker, AlwaysHealthy
   promoter/              promotion rules (seed/promote/rollback) + unit tests
   llm/                   Provider interface for AI models, Decode/DecodeStrict
+    claude/              Claude provider (Anthropic Go SDK, Messages API)
     ollama/              Ollama provider (JWT-signed requests to /api/chat)
   diagnose/              AI prompts: failure diagnosis and test plans
   api/                   REST handlers, bearer-token auth, request logging
@@ -845,6 +856,8 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 | `RP_OLLAMA_URL`   | `ollama.url`        | – (optional)   | Ollama server for AI diagnosis of failed jobs (e.g. `https://ollama.workstation.co.uk`). |
 | `RP_OLLAMA_MODEL` | `ollama.model`      | `qwen3-coder:30b` | Model used to explain failures.      |
 | `RP_OLLAMA_JWT_SECRET` | `ollama.jwt_secret` | – (optional) | Signs the HS256 JWT sent as `x-api-key` to the Ollama auth gateway. AI diagnosis is enabled only when both URL and secret are set. |
+| `RP_CLAUDE_API_KEY` | `claude.api_key`  | – (optional)   | Claude API key. When set, AI diagnosis and test plans use Claude instead of Ollama. |
+| `RP_CLAUDE_MODEL` | `claude.model`      | `claude-opus-5-5` | Claude model used for AI diagnosis and test plans. |
 | `RP_QA_AGENT_NAME` | `qa_agent.name`     | – (optional)   | Display/actor name for an external QA agent. Integration is off until a name is set (file or env). |
 | `RP_QA_AGENT_URL`  | `qa_agent.url`      | – (optional)   | Optional deep-link to the QA agent's own UI. |
 | `RP_CONFIG_FILE`  | – (flag `--config`) | `config.yaml`  | Path to the config file.               |
