@@ -25,6 +25,7 @@ import (
 	"github.com/example/ring-promoter/internal/executor"
 	"github.com/example/ring-promoter/internal/executor/k8sjob"
 	"github.com/example/ring-promoter/internal/health"
+	"github.com/example/ring-promoter/internal/llm/ollama"
 	"github.com/example/ring-promoter/internal/metrics"
 	"github.com/example/ring-promoter/internal/promoter"
 	"github.com/example/ring-promoter/internal/ring"
@@ -100,7 +101,7 @@ func run(configPath string, logger *slog.Logger) error {
 	// and the JWT secret are configured.
 	var diag api.Diagnoser
 	if cfg.Ollama.Enabled() {
-		diag = diagnose.New(cfg.Ollama.URL, cfg.Ollama.Model, cfg.Ollama.JWTSecret, logger)
+		diag = diagnose.New(ollama.New(cfg.Ollama.URL, cfg.Ollama.Model, cfg.Ollama.JWTSecret, logger), logger)
 		logger.Info("ai diagnosis enabled", "url", cfg.Ollama.URL, "model", cfg.Ollama.Model)
 	} else {
 		logger.Info("ai diagnosis disabled (set ollama.url and RP_OLLAMA_JWT_SECRET to enable)")
