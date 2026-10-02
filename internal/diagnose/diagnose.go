@@ -1,7 +1,7 @@
 // Package diagnose asks an LLM to explain, in simple language, why a
 // seed/promote/rollback failed and how to fix it, and to draft a test plan for
 // a freshly deployed version. It owns the prompts only; the model is reached
-// through an llm.Provider chosen in main (Ollama today).
+// through an llm.Provider chosen in main (Claude or Ollama).
 package diagnose
 
 import (

@@ -41,6 +41,11 @@ ollama:
   url: "https://ollama.workstation.co.uk"
   model: "qwen3-coder:30b"
 
+# Or use Claude for the same AI features: set RP_CLAUDE_API_KEY (never commit
+# a key here). When a key is set, Claude takes precedence over Ollama.
+# claude:
+#   model: "claude-opus-5-5"
+
 # External QA agent (optional). Register a QA bot from another repository that
 # POSTs workflow go/no-go and environment up/down into this instance:
 #   POST /api/qa/reports  {app, ring?, workflow_verdict, env_healthy?, summary?}

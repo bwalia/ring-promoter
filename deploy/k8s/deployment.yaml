@@ -121,6 +121,14 @@ spec:
                   name: ring-promoter
                   key: RP_OLLAMA_JWT_SECRET
                   optional: true
+            # Claude API key for AI diagnosis and test plans. Optional; when
+            # present it takes precedence over Ollama.
+            - name: RP_CLAUDE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ring-promoter
+                  key: RP_CLAUDE_API_KEY
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz

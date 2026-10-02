@@ -72,6 +72,7 @@ type Config struct {
 	Retry    RetryConfig    `yaml:"retry"`
 	Database DatabaseConfig `yaml:"database"`
 	Ollama   OllamaConfig   `yaml:"ollama"`
+	Claude   ClaudeConfig   `yaml:"claude"`
 	// QAAgent registers an optional external QA agent that reports workflow
 	// go/no-go and environment health. Nil / absent = integration off.
 	QAAgent *QAAgentConfig `yaml:"qa_agent"`
@@ -95,6 +96,20 @@ type OllamaConfig struct {
 
 // Enabled reports whether AI diagnosis is fully configured.
 func (o OllamaConfig) Enabled() bool { return o.URL != "" && o.JWTSecret != "" }
+
+// ClaudeConfig configures the Claude API as the AI provider for failure
+// diagnosis and test plans. When an API key is set it takes precedence over
+// Ollama; otherwise the Ollama settings apply.
+type ClaudeConfig struct {
+	// APIKey authenticates to the Claude API. Prefer setting this via the
+	// RP_CLAUDE_API_KEY environment variable / Secret over the file.
+	APIKey string `yaml:"api_key"`
+	// Model is the Claude model id. Default "claude-opus-5-5".
+	Model string `yaml:"model"`
+}
+
+// Enabled reports whether the Claude provider is configured.
+func (c ClaudeConfig) Enabled() bool { return c.APIKey != "" }
 
 // RetryConfig controls the post-deploy health-check retry loop.
 //
@@ -613,6 +628,12 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("RP_OLLAMA_JWT_SECRET"); v != "" {
 		c.Ollama.JWTSecret = v
 	}
+	if v := os.Getenv("RP_CLAUDE_API_KEY"); v != "" {
+		c.Claude.APIKey = v
+	}
+	if v := os.Getenv("RP_CLAUDE_MODEL"); v != "" {
+		c.Claude.Model = v
+	}
 	if v := os.Getenv("RP_QA_AGENT_URL"); v != "" {
 		if c.QAAgent == nil {
 			c.QAAgent = &QAAgentConfig{}
@@ -676,6 +697,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Ollama.Model == "" {
 		c.Ollama.Model = "qwen3-coder:30b"
+	}
+	if c.Claude.Model == "" {
+		c.Claude.Model = "claude-opus-5-5"
 	}
 }
 

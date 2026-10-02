@@ -35,8 +35,8 @@ type Request struct {
 	System string
 	// Messages is the conversation, oldest first.
 	Messages []Message
-	// Format, when non-empty, asks the provider for structured output (an
-	// Ollama-style format value: a JSON Schema object, or the string "json").
+	// Format, when non-empty, asks the provider for structured output: a JSON
+	// Schema object, or the string "json" (Ollama only; Claude ignores it).
 	// Advisory — see the package comment.
 	Format json.RawMessage
 	// Temperature is the sampling temperature (0 = deterministic-ish).

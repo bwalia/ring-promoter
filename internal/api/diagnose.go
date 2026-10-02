@@ -14,7 +14,7 @@ import (
 )
 
 // Diagnoser produces a plain-language explanation of a failure report
-// (implemented by internal/diagnose against an Ollama server). nil = the
+// (implemented by internal/diagnose on an llm.Provider). nil = the
 // feature is not configured.
 type Diagnoser interface {
 	Diagnose(ctx context.Context, report string) (string, error)
