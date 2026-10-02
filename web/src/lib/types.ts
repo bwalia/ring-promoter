@@ -27,6 +27,55 @@ export interface AppsResponse {
   ai_enabled?: boolean;
   /** True when an external QA agent is registered in config. */
   qa_enabled?: boolean;
+  /** True when the server can suggest what to test with AI (test-kit plan). */
+  ai_test_plans?: boolean;
+}
+
+/** Coarse category of a test link; picks its icon and group. */
+export type TestLinkKind =
+  | "web"
+  | "ios"
+  | "android"
+  | "api"
+  | "docs"
+  | "dashboard"
+  | "release"
+  | "artifact"
+  | "ci"
+  | "other";
+
+/** One place to try or inspect a deployed version. */
+export interface TestLink {
+  label: string;
+  url: string;
+  kind: TestLinkKind | string;
+  /** config | health (ring health host) | run (deploy outputs) | log (found in deploy logs) */
+  source: "config" | "health" | "run" | "log" | string;
+  /** AI's reason for recommending the link (AI picks only). */
+  why?: string;
+}
+
+/** AI suggestion of how to test a deployed version. */
+export interface TestPlan {
+  summary: string;
+  checklist: string[];
+  /** Picked only from the kit's own links — never invented. */
+  links: TestLink[];
+  generated_at: string;
+}
+
+/** Where to test a ring's current version (GET .../rings/{ring}/test-kit). */
+export interface TestKit {
+  app: string;
+  ring: string;
+  version: string;
+  links: TestLink[];
+  plan?: TestPlan;
+  /** When the deploy's links were captured; absent for older versions. */
+  captured_at?: string;
+  ai_enabled: boolean;
+  plan_status: "none" | "running" | "failed" | "done";
+  plan_error?: string;
 }
 
 /** Which promotion-policy gates guard entering a ring, plus live window state. */
@@ -108,6 +157,10 @@ export interface RingView {
   updated_at: string;
   can_promote_from: boolean;
   gates: RingGates;
+  /** Where to test the current version (config, health host, deploy outputs). */
+  links?: TestLink[];
+  /** An AI test plan is stored for the current version. */
+  has_test_plan?: boolean;
 }
 
 /** One effective dependency edge in the fleet topology. */

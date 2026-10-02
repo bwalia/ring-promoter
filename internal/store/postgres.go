@@ -447,7 +447,7 @@ func (p *Postgres) ListQAReports(ctx context.Context, app string) ([]QAReport, e
 	var out []QAReport
 	for rows.Next() {
 		var (
-			r         QAReport
+			r          QAReport
 			envHealthy sql.NullBool
 		)
 		if err := rows.Scan(&r.App, &r.Ring, &r.WorkflowVerdict, &envHealthy, &r.Summary, &r.Detail, &r.Source, &r.CheckedAt, &r.UpdatedAt); err != nil {
@@ -604,3 +604,82 @@ func (p *Postgres) Lock(ctx context.Context, key string) (func(), error) {
 
 // Close implements Store.
 func (p *Postgres) Close() error { return p.db.Close() }
+
+// SaveTestKit implements Store.
+func (p *Postgres) SaveTestKit(ctx context.Context, k TestKit) error {
+	links, err := json.Marshal(nonNilLinks(k.Links))
+	if err != nil {
+		return fmt.Errorf("encode test kit links: %w", err)
+	}
+	const upsert = `
+		INSERT INTO test_kit (app, ring, version, links, log_excerpt, plan, created_at)
+		VALUES ($1, $2, $3, $4, $5, '', now())
+		ON CONFLICT (app, ring, version) DO UPDATE SET
+			links       = EXCLUDED.links,
+			log_excerpt = EXCLUDED.log_excerpt,
+			plan        = '',
+			created_at  = now()`
+	if _, err := p.db.ExecContext(ctx, upsert, k.App, k.Ring, k.Version, string(links), k.LogExcerpt); err != nil {
+		return fmt.Errorf("save test kit: %w", err)
+	}
+	const trim = `
+		DELETE FROM test_kit WHERE app = $1 AND ring = $2 AND version NOT IN (
+			SELECT version FROM test_kit WHERE app = $1 AND ring = $2
+			ORDER BY created_at DESC LIMIT $3)`
+	if _, err := p.db.ExecContext(ctx, trim, k.App, k.Ring, KeepTestKits); err != nil {
+		return fmt.Errorf("trim test kits: %w", err)
+	}
+	return nil
+}
+
+// GetTestKit implements Store.
+func (p *Postgres) GetTestKit(ctx context.Context, app, ring, version string) (TestKit, error) {
+	const q = `
+		SELECT links, log_excerpt, plan, created_at
+		FROM test_kit WHERE app = $1 AND ring = $2 AND version = $3`
+	k := TestKit{App: app, Ring: ring, Version: version}
+	var links, plan string
+	err := p.db.QueryRowContext(ctx, q, app, ring, version).Scan(&links, &k.LogExcerpt, &plan, &k.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TestKit{}, ErrNotFound
+	}
+	if err != nil {
+		return TestKit{}, fmt.Errorf("get test kit: %w", err)
+	}
+	if err := json.Unmarshal([]byte(links), &k.Links); err != nil {
+		return TestKit{}, fmt.Errorf("decode test kit links: %w", err)
+	}
+	if plan != "" {
+		var tp TestPlan
+		if err := json.Unmarshal([]byte(plan), &tp); err != nil {
+			return TestKit{}, fmt.Errorf("decode test plan: %w", err)
+		}
+		k.Plan = &tp
+	}
+	return k, nil
+}
+
+// SetTestPlan implements Store.
+func (p *Postgres) SetTestPlan(ctx context.Context, app, ring, version string, plan TestPlan) error {
+	b, err := json.Marshal(plan)
+	if err != nil {
+		return fmt.Errorf("encode test plan: %w", err)
+	}
+	res, err := p.db.ExecContext(ctx,
+		`UPDATE test_kit SET plan = $4 WHERE app = $1 AND ring = $2 AND version = $3`,
+		app, ring, version, string(b))
+	if err != nil {
+		return fmt.Errorf("set test plan: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func nonNilLinks(l []TestLink) []TestLink {
+	if l == nil {
+		return []TestLink{}
+	}
+	return l
+}

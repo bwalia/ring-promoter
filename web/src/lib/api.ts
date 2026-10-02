@@ -4,6 +4,7 @@ import type {
   AppsResponse,
   BuildInfo,
   HistoryDiagnosis,
+  TestKit,
   HistoryEntry,
   Job,
   MaintenanceView,
@@ -164,6 +165,18 @@ export const api = {
 
   historyDiagnosis: (name: string, id: number) =>
     request<HistoryDiagnosis>(`${app(name)}/history/${id}/diagnose`),
+
+  // Where to test a ring's current version: links plus the AI test plan.
+  testKit: (name: string, ring: string) =>
+    request<TestKit>(`${app(name)}/rings/${encodeURIComponent(ring)}/test-kit`),
+
+  // Ask the server's LLM what to test. Runs detached server-side: 202 means
+  // poll testKit until plan_status resolves. refresh regenerates a plan.
+  planTestKit: (name: string, ring: string, refresh = false) =>
+    request<TestKit>(
+      `${app(name)}/rings/${encodeURIComponent(ring)}/test-kit/plan${refresh ? "?refresh=1" : ""}`,
+      { method: "POST" },
+    ),
 
   // Ask the server's LLM why a failed job failed. The generation runs
   // server-side detached from this request: 202 + running means poll the job

@@ -83,6 +83,46 @@ in **configuration**, not code.
   via the API. Typical use: enable it on `test` so `int → test` carries on to
   `acc`, but leave `acc` off so nothing reaches `prod` without a human.
 
+### Test this version (links + AI test plan)
+
+Once a version lands healthy, every ring card offers an **Open** button and
+quick links, and the ring's details sheet has a **Test this version** section,
+so an operator can go straight to what was just deployed. Links come from:
+
+- **Config** — an app's or ring's `links` (web UI, TestFlight, API docs,
+  dashboards, ...). URLs may use `{app}`, `{ring}`, `{target_env}` and
+  `{version}` (path-escaped), so one entry serves every ring:
+
+  ```yaml
+  - name: shop
+    links:
+      - { label: "Web UI", url: "https://{ring}.shop.example.com/" }
+      - { label: "iOS beta", url: "https://testflight.apple.com/join/AbCd1234", kind: ios }
+    rings:
+      int:
+        health_url: https://int.shop.example.com/healthz
+        links:
+          - { label: "Release notes", url: "https://github.com/acme/shop/releases/tag/{version}", kind: release }
+  ```
+
+  `kind` picks the icon and group: `web` (default), `ios`, `android`, `api`,
+  `docs`, `dashboard`, `release`, `artifact`, `ci` or `other`.
+- **The health host** — when config names no web link, the ring's
+  `health_url` host becomes "Open …", so every ring has one with no config.
+- **The deploy itself** — captured at deploy time: the GitHub workflow run,
+  its artifacts, the GitHub release whose tag is the version (with assets such
+  as an `.ipa`/`.apk`), and URLs printed in the deploy logs (streamed Job logs,
+  or the run's log archive for GitHub). Registry, package-mirror and GitHub
+  plumbing URLs are skipped, and signed or credential-bearing URLs are never
+  stored. The kit is kept per **(app, ring, version)** (newest 10 per ring), so
+  a rollback brings back the links of the version it restores.
+
+With AI configured (`ollama`), **Suggest what to test** sends the kit and a
+log excerpt to the model and stores a short summary, a checklist and the links
+worth opening. The model can only pick from the candidate links — any URL it
+proposes that the deploy did not produce is dropped — and the log excerpt is
+treated as data, not instructions.
+
 ### Clean, swappable interfaces
 
 | Concern      | Interface            | Production impls                                    | Local/dev impl        |
@@ -240,6 +280,8 @@ are unauthenticated.
 | `POST /api/apps/{app}/rollback`  | `{"ring"}`            | Roll a ring back to its previous version. |
 | `POST /api/apps/{app}/rings/{ring}/restart` | `{"reason?","password?","deployments?"}` | Restart a ring on its current version (see above). `400` for invalid `deployments`; `409` if the ring has no version or the deployer cannot restart. |
 | `PUT  /api/apps/{app}/rings/{ring}/auto-promote` | `{"enabled"}` | Toggle auto-promote for a ring (see below). `409` if the ring declares `auto_promote` in config. |
+| `GET  /api/apps/{app}/rings/{ring}/test-kit` | – | Where to test the ring's current version: links (config, health host, deploy outputs), the stored AI plan and its status. `409` if nothing is deployed. |
+| `POST /api/apps/{app}/rings/{ring}/test-kit/plan` | – | Ask the AI what to test (`?refresh=1` regenerates). `202` while it runs (poll the test kit), `200` with a stored plan, `501` without AI. |
 | `GET  /api/apps/{app}/maintenance-windows` | –           | Maintenance view: recurring + ad-hoc windows, guarded rings, open status. |
 | `POST /api/apps/{app}/maintenance-windows` | `{"ring?","starts_at","ends_at","reason?","created_by?"}` | Open an ad-hoc maintenance window (RFC3339 times; empty ring = all guarded rings). |
 | `DELETE /api/apps/{app}/maintenance-windows/{id}` | –    | Close (delete) an ad-hoc window. |

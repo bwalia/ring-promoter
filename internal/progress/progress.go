@@ -41,3 +41,34 @@ type noopReporter struct{}
 func (noopReporter) StartStep(string, string)  {}
 func (noopReporter) Log(string)                {}
 func (noopReporter) FinishStep(string, string) {}
+
+// Link is a URL an operation produced: a workflow run, a build artifact, a
+// release. Kind is a coarse category ("ci", "artifact", "release", "ios", ...).
+type Link struct {
+	Label string
+	URL   string
+	Kind  string
+}
+
+// OutputSink is optionally implemented by a Reporter that wants to know what a
+// deploy produced — links, and log text that was not streamed line by line.
+// Lower layers emit through AddLink/AddOutput and never need to know whether
+// anyone is listening.
+type OutputSink interface {
+	AddLink(l Link)
+	AddOutput(text string)
+}
+
+// AddLink hands l to the context's Reporter when it is an OutputSink.
+func AddLink(ctx context.Context, l Link) {
+	if s, ok := FromContext(ctx).(OutputSink); ok {
+		s.AddLink(l)
+	}
+}
+
+// AddOutput hands log text to the context's Reporter when it is an OutputSink.
+func AddOutput(ctx context.Context, text string) {
+	if s, ok := FromContext(ctx).(OutputSink); ok {
+		s.AddOutput(text)
+	}
+}

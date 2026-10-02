@@ -140,6 +140,12 @@ qa_agent:
 apps:
   - name: wslproxy
     display_name: "diytaxreturn proxy"
+    # Test links shown on each ring after a deploy ("Open", TestFlight, docs).
+    # {ring}, {target_env}, {version} and {app} are filled in per ring. Without
+    # any web link here, the ring's health_url host is offered as "Open".
+    # links:
+    #   - { label: "Web UI", url: "https://{target_env}.wslproxy.com/" }
+    #   - { label: "Release notes", url: "https://github.com/bwalia/wslproxy/releases/tag/{version}", kind: release }
     location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     depends_on: [diytaxreturn-opsapi]
     # Grafana go/no-go gate, reading the NIGHTLY E2E suite. Promotion time

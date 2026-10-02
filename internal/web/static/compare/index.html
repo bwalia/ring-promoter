@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="How Ring Promoter compares with Argo CD, Flux, Kargo, Spinnaker, Octopus, Harness and CI pipelines.">
+<link rel="icon" href="../favicon.ico">
+<title>Ring Promoter vs Argo CD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: a single reading column (~68ch) that widens for the comparison matrix; ring sequence int→test→acc→prod is the recurring motif. Dark-first, matching the Ring Promoter landing page. */
+:root {
+  --bg: #0b0b0c;
+  --surface: #131315;
+  --surface-2: #1a1a1d;
+  --line: #26262a;
+  --fg: #ededee;
+  --muted: #9a9aa2;
+  --accent: #22c55e;
+  --accent-ink: #052e14;
+  --yes: #22c55e;
+  --part: #f59e0b;
+  --no: #ef4444;
+  --chip-yes-bg: rgba(34,197,94,.12);
+  --chip-part-bg: rgba(245,158,11,.13);
+  --chip-no-bg: rgba(239,68,68,.12);
+  --col-hi: rgba(34,197,94,.07);
+  --f-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --f-body: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #fafaf9; --surface: #ffffff; --surface-2: #f2f2f0; --line: #e3e3e0;
+    --fg: #111113; --muted: #5d5d66; --accent: #15803d; --accent-ink: #ffffff;
+    --yes: #15803d; --part: #b45309; --no: #b91c1c;
+    --chip-yes-bg: rgba(21,128,61,.10); --chip-part-bg: rgba(180,83,9,.10); --chip-no-bg: rgba(185,28,28,.09);
+    --col-hi: rgba(21,128,61,.06);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #fafaf9; --surface: #ffffff; --surface-2: #f2f2f0; --line: #e3e3e0;
+  --fg: #111113; --muted: #5d5d66; --accent: #15803d; --accent-ink: #ffffff;
+  --yes: #15803d; --part: #b45309; --no: #b91c1c;
+  --chip-yes-bg: rgba(21,128,61,.10); --chip-part-bg: rgba(180,83,9,.10); --chip-no-bg: rgba(185,28,28,.09);
+  --col-hi: rgba(21,128,61,.06);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 400 16px/1.6 var(--f-body);
+  padding-inline: 20px; padding-block: 0 72px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 72px; }
+.col { max-width: 68ch; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: -0.02em; }
+h1 { font-size: clamp(2.2rem, 5.2vw, 3.6rem); line-height: 1.04; font-weight: 700; }
+h2 { font-size: clamp(1.5rem, 3vw, 2rem); line-height: 1.15; font-weight: 600; }
+h3 { font-size: 1.12rem; font-weight: 600; letter-spacing: -0.01em; }
+p { margin: 0; }
+.eyebrow { font: 500 12px/1 var(--f-mono); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+.lead { font-size: 1.15rem; color: var(--muted); }
+.lead strong, .muted strong { color: var(--fg); font-weight: 600; }
+.muted { color: var(--muted); }
+code, .mono { font-family: var(--f-mono); font-size: .88em; }
+code { background: var(--surface-2); border: 1px solid var(--line); padding: .05em .35em; border-radius: 4px; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+section { display: grid; gap: 22px; }
+
+/* Header */
+header.top { display: flex; align-items: center; gap: 10px; padding-block: 22px; border-bottom: 1px solid var(--line); }
+header.top .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--fg); text-decoration: none; }
+header.top .name { font: 600 15px/1 var(--f-display); }
+header.top .tag { margin-left: auto; font: 400 12px/1 var(--f-mono); color: var(--muted); }
+.hero { display: grid; gap: 26px; padding-top: 28px; }
+
+/* Ring track */
+.track { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-family: var(--f-mono); font-size: 13px; }
+.ring { border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; border-radius: 999px; display: inline-flex; gap: 8px; align-items: center; }
+.ring .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--yes); }
+.ring.gate .dot { background: var(--part); }
+.ring.prod { border-color: var(--accent); }
+.arrow { color: var(--muted); }
+.track-note { font: 400 12px/1.4 var(--f-mono); color: var(--muted); }
+
+/* Thesis split */
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.split > div { background: var(--surface); padding: 22px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.split .q { font: 500 1.15rem/1.35 var(--f-display); }
+.split .who { font: 500 12px/1 var(--f-mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.split .who.rp { color: var(--accent); }
+
+/* Matrix */
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 980px; font-size: 13px; }
+th, td { padding: 11px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+thead th { font: 500 12px/1.3 var(--f-mono); color: var(--muted); background: var(--surface-2); position: sticky; top: 0; white-space: nowrap; }
+thead th.rp { color: var(--accent); }
+tbody th { font-weight: 500; width: 220px; min-width: 200px; }
+tbody th small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 3px; line-height: 1.4; }
+td.rp, th.rp { background: var(--col-hi); }
+tr.group td { background: var(--surface-2); font: 500 11px/1 var(--f-mono); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); padding: 9px 12px; }
+.c { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--f-mono); padding: 4px 7px; border-radius: 5px; white-space: nowrap; }
+.c::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.y { color: var(--yes); background: var(--chip-yes-bg); }
+.p { color: var(--part); background: var(--chip-part-bg); }
+.n { color: var(--no); background: var(--chip-no-bg); }
+.note { display: block; color: var(--muted); font-size: 11.5px; line-height: 1.35; margin-top: 5px; }
+
+/* Reasons */
+.reasons { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.reason { border-top: 2px solid var(--accent); padding-top: 14px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.reason p { color: var(--muted); font-size: 15px; }
+.reason .proof { font: 400 12px/1.5 var(--f-mono); color: var(--muted); border-left: 1px solid var(--line); padding-left: 10px; }
+
+/* Head to head */
+.h2h { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.h2h details { border-bottom: 1px solid var(--line); background: var(--surface); }
+.h2h details:last-child { border-bottom: 0; }
+.h2h summary { cursor: pointer; padding: 16px 20px; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; list-style: none; }
+.h2h summary::-webkit-details-marker { display: none; }
+.h2h summary::before { content: "+"; font-family: var(--f-mono); color: var(--accent); width: 12px; }
+.h2h details[open] summary::before { content: "−"; }
+.h2h summary h3 { font-size: 1.05rem; }
+.h2h summary .sub { color: var(--muted); font-size: 14px; }
+.h2h .body { padding: 0 20px 20px 44px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.h2h .body > div { min-width: 0; display: grid; gap: 6px; align-content: start; }
+.h2h .body .lbl { font: 500 11px/1 var(--f-mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.h2h ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14.5px; }
+.h2h .verdict { grid-column: 1 / -1; font-size: 14.5px; background: var(--surface-2); padding: 10px 12px; border-radius: 6px; }
+
+/* Honest section */
+.limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.limit { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.limit p { font-size: 14.5px; color: var(--muted); }
+
+/* Picker */
+.picker { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.pick { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+.pick .if { color: var(--muted); }
+.pick .then { font-weight: 500; }
+@media (max-width: 560px) { .pick { grid-template-columns: 1fr; gap: 4px; } .h2h .body { padding-left: 20px; } }
+
+.pitch { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 24px; display: grid; gap: 12px; }
+.pitch blockquote { margin: 0; font: 500 1.2rem/1.45 var(--f-display); }
+.copy { justify-self: start; font: 500 13px/1 var(--f-body); background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px; padding: 9px 14px; cursor: pointer; }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 20px; display: grid; gap: 6px; max-width: 80ch; }
+@media (prefers-reduced-motion: no-preference) { .h2h summary { transition: background .15s; } .h2h summary:hover { background: var(--surface-2); } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="../"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="2 3.2"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="var(--fg)" stroke-width="1.5"/><circle cx="12" cy="12" r="1.6" fill="var(--fg)"/></svg>
+    <span class="name">Ring Promoter</span></a>
+    <span class="tag">comparison · Oct 2026</span>
+  </header>
+
+  <div class="hero">
+    <span class="eyebrow">Ring Promoter vs Argo CD, Kargo, Spinnaker, Octopus, Harness and CI pipelines</span>
+    <h1>Argo CD ships what's in Git.<br>Ring Promoter decides what earns production.</h1>
+    <p class="lead col">Most CI/CD tools stop at "the deploy finished". Ring Promoter moves one exact version through ordered rings, <strong>checks the running app reports that version</strong>, enforces release gates <strong>before</strong> anything changes, and rolls back on its own. It does this for Kubernetes apps and for VM apps behind an existing GitHub Actions pipeline, from one Go binary.</p>
+    <div class="track" aria-label="Promotion path">
+      <span class="ring"><span class="dot"></span>int</span><span class="arrow">→</span>
+      <span class="ring"><span class="dot"></span>test</span><span class="arrow">→</span>
+      <span class="ring gate"><span class="dot"></span>acc · gated</span><span class="arrow">→</span>
+      <span class="ring prod gate"><span class="dot"></span>prod · gated + password</span>
+    </div>
+    <p class="track-note">One ring at a time, never skipped. Source ring must be healthy. Failed target health rolls back automatically.</p>
+  </div>
+
+  <section>
+    <span class="eyebrow">The difference in one picture</span>
+    <h2>They answer different questions</h2>
+    <div class="split">
+      <div>
+        <span class="who">Argo CD / Flux</span>
+        <p class="q">"Does the cluster match the manifests in Git?"</p>
+        <p class="muted">Sync, drift detection and self-heal per environment. Moving a version from staging to production is left to you: a PR, an image-updater, or another tool such as Kargo.</p>
+      </div>
+      <div>
+        <span class="who">CI pipelines (GitHub Actions, Jenkins, GitLab)</span>
+        <p class="q">"Did the deploy job exit 0?"</p>
+        <p class="muted">Great at build and test. There's no record of what runs in each environment, and no automatic rollback. A green job can leave the old version answering <code>200 OK</code>.</p>
+      </div>
+      <div>
+        <span class="who rp">Ring Promoter</span>
+        <p class="q">"Is this exact version healthy here, and is it allowed into the next ring right now?"</p>
+        <p class="muted">Promotion is the main concept. It keeps current version, previous version and full history per app and ring, and stops at the first failure.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Feature matrix</span>
+    <h2>Out of the box, without add-ons or custom scripts</h2>
+    <div class="legend">
+      <span><span class="c y">Yes</span> built in</span>
+      <span><span class="c p">Partial</span> needs an add-on, plugin, paid tier or custom script</span>
+      <span><span class="c n">No</span> not provided</span>
+    </div>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Feature comparison table">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Capability</th>
+            <th scope="col" class="rp">Ring Promoter</th>
+            <th scope="col">Argo CD</th>
+            <th scope="col">Flux</th>
+            <th scope="col">Kargo</th>
+            <th scope="col">Spinnaker</th>
+            <th scope="col">Octopus</th>
+            <th scope="col">Harness</th>
+            <th scope="col">GH Actions envs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="group"><td colspan="9">Promotion model</td></tr>
+          <tr>
+            <th scope="row">Ordered environment promotion<small>Version moves ring by ring with state and history kept per environment</small></th>
+            <td class="rp"><span class="c y">Yes</span><span class="note">Never skip a ring; current, previous and history per (app, ring)</span></td>
+            <td><span class="c n">No</span><span class="note">One app per env; promote by PR</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c y">Yes</span><span class="note">Stages + Freight</span></td>
+            <td><span class="c y">Yes</span><span class="note">Pipeline stages</span></td>
+            <td><span class="c y">Yes</span><span class="note">Lifecycles</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c p">Partial</span><span class="note">Per-job envs, no ledger</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Kubernetes and VM apps in one control plane<small>Deployer chosen per app</small></th>
+            <td class="rp"><span class="c y">Yes</span><span class="note">kubectl, K8s Jobs, or dispatching an existing GitHub Actions workflow</span></td>
+            <td><span class="c n">No</span><span class="note">Kubernetes only</span></td>
+            <td><span class="c n">No</span><span class="note">Kubernetes only</span></td>
+            <td><span class="c n">No</span><span class="note">Kubernetes only</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Opt-in auto-promote per ring<small>And a hard stop before prod</small></th>
+            <td class="rp"><span class="c y">Yes</span><span class="note">Config cannot enable auto-promote into prod</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c p">Partial</span></td>
+          </tr>
+
+          <tr class="group"><td colspan="9">Verification and rollback</td></tr>
+          <tr>
+            <th scope="row">Version-verified health check<small>Endpoint must report the version just deployed, not just answer 200</small></th>
+            <td class="rp"><span class="c y">Yes</span><span class="note">JSON field or header; also checks the source ring</span></td>
+            <td><span class="c n">No</span><span class="note">Resource health only</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c p">Partial</span><span class="note">Custom AnalysisTemplate</span></td>
+            <td><span class="c p">Partial</span><span class="note">Custom stage</span></td>
+            <td><span class="c p">Partial</span><span class="note">Script step</span></td>
+            <td><span class="c p">Partial</span><span class="note">Custom verify</span></td>
+            <td><span class="c n">No</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Automatic rollback on failed health<small>To the previous recorded version</small></th>
+            <td class="rp"><span class="c y">Yes</span><span class="note">Runs detached; a dropped client can't abort it</span></td>
+            <td><span class="c p">Partial</span><span class="note">Needs Argo Rollouts</span></td>
+            <td><span class="c p">Partial</span><span class="note">Needs Flagger</span></td>
+            <td><span class="c p">Partial</span><span class="note">Via Rollouts</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c p">Partial</span><span class="note">Scripted</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c n">No</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Rejects a non-existent version before deploying<small>Typo'd branch, tag or SHA</small></th>
+            <td class="rp"><span class="c y">Yes</span><span class="note">400 before any dispatch</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c y">Yes</span><span class="note">Freight from warehouse</span></td>
+            <td><span class="c p">Partial</span></td>
+            <td><span class="c y">Yes</span><span class="note">Packages</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c n">No</span></td>
+          </tr>
+
+          <tr class="group"><td colspan="9">Release governance (checked before any deploy)</td></tr>
+          <tr>
+            <th scope="row">Maintenance windows<small>Recurring plus ad hoc</small></th>
+            <td class="rp"><span class="c y">Yes</span><span class="note">Opened inline from the promote dialog</span></td>
+            <td><span class="c y">Yes</span><span class="note">Sync windows</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c p">Partial</span><span class="note">Via Argo CD</span></td>
+            <td><span class="c y">Yes</span><span class="note">Execution windows</span></td>
+            <td><span class="c y">Yes</span><span class="note">Deployment freezes</span></td>
+            <td><span class="c y">Yes</span><span class="note">Freeze windows</span></td>
+            <td><span class="c n">No</span><span class="note">Wait timer only</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Go/No-Go sign-off for an exact version<small>A GO for v1 doesn't authorise v2</small></th>
+            <td class="rp"><span class="c y">Yes</span><span class="note">Recorded with QA status and engineer</span></td>
+            <td><span class="c n">No</span><span class="note">Git PR review</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c y">Yes</span><span class="note">Manual promotion</span></td>
+            <td><span class="c y">Yes</span><span class="note">Manual judgment</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span><span class="note">Required reviewers</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Jira change-request validation<small>CR code checked against issue status and project</small></th>
+            <td class="rp"><span class="c y">Yes</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c p">Partial</span><span class="note">Plugin</span></td>
+            <td><span class="c p">Partial</span><span class="note">Paid tier</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c p">Partial</span><span class="note">3rd-party action</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Dashboard metrics as a release gate<small>With stale-data detection</small></th>
+            <td class="rp"><span class="c y">Yes</span><span class="note">Grafana panel queries; <code>max_age</code> turns stale runs into NO DATA</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c p">Partial</span><span class="note">Flagger</span></td>
+            <td><span class="c y">Yes</span><span class="note">Analysis</span></td>
+            <td><span class="c y">Yes</span><span class="note">Kayenta</span></td>
+            <td><span class="c p">Partial</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c n">No</span></td>
+          </tr>
+
+          <tr class="group"><td colspan="9">Where Ring Promoter is not the better choice</td></tr>
+          <tr>
+            <th scope="row">Git as source of truth, drift detection and self-heal</th>
+            <td class="rp"><span class="c n">No</span><span class="note">Its database is the source of truth</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c n">No</span></td>
+            <td><span class="c p">Partial</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c n">No</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Canary / blue-green traffic shifting</th>
+            <td class="rp"><span class="c n">No</span><span class="note">Whole-ring deploys</span></td>
+            <td><span class="c p">Partial</span><span class="note">Argo Rollouts</span></td>
+            <td><span class="c p">Partial</span><span class="note">Flagger</span></td>
+            <td><span class="c p">Partial</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c p">Partial</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c n">No</span></td>
+          </tr>
+          <tr>
+            <th scope="row">SSO and fine-grained RBAC</th>
+            <td class="rp"><span class="c n">No</span><span class="note">API bearer token + prod password</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c p">Partial</span><span class="note">K8s RBAC</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+            <td><span class="c y">Yes</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Operational footprint<small>What you have to run</small></th>
+            <td class="rp"><span class="c y">Small</span><span class="note">One Go binary with UI + API; Postgres or in-memory</span></td>
+            <td><span class="c p">Medium</span><span class="note">Several components</span></td>
+            <td><span class="c p">Medium</span><span class="note">Controllers</span></td>
+            <td><span class="c n">Large</span><span class="note">Argo CD + Rollouts + Kargo</span></td>
+            <td><span class="c n">Large</span><span class="note">~10 services</span></td>
+            <td><span class="c p">Medium</span><span class="note">Server + SQL, or SaaS</span></td>
+            <td><span class="c n">Large</span><span class="note">SaaS or heavy self-host</span></td>
+            <td><span class="c y">Small</span><span class="note">Hosted</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Why Ring Promoter wins</span>
+    <h2>Eight things you get on day one</h2>
+    <div class="reasons">
+      <div class="reason">
+        <h3>It catches the "green deploy, old code" failure</h3>
+        <p>Set <code>health_version_field</code> or <code>health_version_header</code> on a ring and every health check must return the exact version just deployed. If the old pods are still answering, the check fails and the ring rolls back.</p>
+        <span class="proof">Also verifies the source ring really runs the version being promoted.</span>
+      </div>
+      <div class="reason">
+        <h3>Gates run before anything changes</h3>
+        <p>Maintenance windows, version-specific sign-off, Jira CR codes and Grafana go/no-go are checked first. A failed gate leaves every ring untouched, so you never end up halfway through a release.</p>
+        <span class="proof">Only the Grafana gate can be overridden, and only with a written reason that goes to the job log.</span>
+      </div>
+      <div class="reason">
+        <h3>Rollback can't be cut off</h3>
+        <p>Promotions run on a context detached from the HTTP request. A CI runner timeout or a dropped connection can't abort a deploy or the rollback after it.</p>
+        <span class="proof">Postgres advisory locks serialize every operation per app, across replicas.</span>
+      </div>
+      <div class="reason">
+        <h3>One control plane for Kubernetes and VMs</h3>
+        <p>Kubernetes apps deploy with kubectl or a Kubernetes Job. VM apps keep their existing GitHub Actions workflow: Ring Promoter dispatches it per ring, waits for the run, then health-checks the result.</p>
+        <span class="proof">Argo CD, Flux and Kargo only deploy to Kubernetes.</span>
+      </div>
+      <div class="reason">
+        <h3>Safe defaults for production</h3>
+        <p>A separate production password is required to promote or seed into prod, or to enable auto-promote into it. Rollbacks are exempt so an incident is never blocked. Config can't turn on auto-promote into prod.</p>
+        <span class="proof">Auto-promote into a CR-gated ring fails closed.</span>
+      </div>
+      <div class="reason">
+        <h3>CI integration is one curl</h3>
+        <p>CI builds; Ring Promoter promotes. A pipeline calls <code>seed</code> or <code>promote</code>, and any non-2xx means the promotion failed, so <code>curl --fail</code> is the whole integration. 422 means it ran, failed and was rolled back.</p>
+        <span class="proof">No plugins, no CRDs, no pipeline DSL to learn.</span>
+      </div>
+      <div class="reason">
+        <h3>Stale metrics don't count as a GO</h3>
+        <p>A nightly E2E suite that quietly stopped running would show its last green result forever. With <code>max_age</code>, an old result reads NO DATA. An unreachable Grafana is shown as advisory, so an observability outage doesn't become a release outage.</p>
+        <span class="proof">The gate runs the dashboard's own panel queries, so the gate and the dashboard always agree.</span>
+      </div>
+      <div class="reason">
+        <h3>Built for the people who press the button</h3>
+        <p>Web console (installable as a PWA), an iOS app with a home-screen widget and a Live Activity for running promotions, restart-in-place for secret rotation, and optional AI explanations of failed jobs from a self-hosted Ollama model.</p>
+        <span class="proof">Failure logs stay on your own infrastructure.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Head to head</span>
+    <h2>Against each alternative</h2>
+    <div class="h2h">
+      <details open>
+        <summary><h3>vs Argo CD</h3><span class="sub">The GitOps standard</span></summary>
+        <div class="body">
+          <div><span class="lbl">Argo CD is better at</span><ul><li>Keeping clusters in sync with Git and fixing drift</li><li>Multi-cluster at scale, SSO and project RBAC</li><li>A large CNCF community and ecosystem</li></ul></div>
+          <div><span class="lbl">Ring Promoter is better at</span><ul><li>Moving a version from int to prod (Argo CD has no promotion model)</li><li>Checking the running version and rolling back automatically</li><li>Change windows, sign-offs, Jira CRs and Grafana gates</li><li>Apps that don't run on Kubernetes</li></ul></div>
+          <p class="verdict"><strong>Verdict:</strong> Argo CD is a sync engine. Ring Promoter is a release control plane. If your problem is "what's allowed into prod, and is it really running", Argo CD doesn't answer that. An Argo CD deployer is on the V2 roadmap so the two can run together.</p>
+        </div>
+      </details>
+      <details>
+        <summary><h3>vs Kargo</h3><span class="sub">The closest match: promotion on top of Argo CD</span></summary>
+        <div class="body">
+          <div><span class="lbl">Kargo is better at</span><ul><li>GitOps-native promotion (it writes to Git)</li><li>Traffic-level analysis through Argo Rollouts</li></ul></div>
+          <div><span class="lbl">Ring Promoter is better at</span><ul><li>Needs no Argo CD, Rollouts or CRDs; one binary instead of three systems</li><li>VM and CI-driven apps alongside Kubernetes</li><li>Built-in maintenance windows, Jira CR and Grafana gates</li><li>Version-verified health without writing AnalysisTemplates</li></ul></div>
+          <p class="verdict"><strong>Verdict:</strong> If you're fully committed to Argo CD on Kubernetes, look at Kargo. If you have a mixed estate or no GitOps stack yet, Ring Promoter gets you there with far less to run.</p>
+        </div>
+      </details>
+      <details>
+        <summary><h3>vs Spinnaker</h3><span class="sub">Multi-cloud pipelines from Netflix</span></summary>
+        <div class="body">
+          <div><span class="lbl">Spinnaker is better at</span><ul><li>Multi-cloud (AWS, GCP, Azure) deployment strategies</li><li>Canary analysis with Kayenta</li></ul></div>
+          <div><span class="lbl">Ring Promoter is better at</span><ul><li>One Go binary instead of about ten Java services</li><li>Set up in an afternoon; apps are added with config only</li><li>Version-verified health and Jira CR gates built in</li></ul></div>
+          <p class="verdict"><strong>Verdict:</strong> Spinnaker suits large platform teams who can staff it. Ring Promoter gives most teams the release safety they need without that running cost.</p>
+        </div>
+      </details>
+      <details>
+        <summary><h3>vs Octopus Deploy and Harness</h3><span class="sub">Commercial release platforms</span></summary>
+        <div class="body">
+          <div><span class="lbl">They are better at</span><ul><li>Breadth: many deploy targets, templates and integrations</li><li>Enterprise access control, audit and vendor support</li></ul></div>
+          <div><span class="lbl">Ring Promoter is better at</span><ul><li>No per-seat or per-service licence</li><li>Self-hosted, with data and AI diagnosis on your own infrastructure</li><li>Small enough to read the whole promotion engine and change it</li><li>Keeps your existing GitHub Actions workflows instead of replacing them</li></ul></div>
+          <p class="verdict"><strong>Verdict:</strong> Octopus lifecycles and Harness pipelines are the closest in concept. Ring Promoter offers the same ring discipline without the platform lock-in or the bill.</p>
+        </div>
+      </details>
+      <details>
+        <summary><h3>vs GitHub Actions, GitLab CI and Jenkins</h3><span class="sub">The CI you already have</span></summary>
+        <div class="body">
+          <div><span class="lbl">CI is better at</span><ul><li>Building, testing and packaging</li><li>Anything you can script</li></ul></div>
+          <div><span class="lbl">Ring Promoter is better at</span><ul><li>Knowing what is running in every ring right now, and what ran before</li><li>Rolling back automatically when health fails</li><li>Stopping a prod deploy outside a change window</li></ul></div>
+          <p class="verdict"><strong>Verdict:</strong> Not a replacement. CI produces the version; Ring Promoter moves it. Your deploy workflow becomes one of Ring Promoter's deployers.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Being straight about it</span>
+    <h2>Current limits</h2>
+    <p class="muted col">Saying "better than Argo CD" only holds up if we say where it isn't. These are the gaps a technical buyer will find in the first hour.</p>
+    <div class="limits">
+      <div class="limit"><h3>No SSO or per-user RBAC yet</h3><p>Access is an API bearer token plus a production password. Teams that need per-user roles and audit by identity should put it behind an auth proxy for now.</p></div>
+      <div class="limit"><h3>No traffic shifting</h3><p>A ring is deployed as a whole. For canary or blue/green inside a ring, pair it with Argo Rollouts or Flagger.</p></div>
+      <div class="limit"><h3>Not GitOps</h3><p>Ring state lives in Postgres, not Git. You get a clear history per ring, but not drift detection or self-heal.</p></div>
+      <div class="limit"><h3>Smaller ecosystem</h3><p>Deployers today: kubectl, Kubernetes Jobs and GitHub Actions. Argo CD and more CI adapters are planned for V2.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Choosing</span>
+    <h2>Which one fits</h2>
+    <div class="picker">
+      <div class="pick"><span class="if">You need versions to move int → prod with proof each step worked</span><span class="then">Ring Promoter</span></div>
+      <div class="pick"><span class="if">Some apps are on Kubernetes, some on VMs with existing pipelines</span><span class="then">Ring Promoter</span></div>
+      <div class="pick"><span class="if">Releases need change windows, sign-off and a Jira CR</span><span class="then">Ring Promoter (or Harness, if you're buying)</span></div>
+      <div class="pick"><span class="if">You want Git to be the only source of truth for cluster state</span><span class="then">Argo CD or Flux, with Ring Promoter for promotion</span></div>
+      <div class="pick"><span class="if">You're all-in on Argo CD and want promotion as CRDs</span><span class="then">Kargo</span></div>
+      <div class="pick"><span class="if">You need percentage-based canary traffic</span><span class="then">Argo Rollouts or Flagger, alongside either</span></div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Short version</span>
+    <div class="pitch">
+      <blockquote id="pitch">Argo CD keeps clusters in sync with Git. Ring Promoter decides what reaches production. It moves one exact version through int, test, acc and prod; checks that each ring is really running that version; enforces change windows, sign-offs, Jira CRs and Grafana gates before anything changes; and rolls back by itself when health fails. It handles Kubernetes and VM apps from one small binary.</blockquote>
+      <button class="copy" id="copyBtn" type="button">Copy pitch</button>
+    </div>
+  </section>
+
+  <footer>
+    <p>Ring Promoter features are taken from the current main branch (README, config reference and source). Competitor capabilities describe out-of-the-box behaviour as publicly documented up to mid-2026. Products change, so check vendor docs before using this externally.</p>
+    <p><a href="../">Back to Ring Promoter</a></p>
+  </footer>
+</div>
+
+<script>
+document.getElementById('copyBtn').addEventListener('click', function () {
+  var btn = this, text = document.getElementById('pitch').innerText;
+  function done(msg) { btn.textContent = msg; setTimeout(function () { btn.textContent = 'Copy pitch'; }, 1800); }
+  try {
+    navigator.clipboard.writeText(text).then(function () { done('Copied'); }, fallback);
+  } catch (e) { fallback(); }
+  function fallback() {
+    var r = document.createRange(); r.selectNodeContents(document.getElementById('pitch'));
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); done('Selected. Press ⌘C');
+  }
+});
+</script>
+
+</body>
+</html>

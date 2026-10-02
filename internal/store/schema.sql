@@ -150,3 +150,18 @@ CREATE TABLE IF NOT EXISTS qa_report (
 );
 
 CREATE INDEX IF NOT EXISTS idx_qa_report_updated ON qa_report (updated_at DESC);
+
+-- What a healthy deploy of one exact (app, ring, version) produced: links to
+-- the workflow run, artifacts, releases and URLs found in its logs, a log
+-- excerpt to plan tests from, and the AI test plan (JSON, '' until asked for).
+-- The newest few versions per ring are kept so a rollback finds its kit.
+CREATE TABLE IF NOT EXISTS test_kit (
+    app          TEXT        NOT NULL,
+    ring         TEXT        NOT NULL,
+    version      TEXT        NOT NULL,
+    links        TEXT        NOT NULL DEFAULT '[]',
+    log_excerpt  TEXT        NOT NULL DEFAULT '',
+    plan         TEXT        NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (app, ring, version)
+);

@@ -308,6 +308,43 @@ export function useHistoryDiagnosis(app: string | null, id: number | null) {
   });
 }
 
+/**
+ * A ring's test kit (links + AI plan) for its current version. version is
+ * part of the key so a new deploy never shows the previous version's plan;
+ * polls while the model is writing a plan.
+ */
+export function useTestKit(
+  app: string | null,
+  ring: string,
+  version: string,
+  enabled = true,
+) {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["test-kit", app, ring, version],
+    queryFn: () => api.testKit(app!, ring),
+    enabled: enabled && !!token && !!app && !!version,
+    refetchInterval: (q) =>
+      q.state.data?.plan_status === "running" ? JOBS_INTERVAL : false,
+  });
+}
+
+/** Ask the AI what to test on a ring's current version. */
+export function useGenerateTestPlan(app: string | null, ring: string, version: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (refresh: boolean) => {
+      if (!app) throw new Error("no application selected");
+      return api.planTestKit(app, ring, refresh);
+    },
+    onSuccess: (kit) => {
+      queryClient.setQueryData(["test-kit", app, ring, version], kit);
+    },
+    onError: (err: Error) =>
+      toast.error("Could not suggest a test plan", { description: err.message }),
+  });
+}
+
 /** Start the AI diagnosis of a failed history entry. */
 export function useDiagnoseHistory(app: string | null) {
   const queryClient = useQueryClient();

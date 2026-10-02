@@ -40,6 +40,7 @@ type Server struct {
 	startedAt time.Time
 	diag      Diagnoser
 	histDiag  historyDiagnoses
+	plans     testPlans
 }
 
 // NewServer constructs an API server. ui serves the embedded web assets and
@@ -55,7 +56,8 @@ func NewServer(prom *promoter.Promoter, token, prodPass string, ui http.Handler,
 		opTimeout = 10 * time.Minute
 	}
 	return &Server{prom: prom, token: token, prodPass: prodPass, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now(), diag: diag,
-		histDiag: historyDiagnoses{state: make(map[int64]historyDiagState)}}
+		histDiag: historyDiagnoses{state: make(map[int64]historyDiagState)},
+		plans:    testPlans{state: make(map[string]historyDiagState)}}
 }
 
 // ResumePendingOps resolves the operations a previous process left in flight
@@ -142,6 +144,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/apps/{app}/rollback", s.handleRollback)
 	api.HandleFunc("POST /api/apps/{app}/rings/{ring}/restart", s.handleRestart)
 	api.HandleFunc("PUT /api/apps/{app}/rings/{ring}/auto-promote", s.handleAutoPromote)
+	api.HandleFunc("GET /api/apps/{app}/rings/{ring}/test-kit", s.handleTestKit)
+	api.HandleFunc("POST /api/apps/{app}/rings/{ring}/test-kit/plan", s.handleTestPlan)
 	// Promotion-policy gates: maintenance windows and QA/release sign-offs.
 	api.HandleFunc("GET /api/apps/{app}/maintenance-windows", s.handleListWindows)
 	api.HandleFunc("POST /api/apps/{app}/maintenance-windows", s.handleCreateWindow)
@@ -262,6 +266,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, _ *http.Request) {
 		"prod_protected": s.prodPass != "",
 		// Tells the UI to offer "Diagnose with AI" on failed jobs.
 		"ai_enabled": s.diag != nil,
+		// Tells the UI to offer "Suggest what to test" on deployed rings.
+		"ai_test_plans": s.planner() != nil,
 		// Tells the UI to show the QA agent status strip.
 		"qa_enabled": s.prom.QAAgentEnabled(),
 	})
@@ -744,7 +750,7 @@ func statusForErr(err error) int {
 		errors.Is(err, promoter.ErrNothingToRestart), errors.Is(err, promoter.ErrRestartUnsupported),
 		errors.Is(err, promoter.ErrMaintenanceWindowClosed), errors.Is(err, promoter.ErrSignoffRequired),
 		errors.Is(err, promoter.ErrSignoffNoGo), errors.Is(err, promoter.ErrGrafanaNoGo),
-		errors.Is(err, promoter.ErrAutoPromoteConfigOwned):
+		errors.Is(err, promoter.ErrAutoPromoteConfigOwned), errors.Is(err, promoter.ErrNoVersion):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

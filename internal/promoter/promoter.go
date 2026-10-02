@@ -99,6 +99,12 @@ type RingView struct {
 	// so the UI can prompt for a change-request code / show window & sign-off
 	// status before a promotion. Empty when the app has no policy.
 	Gates RingGates `json:"gates"`
+	// Links are where to test the current version: config links, the health
+	// host, and what its deploy produced (see TestKit). Empty when nothing is
+	// deployed.
+	Links []store.TestLink `json:"links"`
+	// HasTestPlan reports a stored AI test plan for the current version.
+	HasTestPlan bool `json:"has_test_plan"`
 }
 
 // RingGates reports which promotion-policy gates guard deploying into a ring,
@@ -286,6 +292,15 @@ func (p *Promoter) Rings(ctx context.Context, app string) ([]RingView, error) {
 			v.AutoPromote = st.AutoPromote
 			v.UpdatedAt = st.UpdatedAt
 		}
+		v.Links = []store.TestLink{}
+		if configured && v.CurrentVersion != "" {
+			kit, err := p.store.GetTestKit(ctx, app, r.Name, v.CurrentVersion)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				p.log.Warn("load test kit", "err", err, "app", app, "ring", r.Name)
+			}
+			v.Links = ringLinks(ac, r.Name, rc, v.CurrentVersion, kit.Links)
+			v.HasTestPlan = kit.Plan != nil
+		}
 		// Promotable only when the NEXT ring is configured for THIS app — a
 		// single-ring app (e.g. a TestFlight-only iOS app) has nowhere to go.
 		next, hasNext := ring.Next(r.Name)
@@ -448,7 +463,10 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (out
 	defer p.journalEnd(opID)
 
 	rep.StartStep("deploy", fmt.Sprintf("Deploy %s to %s", version, ringName))
-	if err := p.deployerFor(app).Deploy(ctx, tgt, version); err != nil {
+	kit, err := p.deployCollecting(ctx, func(ctx context.Context) error {
+		return p.deployerFor(app).Deploy(ctx, tgt, version)
+	})
+	if err != nil {
 		// The deploy never happened, so leave the stored state untouched.
 		res.Message = "deploy failed: " + err.Error()
 		rep.FinishStep(StepFailed, res.Message)
@@ -480,6 +498,7 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (out
 	if healthy {
 		res.Message = fmt.Sprintf("seeded %s and healthy", version)
 		p.record(ctx, app, ringName, store.ActionSeed, prev, version, store.ResultSuccess, res.Message)
+		p.saveTestKit(ctx, app, ringName, version, kit)
 		// The seed's outcome is recorded: clear its journal entry now so a crash
 		// during the auto-promote chain below cannot replay the seed (each hop of
 		// the chain journals itself).
@@ -712,7 +731,10 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 
 	// Deploy to the target ring.
 	rep.StartStep("deploy", fmt.Sprintf("Deploy %s to %s", version, nextRing.Name))
-	if err := p.deployerFor(app).Deploy(ctx, dstTgt, version); err != nil {
+	kit, err := p.deployCollecting(ctx, func(ctx context.Context) error {
+		return p.deployerFor(app).Deploy(ctx, dstTgt, version)
+	})
+	if err != nil {
 		res.Message = "deploy to target failed: " + err.Error()
 		rep.FinishStep(StepFailed, res.Message)
 		p.record(ctx, app, nextRing.Name, store.ActionPromote, dstPrev, version, store.ResultFailure, res.Message)
@@ -744,6 +766,7 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 		res.Success = true
 		res.Message = fmt.Sprintf("promoted %s from %s to %s and healthy", version, fromRing, nextRing.Name)
 		p.record(ctx, app, nextRing.Name, store.ActionPromote, dstPrev, version, store.ResultSuccess, res.Message)
+		p.saveTestKit(ctx, app, nextRing.Name, version, kit)
 		return res, nil
 	} else {
 		rep.FinishStep(StepFailed, "health check failed after retries: "+healthErr.Error())
