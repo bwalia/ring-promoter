@@ -106,6 +106,31 @@ type Execution interface {
 	Cleanup(ctx context.Context) error
 }
 
+// Link is a URL a finished execution produced or points at: the run page, a
+// build artifact, a release, an asset. Kind is a coarse category the UI uses
+// to pick an icon ("ci", "artifact", "release", "ios", "android", ...).
+type Link struct {
+	Label string
+	URL   string
+	Kind  string
+}
+
+// Outputs is what a finished execution produced, beyond its exit status.
+type Outputs struct {
+	// Links point at the run and anything it published.
+	Links []Link
+	// LogText is the run's log output when it was not streamed live (e.g.
+	// GitHub only offers logs as an archive after the run). May be truncated.
+	LogText string
+}
+
+// OutputReporter is implemented by executions that can report their Outputs
+// once they have succeeded. It is optional and best effort: a backend returns
+// what it could gather, and an error only when it gathered nothing useful.
+type OutputReporter interface {
+	Outputs(ctx context.Context) (Outputs, error)
+}
+
 // Phase is the backend-agnostic lifecycle state of an execution.
 type Phase string
 

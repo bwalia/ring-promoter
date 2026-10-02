@@ -33,6 +33,9 @@ type fakeDeployer struct {
 	// validateErr, when set, is returned by ValidateRestart.
 	lastRestart deployer.RestartRequest
 	validateErr error
+	// onDeploy, when set, runs inside every Deploy call (with the deploy's
+	// context) before the outcome is decided — e.g. to emit progress output.
+	onDeploy func(ctx context.Context, t deployer.Target, version string)
 }
 
 func newFakeDeployer() *fakeDeployer {
@@ -41,7 +44,10 @@ func newFakeDeployer() *fakeDeployer {
 
 func key(app, r string) string { return app + "/" + r }
 
-func (f *fakeDeployer) Deploy(_ context.Context, t deployer.Target, version string) error {
+func (f *fakeDeployer) Deploy(ctx context.Context, t deployer.Target, version string) error {
+	if f.onDeploy != nil {
+		f.onDeploy(ctx, t, version)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deploys = append(f.deploys, fmt.Sprintf("%s=%s", key(t.App, t.Ring), version))

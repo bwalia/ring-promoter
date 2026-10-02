@@ -107,6 +107,9 @@ func (d *ExecDeployer) execute(ctx context.Context, t Target, spec executor.Spec
 				"phase", st.Phase, "msg", st.Message)
 		}
 		if st.Phase.Terminal() {
+			if st.Phase == executor.PhaseSucceeded {
+				d.reportOutputs(ctx, ex, st)
+			}
 			d.cleanup(ctx, ex)
 			if st.Phase == executor.PhaseSucceeded {
 				return nil
@@ -162,6 +165,35 @@ func (d *ExecDeployer) cancelled(ctx context.Context, ex executor.Execution, rep
 		rep.Log("execution cancelled")
 	}
 	return ctx.Err()
+}
+
+// outputsTimeout bounds gathering a finished run's outputs. They are a
+// convenience for testers, so a slow API must not hold up the health check.
+const outputsTimeout = 45 * time.Second
+
+// reportOutputs passes what a succeeded execution produced (its run page,
+// artifacts, release, unstreamed log text) to the operation's progress sink,
+// best effort: a failure here is logged and never fails the deploy.
+func (d *ExecDeployer) reportOutputs(ctx context.Context, ex executor.Execution, st executor.Status) {
+	if runURL := st.Details["run_url"]; runURL != "" {
+		progress.AddLink(ctx, progress.Link{Label: "Workflow run", URL: runURL, Kind: "ci"})
+	}
+	or, ok := ex.(executor.OutputReporter)
+	if !ok {
+		return
+	}
+	octx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outputsTimeout)
+	defer cancel()
+	out, err := or.Outputs(octx)
+	if err != nil {
+		d.log.Warn("collect execution outputs", "execution", ex.ID(), "err", err)
+	}
+	for _, l := range out.Links {
+		progress.AddLink(ctx, progress.Link{Label: l.Label, URL: l.URL, Kind: l.Kind})
+	}
+	if out.LogText != "" {
+		progress.AddOutput(ctx, out.LogText)
+	}
 }
 
 // cleanup releases execution resources under a detached deadline (the

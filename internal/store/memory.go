@@ -18,6 +18,7 @@ type Memory struct {
 	windows              map[string]MaintenanceWindow // key: id
 	signoffs             map[string]Signoff           // key: app + "\x00" + ring + "\x00" + version
 	qaReports            map[string]QAReport          // key: app + "\x00" + ring
+	testKits             map[string]TestKit           // key: app + "\x00" + ring + "\x00" + version
 	pending              map[int64]PendingOp
 	audit                []AuditEvent
 	nextID               int64
@@ -49,6 +50,7 @@ func NewMemoryWithClock(clock func() time.Time) *Memory {
 		windows:              make(map[string]MaintenanceWindow),
 		signoffs:             make(map[string]Signoff),
 		qaReports:            make(map[string]QAReport),
+		testKits:             make(map[string]TestKit),
 		pending:              make(map[int64]PendingOp),
 		nextID:               1,
 		nextOpID:             1,
@@ -501,3 +503,58 @@ func (m *Memory) ListAudit(_ context.Context, f AuditFilter) ([]AuditEvent, erro
 
 // Close implements Store.
 func (m *Memory) Close() error { return nil }
+
+// SaveTestKit implements Store.
+func (m *Memory) SaveTestKit(_ context.Context, k TestKit) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k.CreatedAt = m.now().UTC()
+	k.Plan = nil
+	k.Links = append([]TestLink(nil), k.Links...)
+	m.testKits[signoffKey(k.App, k.Ring, k.Version)] = k
+
+	// Trim the ring to its newest KeepTestKits kits.
+	var ring []TestKit
+	for _, o := range m.testKits {
+		if o.App == k.App && o.Ring == k.Ring {
+			ring = append(ring, o)
+		}
+	}
+	if len(ring) > KeepTestKits {
+		sort.Slice(ring, func(i, j int) bool { return ring[i].CreatedAt.After(ring[j].CreatedAt) })
+		for _, o := range ring[KeepTestKits:] {
+			delete(m.testKits, signoffKey(o.App, o.Ring, o.Version))
+		}
+	}
+	return nil
+}
+
+// GetTestKit implements Store.
+func (m *Memory) GetTestKit(_ context.Context, app, ring, version string) (TestKit, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	k, ok := m.testKits[signoffKey(app, ring, version)]
+	if !ok {
+		return TestKit{}, ErrNotFound
+	}
+	k.Links = append([]TestLink(nil), k.Links...)
+	if k.Plan != nil {
+		p := *k.Plan
+		k.Plan = &p
+	}
+	return k, nil
+}
+
+// SetTestPlan implements Store.
+func (m *Memory) SetTestPlan(_ context.Context, app, ring, version string, plan TestPlan) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := signoffKey(app, ring, version)
+	k, ok := m.testKits[key]
+	if !ok {
+		return ErrNotFound
+	}
+	k.Plan = &plan
+	m.testKits[key] = k
+	return nil
+}

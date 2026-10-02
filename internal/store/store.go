@@ -196,6 +196,49 @@ type PendingOp struct {
 	CorrelationID string `json:"correlation_id,omitempty"`
 }
 
+// TestLink is one place an operator can go to try or inspect a deployed
+// version: the web UI, a TestFlight build, an artifact, the workflow run.
+type TestLink struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+	// Kind is a coarse category the UI uses for icon and grouping: web, ios,
+	// android, api, docs, dashboard, release, artifact, ci or other.
+	Kind string `json:"kind"`
+	// Source says where the link came from: config, health (the ring's health
+	// host), run (the deploy's execution), log (found in the deploy logs).
+	Source string `json:"source"`
+	// Why is the AI's one-line reason for recommending the link (AI picks only).
+	Why string `json:"why,omitempty"`
+}
+
+// TestPlan is the AI's suggestion of how to test one deployed version: a short
+// summary, a checklist, and the links worth opening — chosen only from the
+// kit's own candidate links, never invented.
+type TestPlan struct {
+	Summary     string     `json:"summary"`
+	Checklist   []string   `json:"checklist"`
+	Links       []TestLink `json:"links"`
+	GeneratedAt time.Time  `json:"generated_at"`
+}
+
+// TestKit is what a healthy deploy of one exact (App, Ring, Version) produced:
+// the links discovered at deploy time and a log excerpt to plan tests from.
+// Keyed by version, so a rollback finds the kit of the version it restores.
+type TestKit struct {
+	App     string     `json:"app"`
+	Ring    string     `json:"ring"`
+	Version string     `json:"version"`
+	Links   []TestLink `json:"links"`
+	// LogExcerpt is the slice of the deploy logs kept as AI evidence (the
+	// lines carrying URLs plus the tail). Never serialized to API clients.
+	LogExcerpt string    `json:"-"`
+	Plan       *TestPlan `json:"plan,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// KeepTestKits is how many versions' test kits each (app, ring) retains.
+const KeepTestKits = 10
+
 // Actor types recorded on audit events.
 const (
 	ActorHuman  = "human"
@@ -284,6 +327,16 @@ type Store interface {
 	// SetHistoryDiagnosis stores the AI diagnosis for a history entry. It
 	// returns ErrNotFound when the entry does not exist.
 	SetHistoryDiagnosis(ctx context.Context, id int64, diagnosis string) error
+	// SaveTestKit creates or replaces the kit for (k.App, k.Ring, k.Version),
+	// clearing any stored plan (it was made from the replaced evidence), and
+	// trims the ring to its newest KeepTestKits kits.
+	SaveTestKit(ctx context.Context, k TestKit) error
+	// GetTestKit returns the kit of one (app, ring, version), including its
+	// LogExcerpt. It returns ErrNotFound when none was saved.
+	GetTestKit(ctx context.Context, app, ring, version string) (TestKit, error)
+	// SetTestPlan stores the AI test plan on an existing kit. It returns
+	// ErrNotFound when the kit does not exist.
+	SetTestPlan(ctx context.Context, app, ring, version string, plan TestPlan) error
 	// ListGroups returns all application groups, ordered by name.
 	ListGroups(ctx context.Context) ([]Group, error)
 	// CreateGroup stores a new group (the caller assigns a unique ID).

@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 )
 
 // Detailed failure logs are kept for only the newest KeepFailureLogs entries
@@ -60,5 +62,35 @@ func TestMemoryTrimsFailureLogsToNewestThree(t *testing.T) {
 	full, err := m.GetHistoryEntry(ctx, "other", others[0].ID)
 	if err != nil || full.Logs != "other logs" {
 		t.Errorf("other app logs = %q, err %v", full.Logs, err)
+	}
+}
+
+func TestMemory_TestKitsKeyedByVersionAndTrimmed(t *testing.T) {
+	ctx := context.Background()
+	now := time.Unix(1_700_000_000, 0)
+	m := NewMemoryWithClock(func() time.Time { now = now.Add(time.Second); return now })
+	for i := 0; i < KeepTestKits+2; i++ {
+		v := fmt.Sprintf("v%d", i)
+		if err := m.SaveTestKit(ctx, TestKit{App: "a", Ring: "int", Version: v, Links: []TestLink{{URL: "https://x/" + v}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := m.GetTestKit(ctx, "a", "int", "v0"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("oldest kit should be trimmed, got %v", err)
+	}
+	if err := m.SetTestPlan(ctx, "a", "int", "v11", TestPlan{Summary: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	k, err := m.GetTestKit(ctx, "a", "int", "v11")
+	if err != nil || k.Plan == nil || k.Links[0].URL != "https://x/v11" {
+		t.Fatalf("kit = %+v, %v", k, err)
+	}
+	// Re-saving a version replaces its evidence and clears its plan.
+	_ = m.SaveTestKit(ctx, TestKit{App: "a", Ring: "int", Version: "v11"})
+	if k, _ := m.GetTestKit(ctx, "a", "int", "v11"); k.Plan != nil {
+		t.Fatal("plan should be cleared on re-save")
+	}
+	if err := m.SetTestPlan(ctx, "a", "test", "v1", TestPlan{}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }

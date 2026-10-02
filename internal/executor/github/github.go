@@ -183,15 +183,16 @@ func (e *Executor) Start(ctx context.Context, spec executor.Spec) (executor.Exec
 	if id == "" {
 		id = "gh-" + strconv.FormatInt(run.ID, 10)
 	}
-	return &execution{e: e, id: id, runID: run.ID, url: run.HTMLURL}, nil
+	return &execution{e: e, id: id, runID: run.ID, url: run.HTMLURL, version: version}, nil
 }
 
 // execution is a handle on one dispatched workflow run.
 type execution struct {
-	e     *Executor
-	id    string
-	runID int64
-	url   string
+	e       *Executor
+	id      string
+	runID   int64
+	url     string
+	version string // the dispatched version (git ref), for the release lookup
 }
 
 func (x *execution) ID() string { return x.id }

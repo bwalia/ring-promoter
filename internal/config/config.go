@@ -6,7 +6,9 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -162,8 +164,60 @@ type AppConfig struct {
 	// runs). Optional: existing configs without it keep working, and the Rings
 	// globe then parks the body on a latency orbit instead of a map pin.
 	Location *AppLocation `yaml:"location"`
+	// Links are places an operator goes to test this app once a version is
+	// deployed (web UI, TestFlight, API docs, a dashboard). They apply to
+	// every ring; URL placeholders make them ring-specific (see LinkConfig).
+	Links []LinkConfig `yaml:"links"`
 	// Rings maps a ring name (see package ring) to its deploy target.
 	Rings map[string]RingConfig `yaml:"rings"`
+}
+
+// LinkConfig is one test link shown on a ring after a deploy. URL may use the
+// placeholders {app}, {ring}, {target_env} and {version} (path-escaped), e.g.
+// "https://{ring}.example.com/" or "https://github.com/o/r/releases/tag/{version}".
+type LinkConfig struct {
+	Label string `yaml:"label"`
+	URL   string `yaml:"url"`
+	// Kind picks the icon and grouping: web (default), ios, android, api,
+	// docs, dashboard, release, artifact, ci or other.
+	Kind string `yaml:"kind"`
+}
+
+// LinkKinds are the accepted LinkConfig kinds.
+var LinkKinds = []string{"web", "ios", "android", "api", "docs", "dashboard", "release", "artifact", "ci", "other"}
+
+// Render resolves the URL placeholders for one deployed version.
+func (l LinkConfig) Render(app, ringName, targetEnv, version string) string {
+	return strings.NewReplacer(
+		"{app}", url.PathEscape(app),
+		"{ring}", url.PathEscape(ringName),
+		"{target_env}", url.PathEscape(targetEnv),
+		"{version}", url.PathEscape(version),
+	).Replace(l.URL)
+}
+
+// KindOrDefault returns Kind, defaulting to "web".
+func (l LinkConfig) KindOrDefault() string {
+	if l.Kind == "" {
+		return "web"
+	}
+	return l.Kind
+}
+
+func validateLinks(where string, links []LinkConfig) error {
+	for i, l := range links {
+		if strings.TrimSpace(l.Label) == "" {
+			return fmt.Errorf("%s link %d has no label", where, i+1)
+		}
+		u, err := url.Parse(l.Render("app", "ring", "env", "v1"))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("%s link %q has invalid url %q (want an absolute http(s) URL)", where, l.Label, l.URL)
+		}
+		if !slices.Contains(LinkKinds, l.KindOrDefault()) {
+			return fmt.Errorf("%s link %q has unknown kind %q (want one of %s)", where, l.Label, l.Kind, strings.Join(LinkKinds, ", "))
+		}
+	}
+	return nil
 }
 
 // AppLocation is a geographic pin for an application. Lat/lng place it on the
@@ -298,13 +352,13 @@ type K8sJobConfig struct {
 	Retries *int `yaml:"retries"`
 	// TTLAfterFinished keeps the finished Job (and its logs) inspectable
 	// before Kubernetes garbage-collects it. Default 1h.
-	TTLAfterFinished *Duration          `yaml:"ttl_after_finished"`
-	NodeSelector     map[string]string  `yaml:"node_selector"`
+	TTLAfterFinished *Duration         `yaml:"ttl_after_finished"`
+	NodeSelector     map[string]string `yaml:"node_selector"`
 	// HostNetwork puts the Job on the node's network. Use it when CNI
 	// overlay egress cannot reach GitHub (connection reset / TLS timeout)
 	// but the node itself can. Pairs with dnsPolicy ClusterFirstWithHostNet.
-	HostNetwork      bool               `yaml:"host_network"`
-	Tolerations      []K8sJobToleration `yaml:"tolerations"`
+	HostNetwork bool               `yaml:"host_network"`
+	Tolerations []K8sJobToleration `yaml:"tolerations"`
 	// SecurityContext, when set, is applied to the Job container. Leave it unset
 	// for ordinary deploy scripts (kubectl/helm) — they need no elevation. Set
 	// `privileged: true` only for a runner that builds container images
@@ -470,6 +524,9 @@ type RingConfig struct {
 	// Validate) — that path is guarded by RP_PROD_PASSWORD at the API, and
 	// config must not become a way around it.
 	AutoPromote *bool `yaml:"auto_promote"`
+	// Links are test links for this ring only, shown after the app-level ones
+	// (see AppConfig.Links).
+	Links []LinkConfig `yaml:"links"`
 }
 
 // AutoPromoteOwnedByConfig reports whether config declares this ring's
@@ -696,6 +753,12 @@ func (c *Config) Validate() error {
 			if err := validateAutoPromote(a, rname, rc); err != nil {
 				return err
 			}
+			if err := validateLinks(fmt.Sprintf("application %q ring %q", a.Name, rname), rc.Links); err != nil {
+				return err
+			}
+		}
+		if err := validateLinks(fmt.Sprintf("application %q", a.Name), a.Links); err != nil {
+			return err
 		}
 		if err := c.validateAppDeployer(a); err != nil {
 			return err

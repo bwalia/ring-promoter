@@ -36,7 +36,12 @@ import {
 } from "@/components/dashboard/grafana-gate";
 import { Lock } from "lucide-react";
 import {
+  RingCardLinks,
+  TestKitSection,
+} from "@/components/dashboard/test-kit";
+import {
   useActiveJob,
+  useApps,
   useAppTitle,
   useAutoPromoteMutation,
   useProdProtection,
@@ -278,6 +283,13 @@ function RingCard({
         )}
       </div>
 
+      {/* Where to try what this ring runs: its web UI, TestFlight, docs. */}
+      {view.current_version && (view.links?.length ?? 0) > 0 && (
+        <div className="mt-3">
+          <RingCardLinks view={view} />
+        </div>
+      )}
+
       {/* Only the buttons swallow clicks — the rest of the card, including
           the space around them, opens the details sheet. Stacked full-width
           so every card looks the same regardless of label length. */}
@@ -346,6 +358,7 @@ function RingDetailsSheet({
   const autoPromote = useAutoPromoteMutation(app);
   const { prodProtected, prodRing } = useProdProtection();
   const title = useAppTitle();
+  const { data: apps } = useApps();
   const health = ringHealth(view);
   const { ring } = view;
 
@@ -461,6 +474,14 @@ function RingDetailsSheet({
               )}
             </DetailRow>
           </section>
+
+          {open && view.current_version && (
+            <TestKitSection
+              app={app}
+              view={view}
+              aiAvailable={!!apps?.ai_test_plans}
+            />
+          )}
 
           {/* The gate guarding the NEXT ring, because that is what this ring's
               Promote has to get past. Its no-go is the only gate a release
