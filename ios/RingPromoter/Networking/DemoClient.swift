@@ -21,6 +21,8 @@ actor DemoClient: RingPromoterAPI {
     private var world: DemoWorld
     private var jobs: [String: DemoJob] = [:]
     private var jobSequence = 0
+    /// AI test plans written in this demo session, keyed by app/ring/version.
+    private var testPlans: [String: TestPlan] = [:]
 
     init(world: DemoWorld = .load()) {
         self.world = world
@@ -40,7 +42,14 @@ actor DemoClient: RingPromoterAPI {
 
     func rings(app: String) async throws(APIError) -> [RingStatus] {
         try requireApp(app)
-        return world.rings(for: app)
+        return world.rings(for: app).map { ring in
+            var ring = ring
+            if ring.configured, !ring.isEmpty {
+                ring.links = Self.demoLinks(app: app, ring: ring.ring.name, version: ring.currentVersion)
+                ring.hasTestPlan = testPlans[Self.planKey(app, ring.ring.name, ring.currentVersion)] != nil
+            }
+            return ring
+        }
     }
 
     func history(app: String) async throws(APIError) -> [HistoryEntry] {
@@ -255,6 +264,61 @@ actor DemoClient: RingPromoterAPI {
             return DiagnosisResponse(diagnosisStatus: .none, diagnosis: nil)
         }
         return DiagnosisResponse(diagnosisStatus: .done, diagnosis: diagnosis)
+    }
+
+    // MARK: - Test kits
+
+    func testKit(app: String, ring: String) async throws(APIError) -> TestKit {
+        try requireApp(app)
+        guard let status = world.rings(for: app).first(where: { $0.ring.name == ring }),
+              status.configured
+        else { throw .notFound("ring not configured for this application") }
+        guard !status.isEmpty else { throw .conflict("no version deployed in this ring") }
+        let plan = testPlans[Self.planKey(app, ring, status.currentVersion)]
+        return TestKit(
+            app: app, ring: ring, version: status.currentVersion,
+            links: Self.demoLinks(app: app, ring: ring, version: status.currentVersion),
+            plan: plan, capturedAt: status.updatedAt, aiEnabled: world.apps.aiEnabled,
+            planStatus: plan == nil ? .none : .done
+        )
+    }
+
+    func planTestKit(app: String, ring: String, refresh: Bool) async throws(APIError) -> TestKit {
+        guard world.apps.aiEnabled else {
+            throw .notImplemented("AI test plans are not configured on this server")
+        }
+        let kit = try await testKit(app: app, ring: ring)
+        let links = kit.links
+        testPlans[Self.planKey(app, ring, kit.version)] = TestPlan(
+            summary: "Demo: \(kit.version) is live in \(ring). Check the web UI first, then the iOS beta.",
+            checklist: [
+                "Open the web UI and sign in",
+                "Run through the main flow end to end",
+                "Install the TestFlight build and launch the app",
+                "Skim the release notes for anything risky",
+            ],
+            links: links.prefix(2).map { link in
+                var link = link
+                link.why = link.kind == "ios" ? "Install the beta build" : "Try the main flow"
+                return link
+            },
+            generatedAt: Date()
+        )
+        return try await testKit(app: app, ring: ring)
+    }
+
+    private static func planKey(_ app: String, _ ring: String, _ version: String) -> String {
+        "\(app)/\(ring)/\(version)"
+    }
+
+    /// Example links in the shape a real server returns. example.com hosts
+    /// keep demo mode from pointing anywhere real.
+    private static func demoLinks(app: String, ring: String, version: String) -> [TestLink] {
+        [
+            TestLink(label: "Web UI", url: "https://\(ring).\(app).example.com/", kind: "web", source: "config"),
+            TestLink(label: "iOS beta (TestFlight)", url: "https://example.com/testflight/DEMO0000", kind: "ios", source: "config"),
+            TestLink(label: "Release \(version)", url: "https://example.com/releases/\(version)", kind: "release", source: "run"),
+        ]
     }
 
     // MARK: - Rule checks (mirroring the server's)

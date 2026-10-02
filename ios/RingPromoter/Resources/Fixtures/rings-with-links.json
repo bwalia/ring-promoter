@@ -1,0 +1,54 @@
+{
+    "rings": [
+        {
+            "ring": {
+                "name": "int",
+                "label": "Integration"
+            },
+            "configured": true,
+            "current_version": "v1.4.0",
+            "previous_version": "",
+            "live_version": "v1.4.0",
+            "healthy": true,
+            "live_healthy": true,
+            "auto_promote": false,
+            "auto_promote_managed": false,
+            "updated_at": "2026-10-02T21:23:43.007064Z",
+            "can_promote_from": true,
+            "gates": {
+                "maintenance_window": false,
+                "qa_signoff": false,
+                "change_request": false,
+                "maintenance_window_open": false,
+                "grafana": false
+            },
+            "links": [
+                {
+                    "label": "Shop web UI",
+                    "url": "https://int.shop.example.net/",
+                    "kind": "web",
+                    "source": "config"
+                },
+                {
+                    "label": "iOS beta (TestFlight)",
+                    "url": "https://testflight.apple.com/join/AbCd1234",
+                    "kind": "ios",
+                    "source": "config"
+                },
+                {
+                    "label": "API docs",
+                    "url": "https://api-int.shop.example.net/docs",
+                    "kind": "docs",
+                    "source": "config"
+                },
+                {
+                    "label": "Release notes",
+                    "url": "https://github.com/acme/shop/releases/tag/v1.4.0",
+                    "kind": "release",
+                    "source": "config"
+                }
+            ],
+            "has_test_plan": true
+        }
+    ]
+}

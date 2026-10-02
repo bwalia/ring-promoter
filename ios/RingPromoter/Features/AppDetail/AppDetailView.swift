@@ -120,6 +120,7 @@ private struct RingCard: View {
     @Environment(AppSession.self) private var session
     @State private var autoPromoteError: String?
     @State private var isTogglingAutoPromote = false
+    @State private var showsTestKit = false
 
     private var presentation: HealthPresentation { HealthPresentation(ring) }
     private var isProduction: Bool { store.pipeline.isProduction(ring.ring.name) }
@@ -135,6 +136,9 @@ private struct RingCard: View {
             header
             if ring.configured {
                 versions
+                if !ring.isEmpty, !(ring.links ?? []).isEmpty {
+                    TestLinksRow(ring: ring) { showsTestKit = true }
+                }
                 if ring.gates.isGated {
                     GateBadges(gates: ring.gates)
                 }
@@ -148,6 +152,9 @@ private struct RingCard: View {
         }
         .padding(.vertical, 6)
         .opacity(ring.configured ? 1 : 0.55)
+        .sheet(isPresented: $showsTestKit) {
+            TestKitSheet(app: store.app, ring: ring)
+        }
     }
 
     private var header: some View {

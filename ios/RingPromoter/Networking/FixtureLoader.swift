@@ -64,6 +64,8 @@ enum FixtureLoader {
         static let ringsGated = "rings-gated"
         static let ringsManaged = "rings-managed"
         static let ringsUnhealthy = "rings-unhealthy"
+        static let ringsWithLinks = "rings-with-links"
+        static let testKit = "test-kit"
         static let history = "history"
         static let historyWithFailures = "history-with-failures"
         static let versionsUnsupported = "versions-unsupported"

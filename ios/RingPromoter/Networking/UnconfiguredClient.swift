@@ -75,4 +75,10 @@ struct UnconfiguredClient: RingPromoterAPI {
     func historyDiagnosis(
         app: String, id: Int64
     ) async throws(APIError) -> DiagnosisResponse { throw notConnected }
+
+    func testKit(app: String, ring: String) async throws(APIError) -> TestKit { throw notConnected }
+
+    func planTestKit(
+        app: String, ring: String, refresh: Bool
+    ) async throws(APIError) -> TestKit { throw notConnected }
 }

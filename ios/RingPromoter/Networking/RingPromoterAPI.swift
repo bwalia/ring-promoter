@@ -74,4 +74,12 @@ protocol RingPromoterAPI: Sendable {
     func diagnoseJob(app: String, id: String) async throws(APIError) -> DiagnosisResponse
     func diagnoseHistoryEntry(app: String, id: Int64) async throws(APIError) -> DiagnosisResponse
     func historyDiagnosis(app: String, id: Int64) async throws(APIError) -> DiagnosisResponse
+
+    // MARK: Test kits
+
+    /// Where to test a ring's current version, plus its AI test plan.
+    func testKit(app: String, ring: String) async throws(APIError) -> TestKit
+    /// Ask the AI what to test. Runs server-side: a `.running` status means
+    /// poll `testKit` until it resolves. `refresh` regenerates a stored plan.
+    func planTestKit(app: String, ring: String, refresh: Bool) async throws(APIError) -> TestKit
 }
