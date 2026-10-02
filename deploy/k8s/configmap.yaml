@@ -256,6 +256,7 @@ data:
             health_url: "https://vault-ui.workstation.co.uk/api/version"
             health_version_field: version
             auto_promote: true
+            links: [ { label: "WSLVault (Manchester)", url: "https://vault-ui.workstation.co.uk/" } ]
           # Wave 1 — London. Stop here; higher rings are unused for this app.
           test:
             target_env: region-b
@@ -263,6 +264,7 @@ data:
             health_url: "https://vault-ha.workstation.co.uk/api/version"
             health_version_field: version
             auto_promote: false
+            links: [ { label: "WSLVault (London)", url: "https://vault-ha.workstation.co.uk/" } ]
 
       # beacon (BeaconPulse) — multi-tenant monitoring platform. PUBLIC repo
       # bwalia/beaconpulse, so the Job clones it unauthenticated at the promoted
@@ -390,10 +392,10 @@ data:
         # wslvault above uses public URLs. Hosts come from each ring's
         # values-workstation-<ring>.yaml `host:` field.
         rings:
-          int:  { target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api } ] }
+          int:  { target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://int-opsapi.workstation.co.uk/swagger", kind: docs } ] }
           test: { target_env: test, health_url: "https://test-opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
           acc:  { target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready" }
-          prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api } ] }
+          prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://opsapi.workstation.co.uk/swagger", kind: docs } ] }
 
       # wslproxy-k3s1 moved to its own instance, https://rp.wslproxy.com,
       # owned by bwalia/wslproxy deploy/ring-promoter/ (2026-09-24).
