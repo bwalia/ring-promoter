@@ -13,6 +13,7 @@ import {
   Link2,
   Loader2,
   Package,
+  QrCode,
   RefreshCw,
   Smartphone,
   Sparkles,
@@ -21,6 +22,7 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import { RelativeTime } from "@/components/relative-time";
 import { Button } from "@/components/ui/button";
@@ -29,6 +31,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -161,6 +168,56 @@ function CopyButton({ url }: { url: string }) {
   );
 }
 
+/** Kinds worth opening on a phone: offered as a QR code. */
+const MOBILE_KINDS = new Set(["ios", "android", "web"]);
+
+/**
+ * QR code for a link, so a tester at a desk can open a TestFlight build or the
+ * web UI on their phone. Drawn on white with a quiet zone in both themes —
+ * phone cameras need the contrast.
+ */
+function QrButton({ link }: { link: TestLink }) {
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0"
+              aria-label={`Show QR code for ${link.label}`}
+            >
+              <QrCode aria-hidden className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Open on your phone</TooltipContent>
+      </Tooltip>
+      <PopoverContent className="w-auto p-3" align="end">
+        <div className="flex flex-col items-center gap-2">
+          <div className="rounded-md bg-white p-2.5">
+            <QRCodeSVG
+              value={link.url}
+              size={168}
+              level="M"
+              bgColor="#ffffff"
+              fgColor="#000000"
+              title={link.url}
+            />
+          </div>
+          <p className="max-w-[188px] text-center text-xs font-medium">
+            {link.label}
+          </p>
+          <p className="max-w-[188px] text-center text-[11px] text-muted-foreground">
+            Scan with your phone&apos;s camera
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function LinkRow({ link, emphasis }: { link: TestLink; emphasis?: boolean }) {
   return (
     <li className="flex items-center gap-2">
@@ -189,6 +246,7 @@ function LinkRow({ link, emphasis }: { link: TestLink; emphasis?: boolean }) {
           className="size-3.5 shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground"
         />
       </a>
+      {MOBILE_KINDS.has(link.kind) && <QrButton link={link} />}
       <CopyButton url={link.url} />
     </li>
   );
