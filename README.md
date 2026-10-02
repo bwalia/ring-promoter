@@ -131,6 +131,7 @@ treated as data, not instructions.
 | Execution    | `executor.Executor`  | GitHub Actions (`executor/github`), Kubernetes Jobs (`executor/k8sjob`) | scripted fakes |
 | Health check | `health.Checker`     | `HTTPChecker`                                        | `AlwaysHealthy`       |
 | Persistence  | `store.Store`        | `Postgres`                                           | `Memory`              |
+| AI model     | `llm.Provider`       | Ollama behind the JWT gateway (`llm/ollama`)         | fake provider in tests |
 
 The `KubectlDeployer` shells out to `kubectl` (`set image` + `rollout status`),
 authenticating in-cluster via the pod's ServiceAccount. It keeps the binary and
@@ -160,6 +161,27 @@ with `RP_VERSION` = the ring's current version.
 The deployer is selected **per application** (via an optional `deployer:` field
 in the app's config), so a single control plane can promote Kubernetes apps and
 VM/CI apps side by side. Apps without the field use the global `deployer`.
+
+**AI layer (`internal/llm`).** Failure diagnosis and test plans never talk to
+a model directly. `internal/diagnose` owns the prompts and sends them through
+`llm.Provider` (`Name()` + `Complete(ctx, Request)`); `main` picks the
+concrete provider, today `llm/ollama`, built from the `ollama.*` config. That
+provider calls Ollama's `/api/chat` and mints a fresh HS256 JWT for the
+`x-api-key` header on every request. Adding another backend means implementing
+`llm.Provider` in a new subpackage and choosing it in `main`; the prompts and
+API handlers don't change.
+
+- **Failures degrade safely.** If the model can't be reached, or answers with a
+  5xx, the provider returns an error wrapping `llm.ErrUnavailable`. A 4xx (bad
+  token, unknown model) is a plain error, because only a config change will fix
+  it. Callers use `errors.Is(err, llm.ErrUnavailable)` to tell "no model right
+  now" apart from "the model said something unusable".
+- **Structured answers are decoded, not trusted.** `Request.Format` (e.g.
+  `"json"`) is only a hint. The real check is the decode: `llm.DecodeStrict`
+  rejects unknown fields; `llm.Decode` ignores them, for callers that validate
+  the result themselves (AI test plans, via `promoter.ParseTestPlan`). Both
+  accept a Markdown code fence around the JSON, and both reject non-JSON output
+  or text after the JSON value.
 
 **Concurrency & reliability.**
 - Operations on the same application are serialized by a lock obtained from the
@@ -191,6 +213,9 @@ internal/
   deployer/              Deployer interface, KubectlDeployer, LogDeployer
   health/                Checker interface, HTTPChecker, AlwaysHealthy
   promoter/              promotion rules (seed/promote/rollback) + unit tests
+  llm/                   Provider interface for AI models, Decode/DecodeStrict
+    ollama/              Ollama provider (JWT-signed requests to /api/chat)
+  diagnose/              AI prompts: failure diagnosis and test plans
   api/                   REST handlers, bearer-token auth, request logging
   web/                   embedded UI assets (built from web/, see below)
 web/                     Next.js + TypeScript frontend (source of the UI)
