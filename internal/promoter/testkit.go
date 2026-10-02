@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"slices"
@@ -221,12 +222,33 @@ func ringLinks(ac config.AppConfig, ringName string, rc config.RingConfig, versi
 }
 
 // healthHost returns scheme://host/ of a health URL, or "".
+// Health checks usually target in-cluster Service DNS, which a browser cannot
+// reach, so only a publicly addressable host qualifies.
 func healthHost(health string) string {
 	u, err := url.Parse(health)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || !publicHost(u.Hostname()) {
 		return ""
 	}
 	return u.Scheme + "://" + u.Host + "/"
+}
+
+// publicHost reports whether a browser outside the cluster could plausibly
+// reach host: not cluster DNS (*.svc, *.cluster.local), not a single-label or
+// .local/.internal name, and not a loopback, private or link-local address.
+func publicHost(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "" || host == "localhost" || !strings.Contains(host, ".") {
+		return false
+	}
+	for _, suffix := range []string{".svc", ".cluster.local", ".local", ".internal", ".localhost"} {
+		if strings.HasSuffix(host, suffix) || strings.Contains(host, ".svc.") {
+			return false
+		}
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified())
+	}
+	return true
 }
 
 // ---- URL extraction from deploy logs ----
@@ -286,7 +308,7 @@ func testWorthy(raw string) bool {
 			return false
 		}
 	}
-	if strings.HasSuffix(host, ".svc") || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
+	if !publicHost(host) {
 		return false
 	}
 	hp := host + u.EscapedPath()

@@ -60,7 +60,7 @@ apps:
       int:  { namespace: kuard-int,  deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-int.svc.cluster.local/healthy" }
       test: { namespace: kuard-test, deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-test.svc.cluster.local/healthy" }
       acc:  { namespace: kuard-acc,  deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-acc.svc.cluster.local/healthy" }
-      prod: { namespace: kuard-prod, deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-prod.svc.cluster.local/healthy" }
+      prod: { namespace: kuard-prod, deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-prod.svc.cluster.local/healthy", links: [ { label: "kuard", url: "https://kuard.fictionally.org/" } ] }
 
   # 3) shopping-cart — multi-service (backend+frontend+redis). Promoted together
   #    as a GROUP (create it from the UI/API — see Lab 07). Feature focus:
@@ -72,7 +72,7 @@ apps:
       int:  { namespace: shopping-cart-int,  deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-int.svc.cluster.local/healthz",  health_version_field: version }
       test: { namespace: shopping-cart-test, deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-test.svc.cluster.local/healthz", health_version_field: version }
       acc:  { namespace: shopping-cart-acc,  deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-acc.svc.cluster.local/healthz",  health_version_field: version }
-      prod: { namespace: shopping-cart-prod, deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-prod.svc.cluster.local/healthz", health_version_field: version }
+      prod: { namespace: shopping-cart-prod, deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-prod.svc.cluster.local/healthz", health_version_field: version, links: [ { label: "Shop", url: "https://shop.fictionally.org/" }, { label: "Cart API", url: "https://shopping-cart-api.fictionally.org/", kind: api } ] }
 
   # 4) bank-api — the GOVERNANCE showcase. Demonstrates ALL THREE promotion
   #    gates plus the production password and secrets. Promoting to acc/prod

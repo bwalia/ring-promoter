@@ -126,10 +126,10 @@ data:
           retries: 0
           ttl_after_finished: 1h
         rings:
-          int:  { target_env: int,  health_url: "http://jobshout-api.int.svc.cluster.local:8080/health" }
-          test: { target_env: test, health_url: "http://jobshout-api.test.svc.cluster.local:8080/health" }
-          acc:  { target_env: acc,  health_url: "http://jobshout-api.acc.svc.cluster.local:8080/health" }
-          prod: { target_env: prod, health_url: "http://jobshout-api.prod.svc.cluster.local:8080/health" }
+          int:  { target_env: int,  health_url: "http://jobshout-api.int.svc.cluster.local:8080/health", links: [ { label: "JobShout int", url: "https://int.jobshout.co.uk/" } ] }
+          test: { target_env: test, health_url: "http://jobshout-api.test.svc.cluster.local:8080/health", links: [ { label: "JobShout test", url: "https://test.jobshout.co.uk/" } ] }
+          acc:  { target_env: acc,  health_url: "http://jobshout-api.acc.svc.cluster.local:8080/health", links: [ { label: "JobShout acc", url: "https://acc.jobshout.co.uk/" } ] }
+          prod: { target_env: prod, health_url: "http://jobshout-api.prod.svc.cluster.local:8080/health", links: [ { label: "JobShout", url: "https://jobshout.co.uk/" } ] }
 
       # jobshout-com — AI employment marketplace (Rust API + Next.js).
       # Separate Helm chart under jobshout-com/deploy/helm/jobshout-com.
@@ -177,10 +177,10 @@ data:
           retries: 0
           ttl_after_finished: 1h
         rings:
-          int:  { target_env: int,  health_url: "http://jobshout-com-api.int.svc.cluster.local:8088/health" }
-          test: { target_env: test, health_url: "http://jobshout-com-api.test.svc.cluster.local:8088/health" }
-          acc:  { target_env: acc,  health_url: "http://jobshout-com-api.acc.svc.cluster.local:8088/health" }
-          prod: { target_env: prod, health_url: "http://jobshout-com-api.prod.svc.cluster.local:8088/health" }
+          int:  { target_env: int,  health_url: "http://jobshout-com-api.int.svc.cluster.local:8088/health", links: [ { label: "JobShout.com int", url: "https://int.jobshout.com/" } ] }
+          test: { target_env: test, health_url: "http://jobshout-com-api.test.svc.cluster.local:8088/health", links: [ { label: "JobShout.com test", url: "https://test.jobshout.com/" } ] }
+          acc:  { target_env: acc,  health_url: "http://jobshout-com-api.acc.svc.cluster.local:8088/health", links: [ { label: "JobShout.com acc", url: "https://acc.jobshout.com/" } ] }
+          prod: { target_env: prod, health_url: "http://jobshout-com-api.prod.svc.cluster.local:8088/health", links: [ { label: "JobShout.com", url: "https://www.jobshout.com/" } ] }
       - name: wslvault
         display_name: "WSLVault (k3s1 HA)"
         location: { lat: 53.4808, lng: -2.2426, city: Manchester, region: GB }
@@ -324,10 +324,10 @@ data:
           retries: 0
           ttl_after_finished: 1h
         rings:
-          int:  { target_env: int,  health_url: "http://beacon-api.int.svc.cluster.local:8080/readyz" }
-          test: { target_env: test, health_url: "http://beacon-api.test.svc.cluster.local:8080/readyz" }
-          acc:  { target_env: acc,  health_url: "http://beacon-api.acc.svc.cluster.local:8080/readyz" }
-          prod: { target_env: prod, health_url: "http://beacon-api.prod.svc.cluster.local:8080/readyz" }
+          int:  { target_env: int,  health_url: "http://beacon-api.int.svc.cluster.local:8080/readyz", links: [ { label: "BeaconPulse int", url: "https://int.beaconpulse.net/" } ] }
+          test: { target_env: test, health_url: "http://beacon-api.test.svc.cluster.local:8080/readyz", links: [ { label: "BeaconPulse test", url: "https://test.beaconpulse.net/" } ] }
+          acc:  { target_env: acc,  health_url: "http://beacon-api.acc.svc.cluster.local:8080/readyz", links: [ { label: "BeaconPulse acc", url: "https://acc.beaconpulse.net/" } ] }
+          prod: { target_env: prod, health_url: "http://beacon-api.prod.svc.cluster.local:8080/readyz", links: [ { label: "BeaconPulse", url: "https://beaconpulse.net/" } ] }
 
       # workstation-opsapi — the OpsAPI (Lua/Lapis) serving *-opsapi.workstation.co.uk.
       # PUBLIC repo bwalia/opsapi. It SHARES the diytaxreturn-lapis chart with the
@@ -390,10 +390,10 @@ data:
         # wslvault above uses public URLs. Hosts come from each ring's
         # values-workstation-<ring>.yaml `host:` field.
         rings:
-          int:  { target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready" }
-          test: { target_env: test, health_url: "https://test-opsapi.workstation.co.uk/ready" }
+          int:  { target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api } ] }
+          test: { target_env: test, health_url: "https://test-opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
           acc:  { target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready" }
-          prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready" }
+          prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api } ] }
 
       # wslproxy-k3s1 moved to its own instance, https://rp.wslproxy.com,
       # owned by bwalia/wslproxy deploy/ring-promoter/ (2026-09-24).
