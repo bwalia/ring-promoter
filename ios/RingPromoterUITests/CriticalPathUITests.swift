@@ -71,6 +71,27 @@ final class CriticalPathUITests: XCTestCase {
         attachScreenshot(named: "02-app-detail")
     }
 
+    func testTestKitOffersLinksAndAnAITestPlan() throws {
+        app.launch()
+        openApp(named: "Payments API")
+
+        let test = app.buttons["test-kit-int"]
+        XCTAssertTrue(test.waitForExistence(timeout: 10), "a deployed ring should offer Test")
+        XCTAssertTrue(app.buttons["Open"].firstMatch.exists, "the web UI link should be one tap away")
+        attachScreenshot(named: "14-ring-test-links")
+
+        test.tap()
+        XCTAssertTrue(app.staticTexts["Web UI"].waitForExistence(timeout: 10))
+        let suggest = app.buttons["Suggest what to test"]
+        XCTAssertTrue(suggest.waitForExistence(timeout: 5))
+        suggest.tap()
+        XCTAssertTrue(
+            app.buttons["Install the TestFlight build and launch the app"].waitForExistence(timeout: 10),
+            "the plan's checklist should appear"
+        )
+        attachScreenshot(named: "15-test-kit-plan")
+    }
+
     func testUnhealthyRingIsCalledOutAtTheTop() {
         app.launch()
         openApp(named: "Payments API")

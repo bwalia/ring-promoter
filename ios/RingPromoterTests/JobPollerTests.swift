@@ -213,6 +213,12 @@ actor ScriptedJobAPI: RingPromoterAPI {
     func historyDiagnosis(
         app: String, id: Int64
     ) async throws(APIError) -> DiagnosisResponse { throw .notImplemented("") }
+    func testKit(app: String, ring: String) async throws(APIError) -> TestKit {
+        throw .notImplemented("")
+    }
+    func planTestKit(
+        app: String, ring: String, refresh: Bool
+    ) async throws(APIError) -> TestKit { throw .notImplemented("") }
 }
 
 /// A clock whose sleeps return at once, so poll-loop tests run in milliseconds

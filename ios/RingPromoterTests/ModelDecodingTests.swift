@@ -58,6 +58,36 @@ struct ModelDecodingTests {
         #expect(!int.gates.isGated)
     }
 
+    @Test("a deployed ring carries its test links; older captures have none")
+    func ringsWithLinks() throws {
+        let ring = try #require(
+            FixtureLoader.decode(RingsResponse.self, from: FixtureLoader.Name.ringsWithLinks)
+                .rings.first
+        )
+        let links = try #require(ring.links)
+        #expect(links.first?.kind == "web")
+        #expect(links.first?.destination != nil)
+        #expect(links.contains { $0.kind == "ios" && $0.isTryable })
+        #expect(ring.hasTestPlan == true)
+
+        let old = try FixtureLoader.decode(RingsResponse.self, from: FixtureLoader.Name.rings)
+        #expect(old.rings.allSatisfy { $0.links == nil })
+    }
+
+    @Test("test kit decodes links, the AI plan and its status")
+    func testKit() throws {
+        let kit = try FixtureLoader.decode(TestKit.self, from: FixtureLoader.Name.testKit)
+        #expect(kit.version == "v1.4.0")
+        #expect(kit.aiEnabled)
+        #expect(kit.planStatus == .done)
+        #expect(kit.capturedAt != nil)
+        let plan = try #require(kit.plan)
+        #expect(!plan.checklist.isEmpty)
+        // Plan links are a subset of the kit's own links, with a reason.
+        #expect(plan.links.allSatisfy { pick in kit.links.contains { $0.url == pick.url } })
+        #expect(plan.links.allSatisfy { $0.why?.isEmpty == false })
+    }
+
     @Test("a never-deployed ring decodes Go's zero timestamp without failing")
     func zeroTimestamp() throws {
         let rings = try FixtureLoader
@@ -337,5 +367,6 @@ enum FixtureCorpus {
         "error-409-nothing-to-promote", "error-409-nothing-to-rollback",
         "error-409-signoff-required", "error-409-window-closed", "error-501-diagnose",
         "autopromote-ok", "autopromote-403-prod", "autopromote-409-managed",
+        "rings-with-links", "test-kit",
     ]
 }

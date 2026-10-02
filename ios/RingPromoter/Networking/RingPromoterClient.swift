@@ -207,6 +207,23 @@ actor RingPromoterClient: RingPromoterAPI {
         )
     }
 
+    // MARK: - Test kits
+
+    func testKit(app: String, ring: String) async throws(APIError) -> TestKit {
+        try await get(TestKit.self, path: "/api/apps/\(esc(app))/rings/\(esc(ring))/test-kit")
+    }
+
+    func planTestKit(app: String, ring: String, refresh: Bool) async throws(APIError) -> TestKit {
+        // 202 (running) and 200 (stored plan) both carry the test kit.
+        let data = try await send(
+            Request(
+                path: "/api/apps/\(esc(app))/rings/\(esc(ring))/test-kit/plan", method: "POST",
+                query: refresh ? [URLQueryItem(name: "refresh", value: "1")] : []
+            )
+        )
+        return try decode(TestKit.self, from: data)
+    }
+
     // MARK: - Plumbing
 
     private struct Request {

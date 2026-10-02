@@ -115,6 +115,11 @@ struct RingStatus: Codable, Hashable, Sendable, Identifiable {
     let canPromoteFrom: Bool
     /// Gates guarding entry into THIS ring.
     let gates: RingGates
+    /// Where to test the current version: config links, the ring's public
+    /// host, and what its deploy produced. Absent on older servers.
+    var links: [TestLink]? = nil
+    /// An AI test plan is stored for the current version.
+    var hasTestPlan: Bool? = nil
 
     var id: String { ring.name }
 
@@ -131,6 +136,8 @@ struct RingStatus: Codable, Hashable, Sendable, Identifiable {
         case autoPromoteManaged = "auto_promote_managed"
         case updatedAt = "updated_at"
         case canPromoteFrom = "can_promote_from"
+        case links
+        case hasTestPlan = "has_test_plan"
     }
 
     /// A ring holding no version has never been deployed to.

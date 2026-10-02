@@ -96,7 +96,7 @@ export function RingCardLinks({ view }: { view: RingView }) {
 
   return (
     <div
-      className="flex items-center gap-1.5"
+      className="flex flex-wrap items-center gap-1.5"
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
     >
@@ -107,7 +107,7 @@ export function RingCardLinks({ view }: { view: RingView }) {
               asChild
               variant="outline"
               size="sm"
-              className="h-7 min-w-0 flex-1 justify-start gap-1.5 px-2 text-xs"
+              className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
             >
               <a href={primary.url} target="_blank" rel="noreferrer">
                 <ExternalLink aria-hidden className="size-3.5 shrink-0" />

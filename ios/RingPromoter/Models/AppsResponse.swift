@@ -38,11 +38,15 @@ struct AppsResponse: Codable, Hashable, Sendable {
     let prodProtected: Bool
     /// AI failure diagnosis is configured, so "Diagnose with AI" is offered.
     let aiEnabled: Bool
+    /// The server can suggest what to test on a deployed ring (AI test plan).
+    /// Absent on servers that predate test kits.
+    var aiTestPlans: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case apps, titles, locations, rings
         case prodProtected = "prod_protected"
         case aiEnabled = "ai_enabled"
+        case aiTestPlans = "ai_test_plans"
     }
 
     /// Display title for an app, falling back to its name.

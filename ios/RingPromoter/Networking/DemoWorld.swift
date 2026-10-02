@@ -335,7 +335,9 @@ extension RingStatus {
             autoPromoteManaged: autoPromoteManaged,
             updatedAt: updatedAt ?? self.updatedAt,
             canPromoteFrom: canPromoteFrom ?? self.canPromoteFrom,
-            gates: gates ?? self.gates
+            gates: gates ?? self.gates,
+            links: links,
+            hasTestPlan: hasTestPlan
         )
     }
 
