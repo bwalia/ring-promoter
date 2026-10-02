@@ -29,13 +29,13 @@ type stepView struct {
 
 // jobState is the JSON view of a job (no mutex, safe to marshal).
 type jobState struct {
-	ID         string           `json:"id"`
-	App        string           `json:"app"`
-	Action     string           `json:"action"`
-	Status     string           `json:"status"`
-	Steps      []stepView       `json:"steps"`
-	Result     *promoter.Result `json:"result,omitempty"`
-	Error      string           `json:"error,omitempty"`
+	ID     string           `json:"id"`
+	App    string           `json:"app"`
+	Action string           `json:"action"`
+	Status string           `json:"status"`
+	Steps  []stepView       `json:"steps"`
+	Result *promoter.Result `json:"result,omitempty"`
+	Error  string           `json:"error,omitempty"`
 	// AI diagnosis of a failed job (see handleDiagnoseJob). The generation
 	// runs detached from the request, so the UI polls the job for these:
 	// DiagnosisStatus moves "" → running → done|failed, and Diagnosis carries
