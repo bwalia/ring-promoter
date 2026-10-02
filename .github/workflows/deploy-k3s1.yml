@@ -271,3 +271,34 @@ jobs:
           echo "Dispatching ring-promoter-image (${TAG}) to bwalia/diy-tax-return-uk"
           printf '{"event_type":"ring-promoter-image","client_payload":{"image_tag":"%s"}}' "${TAG}" \
             | gh api repos/bwalia/diy-tax-return-uk/dispatches --method POST --input -
+
+  notify-wslproxy:
+    # The wslproxy instance (rp.wslproxy.com) is owned by bwalia/wslproxy
+    # (deploy/ring-promoter/) and, like ring-system above, must never be
+    # applied from here. Its deploy keeps the running image on manifest-only
+    # pushes, so without this job it stays on whatever build it last got. After
+    # a successful workstation deploy this fires the same repository_dispatch
+    # as notify-diytaxreturn, and wslproxy's deploy-ring-promoter.yml rolls the
+    # instance onto the exact sha tag just pushed.
+    #
+    # Fails soft while the token is missing: a warning, not a red deploy, so
+    # the workstation pipeline stays green until the secret is added.
+    name: Trigger wslproxy instance deploy
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch ring-promoter-image to wslproxy
+        env:
+          # A fine-grained PAT with Contents: write on bwalia/wslproxy (the
+          # default GITHUB_TOKEN cannot dispatch to another repo).
+          GH_TOKEN: ${{ secrets.WSLPROXY_DISPATCH_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning::Secret WSLPROXY_DISPATCH_PAT is missing, so rp.wslproxy.com was not upgraded. Create a fine-grained PAT with Contents: write on bwalia/wslproxy and add it as this repo's Actions secret WSLPROXY_DISPATCH_PAT."
+            exit 0
+          fi
+          TAG="sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          echo "Dispatching ring-promoter-image (${TAG}) to bwalia/wslproxy"
+          printf '{"event_type":"ring-promoter-image","client_payload":{"image_tag":"%s"}}' "${TAG}" \
+            | gh api repos/bwalia/wslproxy/dispatches --method POST --input -
