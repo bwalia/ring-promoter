@@ -182,3 +182,22 @@ func TestSeed_FailedDeployStoresNoKit(t *testing.T) {
 		t.Fatalf("want ErrNoVersion, got %v", err)
 	}
 }
+
+func TestRingLinks_SkipsClusterInternalHealthHosts(t *testing.T) {
+	for _, h := range []string{
+		"http://jobshout-api.int.svc.cluster.local:8080/health",
+		"http://beacon-api.int.svc:8080/readyz",
+		"http://localhost:8080/healthz",
+		"http://10.43.0.12/healthz",
+		"http://api/healthz",
+		"http://box.internal/healthz",
+	} {
+		if got := ringLinks(config.AppConfig{Name: "a"}, "int", config.RingConfig{HealthURL: h}, "v1", nil); len(got) != 0 {
+			t.Errorf("%s: want no Open link for an internal host, got %+v", h, got)
+		}
+	}
+	got := ringLinks(config.AppConfig{Name: "a"}, "int", config.RingConfig{HealthURL: "https://int-opsapi.workstation.co.uk/ready"}, "v1", nil)
+	if len(got) != 1 || got[0].URL != "https://int-opsapi.workstation.co.uk/" {
+		t.Fatalf("public health host: got %+v", got)
+	}
+}
