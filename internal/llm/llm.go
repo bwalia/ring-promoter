@@ -62,10 +62,19 @@ type Provider interface {
 // DecodeStrict unmarshals a model's text answer into dst, rejecting unknown
 // fields — the same convention the API layer applies to request bodies. It
 // tolerates a Markdown code fence around the JSON, a common model tic.
-func DecodeStrict(text string, dst any) error {
+func DecodeStrict(text string, dst any) error { return decode(text, dst, true) }
+
+// Decode is DecodeStrict without the unknown-field check: extra fields the
+// model adds are ignored. Use it where the caller validates the decoded value
+// itself and a chatty model should not fail the whole answer.
+func Decode(text string, dst any) error { return decode(text, dst, false) }
+
+func decode(text string, dst any, strict bool) error {
 	trimmed := stripFence([]byte(text))
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
-	dec.DisallowUnknownFields()
+	if strict {
+		dec.DisallowUnknownFields()
+	}
 	if err := dec.Decode(dst); err != nil {
 		return fmt.Errorf("decode model output: %w", err)
 	}
@@ -76,16 +85,19 @@ func DecodeStrict(text string, dst any) error {
 	return nil
 }
 
-// stripFence removes a surrounding ```/```json fence, if present.
+// stripFence removes a surrounding ```/```json fence, if present. The
+// language tag is matched case-insensitively and may sit on the fence line
+// itself (```json{...}```).
 func stripFence(b []byte) []byte {
 	b = bytes.TrimSpace(b)
 	if !bytes.HasPrefix(b, []byte("```")) {
 		return b
 	}
 	b = bytes.TrimPrefix(b, []byte("```"))
-	if i := bytes.IndexByte(b, '\n'); i >= 0 {
-		b = b[i+1:] // drop the language tag line ("json", ...)
-	}
+	// Drop the language tag ("json", "JSON", "jsonc", ...) if there is one.
+	b = bytes.TrimLeftFunc(b, func(r rune) bool {
+		return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+	})
 	b = bytes.TrimSuffix(bytes.TrimSpace(b), []byte("```"))
 	return bytes.TrimSpace(b)
 }
