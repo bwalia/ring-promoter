@@ -43,6 +43,7 @@ apps:
   - name: hello-world
     display_name: "Hello World"
     location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+    links: [ { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/hello-world", kind: docs } ]
     rings:
       int:  { namespace: hello-world-int,  deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-int.svc.cluster.local/healthz",  health_version_field: version }
       test: { namespace: hello-world-test, deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-test.svc.cluster.local/healthz", health_version_field: version }
@@ -56,6 +57,7 @@ apps:
   - name: kuard
     display_name: "KUARD Demo"
     location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+    links: [ { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/kuard", kind: docs } ]
     rings:
       int:  { namespace: kuard-int,  deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-int.svc.cluster.local/healthy" }
       test: { namespace: kuard-test, deployment: kuard, container: kuard, image: docker.io/jmutai/kuard-amd64, health_url: "http://kuard.kuard-test.svc.cluster.local/healthy" }
@@ -68,6 +70,7 @@ apps:
   - name: shopping-cart
     display_name: "Shopping Cart"
     location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+    links: [ { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/shopping-cart", kind: docs } ]
     rings:
       int:  { namespace: shopping-cart-int,  deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-int.svc.cluster.local/healthz",  health_version_field: version }
       test: { namespace: shopping-cart-test, deployment: shopping-cart-backend, container: backend, image: docker.io/bwalia/rp-training-shopping-cart-api, health_url: "http://shopping-cart-backend.shopping-cart-test.svc.cluster.local/healthz", health_version_field: version }
@@ -99,6 +102,7 @@ apps:
           email: releases@your-org.com
           allowed_statuses: [Approved, "Ready for Release"]
           project_keys: [CR, OPS]
+    links: [ { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/bank-api", kind: docs } ]
     rings:
       int:  { namespace: bank-api-int,  deployment: bank-api, container: bank-api, image: docker.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-int.svc.cluster.local/healthz",  health_version_field: version }
       test: { namespace: bank-api-test, deployment: bank-api, container: bank-api, image: docker.io/bwalia/rp-training-bank-api, health_url: "http://bank-api.bank-api-test.svc.cluster.local/healthz", health_version_field: version }
@@ -139,6 +143,7 @@ apps:
       timeout: 10m
       retries: 0
       ttl_after_finished: 1h
+    links: [ { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/image-proc", kind: docs } ]
     rings:
       int:  { namespace: image-proc-int,  target_env: int,  health_url: "http://image-proc-api.image-proc-int.svc.cluster.local/healthz",  health_version_header: X-App-Version }
       test: { namespace: image-proc-test, target_env: test, health_url: "http://image-proc-api.image-proc-test.svc.cluster.local/healthz", health_version_header: X-App-Version }
@@ -152,6 +157,7 @@ apps:
   - name: ai-chat
     display_name: "AI Chat Service"
     location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+    links: [ { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/ai-chat", kind: docs } ]
     rings:
       int:  { namespace: ai-chat-int,  deployment: ai-chat, container: ai-chat, image: docker.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-int.svc.cluster.local/healthz",  health_version_field: version }
       test: { namespace: ai-chat-test, deployment: ai-chat, container: ai-chat, image: docker.io/bwalia/rp-training-ai-chat, health_url: "http://ai-chat.ai-chat-test.svc.cluster.local/healthz", health_version_field: version }
@@ -175,6 +181,7 @@ apps:
     promotion_policy:
       maintenance_window:
         rings: [prod]
+    links: [ { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/operator", kind: docs } ]
     rings:
       int:  { namespace: operator-int,  target_env: int,  health_url: "http://operator.operator-int.svc.cluster.local:8080/healthz" }
       test: { namespace: operator-test, target_env: test, health_url: "http://operator.operator-test.svc.cluster.local:8080/healthz" }
