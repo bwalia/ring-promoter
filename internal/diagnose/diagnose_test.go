@@ -2,127 +2,81 @@ package diagnose
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"strings"
+	"errors"
 	"testing"
-	"time"
+
+	"github.com/example/ring-promoter/internal/llm"
 )
 
-// verifyJWT re-derives the HS256 signature the way the gateway would and
-// returns the decoded payload claims.
-func verifyJWT(t *testing.T, token, secret string) map[string]any {
-	t.Helper()
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		t.Fatalf("token has %d parts, want 3: %q", len(parts), token)
-	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(parts[0] + "." + parts[1]))
-	want := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	if parts[2] != want {
-		t.Fatalf("signature mismatch: got %q want %q", parts[2], want)
-	}
-
-	rawHeader, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		t.Fatalf("decode header: %v", err)
-	}
-	var header map[string]string
-	if err := json.Unmarshal(rawHeader, &header); err != nil {
-		t.Fatalf("parse header: %v", err)
-	}
-	if header["alg"] != "HS256" || header["typ"] != "JWT" {
-		t.Fatalf("unexpected header: %v", header)
-	}
-
-	rawPayload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		t.Fatalf("decode payload: %v", err)
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(rawPayload, &claims); err != nil {
-		t.Fatalf("parse payload: %v", err)
-	}
-	return claims
+// fakeProvider records the last request and returns a canned answer.
+type fakeProvider struct {
+	got  llm.Request
+	text string
+	err  error
 }
 
-func TestDiagnoseSendsSignedJWTAndReturnsAnswer(t *testing.T) {
-	const secret = "test-secret"
-	var gotPath, gotToken string
-	var gotReq chatRequest
+func (f *fakeProvider) Name() string { return "fake" }
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		gotToken = r.Header.Get("x-api-key")
-		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
-			t.Errorf("decode request: %v", err)
-		}
-		json.NewEncoder(w).Encode(map[string]any{
-			"message": map[string]string{"role": "assistant", "content": "  The health check failed.\n- Check the URL  "},
-			"done":    true,
-		})
-	}))
-	defer srv.Close()
+func (f *fakeProvider) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
+	f.got = req
+	if f.err != nil {
+		return llm.Response{}, f.err
+	}
+	return llm.Response{Text: f.text}, nil
+}
 
-	c := New(srv.URL+"/", "qwen3-coder:30b", secret, nil)
-	answer, err := c.Diagnose(context.Background(), "promote failed: health check timeout")
+func TestDiagnoseSendsReportAndReturnsAnswer(t *testing.T) {
+	p := &fakeProvider{text: "The health check failed.\n- Check the URL"}
+	answer, err := New(p, nil).Diagnose(context.Background(), "promote failed: health check timeout")
 	if err != nil {
 		t.Fatalf("Diagnose: %v", err)
 	}
-	if answer != "The health check failed.\n- Check the URL" {
-		t.Errorf("unexpected answer: %q", answer)
+	if answer != p.text {
+		t.Errorf("answer = %q, want %q", answer, p.text)
 	}
-	if gotPath != "/api/chat" {
-		t.Errorf("path = %q, want /api/chat", gotPath)
+	if p.got.System != systemPrompt {
+		t.Error("system prompt is not the diagnosis prompt")
 	}
-
-	claims := verifyJWT(t, gotToken, secret)
-	if claims["app"] != "ring promoter" {
-		t.Errorf("app claim = %v", claims["app"])
+	if len(p.got.Messages) != 1 || p.got.Messages[0] != (llm.Message{Role: "user", Content: "promote failed: health check timeout"}) {
+		t.Errorf("messages = %+v", p.got.Messages)
 	}
-	exp, ok := claims["exp"].(float64)
-	if !ok || time.Unix(int64(exp), 0).Before(time.Now()) {
-		t.Errorf("exp claim missing or already expired: %v", claims["exp"])
+	if p.got.Format != nil {
+		t.Errorf("format = %s, want none (plain-text answer)", p.got.Format)
 	}
-
-	if gotReq.Model != "qwen3-coder:30b" {
-		t.Errorf("model = %q", gotReq.Model)
-	}
-	if gotReq.Stream {
-		t.Error("stream should be false")
-	}
-	if len(gotReq.Messages) != 2 || gotReq.Messages[1].Content != "promote failed: health check timeout" {
-		t.Errorf("unexpected messages: %+v", gotReq.Messages)
+	if p.got.Temperature != 0.2 {
+		t.Errorf("temperature = %v, want 0.2", p.got.Temperature)
 	}
 }
 
-func TestDiagnoseSurfacesGatewayError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid api key"})
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "m", "s", nil)
-	_, err := c.Diagnose(context.Background(), "report")
-	if err == nil || !strings.Contains(err.Error(), "invalid api key") {
-		t.Fatalf("want gateway error, got %v", err)
+func TestTestPlanAsksForJSON(t *testing.T) {
+	p := &fakeProvider{text: `{"summary":"s","checklist":[],"links":[]}`}
+	answer, err := New(p, nil).TestPlan(context.Background(), "kit report")
+	if err != nil {
+		t.Fatalf("TestPlan: %v", err)
+	}
+	if answer != p.text {
+		t.Errorf("answer = %q", answer)
+	}
+	if p.got.System != testPlanPrompt {
+		t.Error("system prompt is not the test-plan prompt")
+	}
+	if string(p.got.Format) != `"json"` {
+		t.Errorf("format = %s, want \"json\"", p.got.Format)
+	}
+	if len(p.got.Messages) != 1 || p.got.Messages[0].Content != "kit report" {
+		t.Errorf("messages = %+v", p.got.Messages)
 	}
 }
 
-func TestDiagnoseRejectsEmptyAnswer(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"message": map[string]string{"content": "   "}})
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "m", "s", nil)
-	if _, err := c.Diagnose(context.Background(), "report"); err == nil {
-		t.Fatal("want error for empty answer")
+func TestProviderErrorIsReturnedUnchanged(t *testing.T) {
+	cause := errors.New("gateway said no")
+	p := &fakeProvider{err: cause}
+	c := New(p, nil)
+	if _, err := c.Diagnose(context.Background(), "r"); !errors.Is(err, cause) {
+		t.Errorf("Diagnose err = %v, want %v", err, cause)
+	}
+	p.err = llm.ErrUnavailable
+	if _, err := c.TestPlan(context.Background(), "r"); !errors.Is(err, llm.ErrUnavailable) {
+		t.Errorf("TestPlan err = %v, want ErrUnavailable", err)
 	}
 }
