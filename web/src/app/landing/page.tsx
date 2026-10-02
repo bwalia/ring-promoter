@@ -73,6 +73,7 @@ function Nav() {
     ["Deployers", "#deployers"],
     ["Config", "#config"],
     ["FAQ", "#faq"],
+    ["Compare", "compare/"],
   ] as const;
   return (
     <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-[#090909]/85 backdrop-blur-md">

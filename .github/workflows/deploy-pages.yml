@@ -90,6 +90,8 @@ jobs:
           if [ -d web/out/releases ]; then
             cp -R web/out/releases site/releases
           fi
+          # Standalone comparison page (web/public/compare) at /compare/.
+          cp -R web/out/compare site/compare
           # PWA files referenced by every page's <head> (manifest link,
           # apple-touch-icon) and the service worker registration.
           cp web/out/manifest.webmanifest web/out/sw.js web/out/apple-icon.png site/
