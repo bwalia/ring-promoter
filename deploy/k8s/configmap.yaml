@@ -37,7 +37,7 @@ data:
       # RP_VERSION (the image tag). Requires the ring-exec RBAC in rbac.yaml and
       # the images pushed by jobshout's deploy-k3s.yml workflow.
       - name: jobshout
-        display_name: "JobShout"
+        display_name: "Jobshout AI Agents"
         location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
         deployer: k8sjob
         k8sjob:
