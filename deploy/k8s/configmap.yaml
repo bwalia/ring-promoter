@@ -397,6 +397,42 @@ data:
           acc:  { target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready" }
           prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://opsapi.workstation.co.uk/swagger", kind: docs } ] }
 
+      # ── workstation-shop — shop.workstation.co.uk (Workstation AI Shop) ──
+      #
+      # GITHUB deployer: the shop's own pipeline (bwalia/workstation-website,
+      # .github/workflows/shop-deploy.yaml) does more than helm — it merges
+      # repo secrets into wslvault, nudges ESO, runs helm with --wait=legacy
+      # and smoke-tests /api/health. Dispatched with TARGET_ENV=<ring> and
+      # IMAGE_TAG=<version>; the version is the image tag, which is the git
+      # SHA (7) that shop-deploy built and pushed on merge to main, so int
+      # and prod run the exact same artefact. The workflow has no mode input,
+      # hence mode_input: "-".
+      #
+      # Only int and prod exist for the shop (values-int / values-prod).
+      # Rings never skip, so there is no int -> prod promote button: each
+      # ring is SEEDED with a version (prod seed needs the prod password).
+      # Health is the public URL (the prod pod runs on the cloud003 edge node,
+      # same overlay constraint as workstation-opsapi) and is version-verified:
+      # /api/health reports the image tag it is running.
+      - name: workstation-shop
+        display_name: "Workstation AI Shop"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: workstation-website
+          workflow: shop-deploy.yaml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: "-"
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "https://int-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop int", url: "https://int-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://int-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
+          prod: { target_env: prod, health_url: "https://shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop", url: "https://shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
+
       # ── fishers + gullycricket — the club-sports app, one stack per brand ──
       #
       # One repo (PUBLIC bwalia/fishers), one pipeline, two registered apps. A
