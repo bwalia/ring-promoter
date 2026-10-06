@@ -37,7 +37,7 @@ export function ActivityFeed({ apps: only }: { apps?: string[] } = {}) {
   return (
     <section className="rounded-xl border bg-card">
       <div className="flex items-baseline gap-2 border-b p-3">
-        <h2 className="text-sm font-semibold">Activity</h2>
+        <h2 className="rp-heading-panel">Activity</h2>
         <p className="text-xs text-muted-foreground">
           {only ? "this group" : "all apps"}
         </p>
