@@ -266,70 +266,84 @@ data:
             auto_promote: false
             links: [ { label: "WSLVault (London)", url: "https://vault-ha.workstation.co.uk/" } ]
 
-      # beacon (BeaconPulse) — multi-tenant monitoring platform. PUBLIC repo
-      # bwalia/beaconpulse, so the Job clones it unauthenticated at the promoted
-      # tag. Chart deploy/helm/beacon with one values file per ring; the release is
-      # named `beacon` to match the releases already live in int/test/acc/prod —
-      # a different name here would create a SECOND parallel release instead of
-      # upgrading the existing one.
+      # ── beacon + sysops — the monitoring platform, one stack per brand ──
       #
-      # No registry creds: the chart pulls from int-spectoncr.diytaxreturn.co.uk
-      # using each namespace's pre-existing `nebulacr-login` secret
-      # (image.pullSecretCreate: false), which the chart references but does not own.
+      # One repo (PUBLIC bwalia/beaconpulse), one pipeline, two registered apps,
+      # the same shape as fishers/gullycricket below. A brand is its own release
+      # in its own namespace (beacon: int/test/acc/prod; sysops: sysops-<ring>)
+      # with its own host, and its own frontend image, because the brand is baked
+      # into the Next.js bundle at build time (frontend:<brand>-<sha>).
       #
-      # networkPolicy and controlPlaneMonitoring are both `enabled: false` in the
-      # chart's base values and no ring overrides them, so nothing cluster-scoped
-      # (ClusterRole/ClusterRoleBinding) or NetworkPolicy-shaped is rendered — which
-      # matters because ring-deploy-job is denied networkpolicies. If either is ever
-      # switched on for a ring, this deploy starts failing on RBAC.
+      # GITHUB deployer, not k8sjob: helm is not the whole deploy. Each ring also
+      # needs its Cloudflare record and wslproxy vhost upserted, the brand's
+      # frontend built, and its pull/app secrets copied into <brand>-<ring>;
+      # deploy-k3s.yml does all of that in order. A bare helm Job also cannot
+      # work here: every ring pulls from its own registry (<ring>-spectoncr,
+      # prod from int-spectoncr), so a promote has to build into the target
+      # registry when it lacks the image.
+      #
+      # The promoted VERSION is a git ref, and the one to promote is a v* tag:
+      # auto-tag.yml cuts one on every merge to main. deploy-k3s.yml resolves it
+      # to a commit up front, builds that commit only if the target registry has
+      # no image for it yet, and deploys its short sha as the image tag, so prod
+      # runs the exact image int ran (same registry, nothing rebuilt).
+      #
+      # Merges to main still deploy beacon int directly (deploy-k3s.yml on push),
+      # outside this promoter.
+      #
+      # Both apps dispatch the SAME workflow, and the run lookup takes the newest
+      # dispatch, so do not start a beacon and a sysops deploy in the same minute.
       - name: beacon
         display_name: "Beacon Pulse Monitoring"
         location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
-        deployer: k8sjob
-        k8sjob:
-          namespace: ring-exec
-          image: docker.io/dtzar/helm-kubectl:3.15.4
-          service_account: ring-deploy-job
-          # Same CNI-egress workaround as jobshout: clone over the node's path.
-          host_network: true
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -eu
-              ns="${RP_TARGET_ENV}"
-              echo "deploy beacon ${RP_VERSION} -> ns ${ns}"
-              rm -rf /src
-              n=0
-              until git clone --depth 1 --branch "${RP_VERSION}" https://github.com/bwalia/beaconpulse /src; do
-                n=$((n+1))
-                if [ "$n" -ge 5 ]; then exit 1; fi
-                echo "git clone failed (attempt $n), retrying..."
-                sleep $((n*5))
-              done
-              # No --create-namespace: int/test/acc/prod are shared platform
-              # namespaces that pre-exist; ring-deploy-job has no cluster-scoped
-              # namespace rights.
-              helm upgrade --install beacon /src/deploy/helm/beacon \
-                --namespace "${ns}" \
-                -f "/src/deploy/helm/beacon/values-${ns}.yaml" \
-                --set image.tag="${RP_VERSION}" \
-                --wait --timeout 12m
-              echo "beacon ${RP_VERSION} live in ${ns}"
-          resources: { cpu_request: 100m, memory_limit: 512Mi }
-          # 20m, not 15m: helm --wait above is already 12m, so 15m left just 3m
-          # for the git clone and helm's own startup. A cold pull that used most
-          # of helm's budget got the whole Job killed before helm could report,
-          # turning a slow-but-successful deploy into a reported failure (the
-          # same class of false failure as bwalia/ring-promoter#102). The other
-          # apps here already use 20m; this makes all five consistent.
-          timeout: 20m
-          retries: 0
-          ttl_after_finished: 1h
+        deployer: github
+        github:
+          owner: bwalia
+          repo: beaconpulse
+          workflow: deploy-k3s.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: build-and-deploy
+          extra_inputs: { BRAND: beacon }
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
         rings:
           int:  { target_env: int,  health_url: "http://beacon-api.int.svc.cluster.local:8080/readyz", links: [ { label: "BeaconPulse int", url: "https://int.beaconpulse.net/" } ] }
           test: { target_env: test, health_url: "http://beacon-api.test.svc.cluster.local:8080/readyz", links: [ { label: "BeaconPulse test", url: "https://test.beaconpulse.net/" } ] }
           acc:  { target_env: acc,  health_url: "http://beacon-api.acc.svc.cluster.local:8080/readyz", links: [ { label: "BeaconPulse acc", url: "https://acc.beaconpulse.net/" } ] }
           prod: { target_env: prod, health_url: "http://beacon-api.prod.svc.cluster.local:8080/readyz", links: [ { label: "BeaconPulse", url: "https://beaconpulse.net/" } ] }
+
+      # SysOps 24/7 (sysops247.com). PUBLIC health URLs, not in-cluster Service
+      # DNS: sysops-prod is pinned to cloud003, an edge node the CNI overlay does
+      # not reach from here (the workstation-opsapi problem below), and
+      # sysops-test is pinned to debian001. /api/v1/system/info answers through
+      # the edge on every ring. int.sysops247.com runs a July build that predates
+      # that endpoint, so it reads unhealthy until its first deploy from here.
+      - name: sysops
+        display_name: "SysOps 24/7"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: beaconpulse
+          workflow: deploy-k3s.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: build-and-deploy
+          extra_inputs: { BRAND: sysops }
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "https://int.sysops247.com/api/v1/system/info",  links: [ { label: "SysOps int", url: "https://int.sysops247.com/" } ] }
+          test: { target_env: test, health_url: "https://test.sysops247.com/api/v1/system/info", links: [ { label: "SysOps test", url: "https://test.sysops247.com/" } ] }
+          acc:  { target_env: acc,  health_url: "https://acc.sysops247.com/api/v1/system/info",  links: [ { label: "SysOps acc", url: "https://acc.sysops247.com/" } ] }
+          prod: { target_env: prod, health_url: "https://sysops247.com/api/v1/system/info",      links: [ { label: "SysOps 24/7", url: "https://sysops247.com/" } ] }
 
       # workstation-opsapi — the OpsAPI (Lua/Lapis) serving *-opsapi.workstation.co.uk.
       # PUBLIC repo bwalia/opsapi. It SHARES the diytaxreturn-lapis chart with the
