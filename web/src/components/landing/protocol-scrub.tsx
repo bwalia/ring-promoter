@@ -219,10 +219,10 @@ function ProtocolHead() {
       <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-emerald-500/90">
         The protocol
       </p>
-      <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
+      <h2 className="mt-3 font-display text-balance text-[length:var(--rp-font-h2)] font-bold tracking-[-0.02em] text-neutral-50">
         Promotion is a protocol, not a script.
       </h2>
-      <p className="mt-4 text-pretty leading-relaxed text-neutral-400">
+      <p className="mt-4 text-pretty text-[length:var(--rp-font-lead)] leading-[1.7] text-neutral-400">
         Five rules, enforced by the control plane on every operation. They are
         what make a promotion safe to run at 5pm on a Friday.
       </p>

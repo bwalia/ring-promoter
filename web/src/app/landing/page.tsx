@@ -38,7 +38,7 @@ const GITHUB = "https://github.com/bwalia/ring-promoter";
 // (explicit colors, independent of the console's theme toggle).
 export default function LandingPage() {
   return (
-    <div className="relative min-h-screen overflow-x-clip bg-[#090909] text-neutral-300 antialiased selection:bg-emerald-500/25 selection:text-white">
+    <div className="relative min-h-screen overflow-x-clip bg-[#090909] text-[length:var(--rp-font-body)] text-neutral-300 antialiased selection:bg-emerald-500/25 selection:text-white">
       <ScrollRefresh />
       <Spine />
       <Nav />
@@ -175,7 +175,7 @@ function Hero() {
             style={{ "--d": "0.08s" } as React.CSSProperties}
           >
             <RingMark className="size-10 sm:size-12" />
-            <p className="font-display text-2xl font-semibold tracking-tight text-neutral-50 sm:text-3xl">
+            <p className="font-display text-[length:var(--rp-font-h2)] font-bold tracking-[-0.02em] text-neutral-50">
               Ring Promoter
             </p>
           </div>
@@ -186,7 +186,7 @@ function Hero() {
             <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden />
             int → test → acc → prod
           </p>
-          <h1 className="mt-6 font-display text-4xl font-semibold leading-[1.06] tracking-tight text-neutral-50 sm:text-6xl">
+          <h1 className="mt-6 font-display text-[length:var(--rp-font-hero)] font-bold leading-[1.08] tracking-[-0.02em] text-neutral-50">
             <span className="ls-mask-line">
               <span>Every release</span>
             </span>
@@ -195,7 +195,7 @@ function Hero() {
             </span>
           </h1>
           <p
-            className="ls-rise mx-auto mt-6 max-w-2xl text-pretty text-base leading-relaxed text-neutral-400 sm:text-lg"
+            className="ls-rise mx-auto mt-6 max-w-2xl text-pretty text-[length:var(--rp-font-lead)] leading-[1.7] text-neutral-400"
             style={{ "--d": "0.4s" } as React.CSSProperties}
           >
             A small control plane that moves application versions through deployment
@@ -254,11 +254,11 @@ function SectionHead({
       <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-emerald-500/90">
         {eyebrow}
       </p>
-      <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
+      <h2 className="mt-3 font-display text-balance text-[length:var(--rp-font-h2)] font-bold tracking-[-0.02em] text-neutral-50">
         {title}
       </h2>
       {lede && (
-        <p className="mt-4 text-pretty leading-relaxed text-neutral-400">{lede}</p>
+        <p className="mt-4 text-pretty text-[length:var(--rp-font-lead)] leading-[1.7] text-neutral-400">{lede}</p>
       )}
     </Reveal>
   );
@@ -277,10 +277,10 @@ function AutoPromote() {
     <section className="border-y border-white/[0.07] bg-[#0b0b0c]">
       <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-2">
         <Reveal>
-          <h2 className="text-balance text-2xl font-semibold tracking-tight text-neutral-50">
+          <h2 className="text-balance font-display text-[length:var(--rp-font-h2)] font-bold tracking-[-0.02em] text-neutral-50">
             Flow while it&rsquo;s safe. Stop where it matters.
           </h2>
-          <p className="mt-4 text-pretty text-[15px] leading-relaxed text-neutral-400">
+          <p className="mt-4 text-pretty text-[length:var(--rp-font-lead)] leading-[1.7] text-neutral-400">
             Flag a ring for auto-promote and a healthy landing continues onward in
             the same operation — hop by hop, under the same lock, with the same
             gates and the same auto-rollback. The chain stops at the first ring
@@ -513,10 +513,10 @@ function ClosingCta() {
       />
       <div className="relative mx-auto max-w-3xl px-4 py-24 text-center sm:px-6">
         <Reveal>
-          <h2 className="text-balance text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
+          <h2 className="text-balance font-display text-[length:var(--rp-font-h2)] font-bold tracking-[-0.02em] text-neutral-50">
             Bring release discipline to your cluster.
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-pretty leading-relaxed text-neutral-400">
+          <p className="mx-auto mt-4 max-w-xl text-pretty text-[length:var(--rp-font-lead)] leading-[1.7] text-neutral-400">
             Try it in one command — the defaults use an in-memory store and a
             no-op deployer, so there is nothing to install and nothing to break.
           </p>
