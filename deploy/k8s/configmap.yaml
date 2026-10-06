@@ -283,7 +283,7 @@ data:
       # matters because ring-deploy-job is denied networkpolicies. If either is ever
       # switched on for a ring, this deploy starts failing on RBAC.
       - name: beacon
-        display_name: "BeaconPulse"
+        display_name: "Beacon Pulse Monitoring"
         location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
         deployer: k8sjob
         k8sjob:
