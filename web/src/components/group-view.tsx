@@ -90,8 +90,8 @@ export function GroupView({ group }: { group: AppGroup }) {
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold">{group.name}</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="rp-heading-section">{group.name}</h2>
+          <p className="text-[length:var(--rp-font-body)] text-muted-foreground">
             {members.length} application{members.length === 1 ? "" : "s"} in
             this ring
           </p>
@@ -126,7 +126,7 @@ export function GroupView({ group }: { group: AppGroup }) {
           <div className="grid items-start gap-6 xl:grid-cols-3">
             <section className="rounded-xl border bg-card xl:col-span-2">
               <div className="border-b p-3">
-                <h3 className="text-sm font-semibold">Applications</h3>
+                <h3 className="rp-heading-panel">Applications</h3>
               </div>
               <ol className="divide-y">
                 {results.map((r, i) => (

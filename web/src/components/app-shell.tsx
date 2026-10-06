@@ -186,7 +186,7 @@ export function AppShell() {
   if (!token) return <TokenGate />;
 
   return (
-    <div className="flex h-dvh overflow-hidden">
+    <div className="rp-console flex h-dvh overflow-hidden">
       {/* Fluid width: 288px on laptops, growing with the viewport up to
           352px on large monitors. */}
       <aside className="hidden shrink-0 border-r bg-sidebar lg:flex lg:w-[clamp(18rem,17vw,22rem)] lg:flex-col">

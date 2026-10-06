@@ -39,7 +39,7 @@ export function TokenGate() {
   };
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-muted/40 p-4">
+    <div className="rp-console flex min-h-dvh items-center justify-center bg-muted/40 p-4">
       <form
         onSubmit={submit}
         className="w-full max-w-sm space-y-4 rounded-xl border bg-card p-8 shadow-sm"
@@ -48,8 +48,8 @@ export function TokenGate() {
           <div className="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
             <CircleDot aria-hidden className="size-6" />
           </div>
-          <h1 className="text-xl font-semibold">Ring Promoter</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="rp-heading-section text-balance">Ring Promoter</h1>
+          <p className="text-[length:var(--rp-font-lead)] text-muted-foreground">
             Enter your API token to connect.
           </p>
         </div>

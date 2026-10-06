@@ -82,7 +82,7 @@ export function HistoryPanel({
       className={cn("rounded-xl border bg-card", className)}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">History</h2>
+        <h2 className="rp-heading-panel">History</h2>
         {history && history.length > 0 && (
           <p className="mr-auto text-xs text-muted-foreground">
             {hasFilters ? `${filtered.length} of ${history.length}` : history.length}{" "}

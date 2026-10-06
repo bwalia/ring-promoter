@@ -44,20 +44,20 @@ export function OverviewCards({
         {prod?.current_version ? (
           <VersionLabel
             version={prod.current_version}
-            className="text-lg font-semibold tracking-tight"
+            className="rp-stat"
           />
         ) : (
-          <span className="text-lg text-muted-foreground">—</span>
+          <span className="rp-stat text-muted-foreground">—</span>
         )}
       </Stat>
 
       <Stat label="Ring health">
         {active.length === 0 ? (
-          <span className="text-lg text-muted-foreground">—</span>
+          <span className="rp-stat text-muted-foreground">—</span>
         ) : (
           <span
             className={cn(
-              "inline-flex items-center gap-2",
+              "rp-stat inline-flex items-center gap-2",
               allHealthy ? "text-status-good" : "text-status-critical",
             )}
           >
@@ -92,7 +92,7 @@ export function OverviewCards({
             />
           </span>
         ) : (
-          <span className="text-lg text-muted-foreground">
+          <span className="rp-stat text-muted-foreground">
             none for {title(app)}
           </span>
         )}
@@ -121,9 +121,7 @@ function Stat({
       <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
-      <div className="mt-1.5 flex min-h-7 items-center text-lg font-semibold tracking-tight">
-        {children}
-      </div>
+      <div className="mt-1.5 flex min-h-7 items-center">{children}</div>
     </div>
   );
 }

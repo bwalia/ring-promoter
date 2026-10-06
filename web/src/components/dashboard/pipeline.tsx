@@ -82,7 +82,7 @@ export function Pipeline({
 
   return (
     <section className="space-y-3">
-      <h2 className="text-sm font-semibold">Promotion pipeline</h2>
+      <h2 className="rp-heading-panel">Promotion pipeline</h2>
 
       {isPending || !rings ? (
         <div className="flex flex-col gap-3 xl:flex-row">
@@ -270,7 +270,7 @@ function RingCard({
           >
             <VersionLabel
               version={view.current_version}
-              className="max-w-full text-xl font-semibold tracking-tight"
+              className="rp-stat max-w-full"
             />
           </span>
         ) : (
@@ -422,7 +422,7 @@ function RingDetailsSheet({
               {view.current_version ? (
                 <VersionLabel
                   version={view.current_version}
-                  className="max-w-full text-lg font-semibold tracking-tight"
+                  className="rp-stat max-w-full"
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">

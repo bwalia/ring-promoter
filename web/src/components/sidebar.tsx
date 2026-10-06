@@ -92,7 +92,7 @@ export function Sidebar({
         <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <CircleDot aria-hidden className="size-4" />
         </div>
-        <span className="text-sm font-semibold tracking-tight">
+        <span className="font-display text-[length:var(--rp-font-body)] font-bold tracking-[-0.02em] text-sidebar-foreground">
           Ring Promoter
         </span>
       </button>
