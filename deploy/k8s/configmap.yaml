@@ -449,7 +449,25 @@ data:
           poll_interval: 20s
           run_lookup_timeout: 90s
         rings:
-          int:  { target_env: int,  health_url: "http://fishers-api.fishers-int.svc.cluster.local:8080/health",  links: [ { label: "Fishers int", url: "https://int.fishers.cloud/" }, { label: "API docs", url: "https://int.fishers.cloud/swagger-ui", kind: docs } ] }
+          # PUBLIC, unlike the three rings below it, and not a preference:
+          # fishers int is the one ring with a Kong gateway in front of the API
+          # (brands/fishers.yaml lists `gateway: [int]`), and that deploy also
+          # installs a NetworkPolicy, fishers-api-allow-kong-only, admitting
+          # port 8080 from the `kong` and `kube-system` namespaces and nothing
+          # else. A health check from this namespace is therefore REFUSED —
+          # which is what "dial tcp 10.43.3.22:8080: connect: connection
+          # refused" was, four times over, on a ring that was serving the whole
+          # time. Going in through the gateway's own Service does not help
+          # either: it answers from the kong namespace and times out from here.
+          #
+          # So this ring is checked the way its users reach it. That tests more
+          # than the pod — DNS, the edge, the certificate and Kong are all on
+          # the path — which for the one ring that has a gateway is the right
+          # thing to be asserting anyway.
+          #
+          # Any ring added to `gateway:` in brands/fishers.yaml needs the same
+          # change, or its health check starts failing the same way.
+          int:  { target_env: int,  health_url: "https://int.fishers.cloud/health",  links: [ { label: "Fishers int", url: "https://int.fishers.cloud/" }, { label: "API docs", url: "https://int.fishers.cloud/swagger-ui", kind: docs } ] }
           test: { target_env: test, health_url: "http://fishers-api.fishers-test.svc.cluster.local:8080/health", links: [ { label: "Fishers test", url: "https://test.fishers.cloud/" } ] }
           acc:  { target_env: acc,  health_url: "http://fishers-api.fishers-acc.svc.cluster.local:8080/health",  links: [ { label: "Fishers acc", url: "https://acc.fishers.cloud/" } ] }
           prod: { target_env: prod, health_url: "http://fishers-api.fishers-prod.svc.cluster.local:8080/health", links: [ { label: "Fishers", url: "https://www.fishers.cloud/" } ] }
