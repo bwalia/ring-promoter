@@ -137,7 +137,7 @@ data:
       # UI: https://rp.workstation.co.uk/?app=jobshout-com
       # Public int: https://int.jobshout.com
       - name: jobshout-com
-        display_name: "JobShout.com"
+        display_name: "Jobshout Showcase and Insights"
         location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
         deployer: k8sjob
         k8sjob:
