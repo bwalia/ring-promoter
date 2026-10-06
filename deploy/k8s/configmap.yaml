@@ -182,7 +182,7 @@ data:
           acc:  { target_env: acc,  health_url: "http://jobshout-com-api.acc.svc.cluster.local:8088/health", links: [ { label: "JobShout.com acc", url: "https://acc.jobshout.com/" } ] }
           prod: { target_env: prod, health_url: "http://jobshout-com-api.prod.svc.cluster.local:8088/health", links: [ { label: "JobShout.com", url: "https://www.jobshout.com/" } ] }
       - name: wslvault
-        display_name: "WSLVault (k3s1 HA)"
+        display_name: "Workstation Vault Multi Region HA"
         location: { lat: 53.4808, lng: -2.2426, city: Manchester, region: GB }
         deployer: k8sjob
         k8sjob:
