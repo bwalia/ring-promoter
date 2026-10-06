@@ -91,8 +91,18 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Type scale aligned with workstation-website (Poppins / Unbounded). */
+:root {
+  --rp-font-hero: clamp(2rem, 1.2rem + 2.6vw, 3.25rem);
+  --rp-font-h1: clamp(1.75rem, 1.25rem + 2vw, 2.6rem);
+  --rp-font-h2: clamp(1.4rem, 1.1rem + 1.2vw, 2rem);
+  --rp-font-h3: clamp(1.1rem, 1rem + 0.45vw, 1.3rem);
+  --rp-font-lead: clamp(1.05rem, 1rem + 0.3vw, 1.2rem);
+  --rp-font-body: 0.9375rem; /* 15px — same as workstation-website body */
+}
+
 @theme inline {
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-body);
   --font-mono: var(--font-geist-mono);
   --font-display: var(--font-display);
   --radius-sm: calc(var(--radius) - 4px);
@@ -141,7 +151,9 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+    font-size: var(--rp-font-body);
+    line-height: 1.6;
   }
 }
 

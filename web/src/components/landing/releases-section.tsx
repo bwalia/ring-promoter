@@ -54,10 +54,10 @@ export function ReleasesSection() {
           <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-emerald-500/90">
             Happy Friday — Ring Promoter v1.0.2
           </p>
-          <h2 className="mt-3 font-display text-balance text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
+          <h2 className="mt-3 font-display text-balance text-[length:var(--rp-font-h2)] font-bold tracking-[-0.02em] text-neutral-50">
             CI/CD Orbit and Lanes, side by side.
           </h2>
-          <p className="mt-4 text-pretty text-[15px] leading-relaxed text-neutral-400 sm:text-base">
+          <p className="mt-4 text-pretty text-[length:var(--rp-font-lead)] leading-[1.7] text-neutral-400">
             Two views of the same promotion truth: where versions sit across
             int → test → acc → prod, and how far the newest build has earned.
             Use this as the companion to the walkthrough — pause on Orbit for
@@ -117,7 +117,7 @@ export function ReleasesSection() {
         </div>
 
         <Reveal delay={0.12} className="mx-auto mt-14 max-w-3xl">
-          <h3 className="font-display text-lg font-semibold tracking-tight text-neutral-100">
+          <h3 className="font-display text-[length:var(--rp-font-h3)] font-bold tracking-[-0.02em] text-neutral-100">
             What shipped
           </h3>
           <ul className="mt-6 space-y-5">
