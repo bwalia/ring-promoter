@@ -397,6 +397,96 @@ data:
           acc:  { target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready" }
           prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://opsapi.workstation.co.uk/swagger", kind: docs } ] }
 
+      # ── fishers + gullycricket — the club-sports app, one stack per brand ──
+      #
+      # One repo (PUBLIC bwalia/fishers), one pipeline, two registered apps. A
+      # brand here is a whole stack, not a skin: its own namespace
+      # (<brand>-<ring>), its own Zalando Postgres, its own MinIO bucket, its
+      # own vault path (kv/<brand>/<ring>/config — a token minted by one brand
+      # must not authenticate on the other) and its own dashboard image,
+      # because the brand is baked into the Next.js bundle at build time. The
+      # only thing the two share is the API binary, pointed at a different
+      # database.
+      #
+      # GITHUB deployer, not k8sjob, even though the repo is public and could
+      # be cloned by a Job: helm is not the whole deploy. Each ring also needs
+      # its vault secrets synced and ESO force-refreshed, its Postgres cluster
+      # reconciled, MinIO's root credentials kept identical to the API's S3
+      # keys, its Cloudflare record and wslproxy vhost upserted, and a smoke
+      # test from inside the namespace. deploy-single-environment.yml does all
+      # of that in order and stops at the first thing missing; a Job running
+      # bare helm would go green and serve 503s.
+      #
+      # The promoted VERSION is a git ref, and the one to promote is a v* tag —
+      # the repo's Auto Tag workflow cuts one on every merge to main. The
+      # workflow resolves the ref to a commit once, up front, and that sha is
+      # the image tag in every ring, so acc and prod run the exact artefact int
+      # and test ran rather than a rebuild of the same source. int and test
+      # build from the ref; acc and prod refuse a commit the registry has no
+      # images for and say which.
+      #
+      # ENV / DEPLOY_BRANCH / DEPLOY_MODE are this deployer's own defaults and
+      # the workflow declares exactly those, so only `brand` needs saying.
+      # `ref: main` is NOT optional: the default is "build", a branch this repo
+      # does not have, and the dispatch would 404.
+      #
+      # Health is the API's own /health in the ring's namespace, cross-namespace
+      # over the cluster overlay — the same path jobshout and beacon take. No
+      # fishers pod is scheduled on an edge node, which is what forced
+      # workstation-opsapi onto public URLs instead.
+      - name: fishers
+        display_name: "Fishers"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: fishers
+          workflow: deploy-single-environment.yml
+          ref: main
+          deploy_mode: full
+          extra_inputs: { brand: fishers }
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "http://fishers-api.fishers-int.svc.cluster.local:8080/health",  links: [ { label: "Fishers int", url: "https://int.fishers.cloud/" }, { label: "API docs", url: "https://int.fishers.cloud/swagger-ui", kind: docs } ] }
+          test: { target_env: test, health_url: "http://fishers-api.fishers-test.svc.cluster.local:8080/health", links: [ { label: "Fishers test", url: "https://test.fishers.cloud/" } ] }
+          acc:  { target_env: acc,  health_url: "http://fishers-api.fishers-acc.svc.cluster.local:8080/health",  links: [ { label: "Fishers acc", url: "https://acc.fishers.cloud/" } ] }
+          prod: { target_env: prod, health_url: "http://fishers-api.fishers-prod.svc.cluster.local:8080/health", links: [ { label: "Fishers", url: "https://www.fishers.cloud/" } ] }
+
+      # GullyCricket — same repo, same pipeline, its own stack. Only int exists
+      # today, because the merge-to-main CD deploys every brand's int and
+      # nothing above it, and no other path knew about brands at all until
+      # bwalia/fishers taught deploy-single-environment.yml the `brand` input.
+      #
+      # A first promote into test/acc/prod creates that ring's namespace and
+      # everything in it, but NOT its vault path: the deploy stops there and
+      # names it. Seed it first, from the repo —
+      #   scripts/vault-seed-ring.sh <ring> --brand gullycricket
+      # which generates that ring its own JWT_SECRET, S3 keys and VAPID pair.
+      # The brand's integration keys go in by hand afterwards (Stripe, and a
+      # Google OAuth client whose authorised origins name the GullyCricket
+      # host); copying Fishers' would land two brands' takings in one account.
+      - name: gullycricket
+        display_name: "GullyCricket"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: fishers
+          workflow: deploy-single-environment.yml
+          ref: main
+          deploy_mode: full
+          extra_inputs: { brand: gullycricket }
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "http://fishers-api.gullycricket-int.svc.cluster.local:8080/health",  links: [ { label: "GullyCricket int", url: "https://int.gullycricket.app/" }, { label: "API docs", url: "https://int.gullycricket.app/swagger-ui", kind: docs } ] }
+          test: { target_env: test, health_url: "http://fishers-api.gullycricket-test.svc.cluster.local:8080/health", links: [ { label: "GullyCricket test", url: "https://test.gullycricket.app/" } ] }
+          acc:  { target_env: acc,  health_url: "http://fishers-api.gullycricket-acc.svc.cluster.local:8080/health",  links: [ { label: "GullyCricket acc", url: "https://acc.gullycricket.app/" } ] }
+          prod: { target_env: prod, health_url: "http://fishers-api.gullycricket-prod.svc.cluster.local:8080/health", links: [ { label: "GullyCricket", url: "https://www.gullycricket.app/" } ] }
+
       # wslproxy-k3s1 moved to its own instance, https://rp.wslproxy.com,
       # owned by bwalia/wslproxy deploy/ring-promoter/ (2026-09-24).
 
@@ -408,6 +498,13 @@ data:
       # and the whole control plane (jobshout, beacon, opsapi…) goes down with it.
       # Verified on 2026-09-08: enabling it crash-looped the new pod; only
       # maxUnavailable:0 kept the old one serving.
+      #
+      # RP_GITHUB_TOKEN IS on secret/ring-promoter here now — the fishers and
+      # gullycricket apps above are dispatched with it — so the reason below is
+      # no longer the blocker it was. What is still unchecked is whether that
+      # token carries actions:write on the PRIVATE bwalia/workstation-academy;
+      # if it does not, every academy promote fails on an unauthenticated
+      # dispatch, which is the failure the note below describes.
       #
       # TO ENABLE — add the key, then uncomment:
       #   kubectl -n workstation-ring-promoter patch secret ring-promoter \
