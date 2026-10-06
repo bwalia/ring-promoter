@@ -145,12 +145,42 @@ jobs:
           # It is distinct from the cluster-shared ring-promoter-deployer
           # ClusterRole owned by diy-tax-return-uk, so the two repos do not
           # overwrite each other.
-          kubectl apply \
-            -f deploy/k8s/namespace.yaml \
-            -f deploy/k8s/rbac.yaml \
-            -f deploy/k8s/configmap.yaml \
-            -f deploy/k8s/service.yaml \
-            -f kubernetes/ingress/ring-promoter.yaml
+          # Retried, because this cluster's apiserver times out on reads when
+          # it is busy and one of those killed a deploy on 2026-10-06:
+          #
+          #   Error from server (Timeout): error when retrieving current
+          #   configuration of: Resource: "/v1, Resource=namespaces"
+          #   Name: "workstation-ring-promoter" ... the server was unable to
+          #   return a response in the time allotted
+          #
+          # That is worse than a failed deploy. The apply had already got as
+          # far as `configmap/ring-promoter-config configured`, so the app
+          # registry changed on disk — and the restart below, which is the only
+          # thing that makes a ConfigMap change take effect, never ran. The
+          # deploy reported failure while the control plane kept serving the
+          # previous config, which is the most confusing state available.
+          #
+          # apply is idempotent, so asking again costs nothing.
+          applied=0
+          for attempt in 1 2 3 4 5; do
+            if kubectl apply \
+              -f deploy/k8s/namespace.yaml \
+              -f deploy/k8s/rbac.yaml \
+              -f deploy/k8s/configmap.yaml \
+              -f deploy/k8s/service.yaml \
+              -f kubernetes/ingress/ring-promoter.yaml; then
+              applied=1
+              break
+            fi
+            echo "::warning::apply attempt $attempt did not finish; retrying."
+            [ "$attempt" = 5 ] || sleep 5
+          done
+          if [ "$applied" != 1 ]; then
+            echo "::error::the apiserver would not take the manifests after five tries."
+            echo "::error::Some of them may already be applied — check the ConfigMap against deploy/k8s/configmap.yaml, and restart the deployment by hand if it changed:"
+            echo "::error::  kubectl -n ${NAMESPACE} rollout restart deploy/ring-promoter"
+            exit 1
+          fi
 
       - name: Roll out image
         run: |
