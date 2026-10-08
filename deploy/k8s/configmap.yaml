@@ -345,71 +345,86 @@ data:
           acc:  { target_env: acc,  health_url: "https://acc.sysops247.com/api/v1/system/info",  links: [ { label: "SysOps acc", url: "https://acc.sysops247.com/" } ] }
           prod: { target_env: prod, health_url: "https://sysops247.com/api/v1/system/info",      links: [ { label: "SysOps 24/7", url: "https://sysops247.com/" } ] }
 
-      # workstation-opsapi — the OpsAPI (Lua/Lapis) serving *-opsapi.workstation.co.uk.
-      # PUBLIC repo bwalia/opsapi. It SHARES the diytaxreturn-lapis chart with the
-      # legacy `diytaxreturn-lapis` release but is a deliberately separate release on
-      # its own isolated database, driven by the values-workstation-<ring>.yaml files
-      # (NOT values-<ring>.yaml, which belong to the diytaxreturn release). Release
-      # name and values prefix must both stay `workstation-opsapi` /
-      # `values-workstation-` or this would redeploy the wrong product.
+      # ── workstation-opsapi + workstation-opsapi-ui — OpsAPI on *.workstation.co.uk ──
       #
-      # Note: only int and prod exist today; the first promote into test/acc creates
-      # them, which requires that ring's Vault key to exist for the chart's
-      # ExternalSecret.
+      # PUBLIC repo bwalia/opsapi. Two apps, one product: the API (Lua/Lapis,
+      # *-opsapi.workstation.co.uk) and its dashboard (Next.js,
+      # *-opsapi-ui.workstation.co.uk), each deployed by the repo's own
+      # workflow, the same way sysops and gullycricket are.
+      #
+      # GITHUB deployer, not k8sjob (which this used to be). helm is not the
+      # whole deploy: deploy-k3s.yml also keeps the Cloudflare record and the
+      # wslproxy vhost in place, runs the database migrations (pre-upgrade
+      # hook) with this release's code, waits for ESO to render config.lua and
+      # rolls the pods so they pick it up. The old Job ran bare helm with
+      # image.tag=<git tag>, a tag the registry never had (builds were tagged
+      # <version>-<run>), so a promote from here could not have succeeded.
+      #
+      # The promoted VERSION is a release tag (1.0.x): a merge to main cuts one
+      # (via the opsapi-autotag app on the diytaxreturn instance) and pushes the
+      # image as bwalia/opsapi:<version> as well as <version>-<run>. Ring
+      # Promoter sends it as IMAGE_TAG with DEPLOYMENT_TYPE=deploy, so prod runs
+      # the exact image int ran — nothing is rebuilt. Releases cut after
+      # bwalia/opsapi#693 carry the bare tag and /ready reports `version`, which
+      # is checked after every deploy, so an old pod still answering 200 doesn't
+      # pass. Promote one of those, not an older release.
+      #
+      # Merges to main deploy int directly (deploy-k3s.yml on push), outside
+      # this promoter. Only int and prod exist (values-workstation-<ring>.yaml),
+      # and rings never skip, so there is no int -> prod promote button: SEED
+      # prod with the release int runs (prod seed needs the prod password), the
+      # same as workstation-shop. Add test/acc here once those environments
+      # exist (Vault path, database, host).
+      #
+      # Health is the public URL: the prod pod runs on cloud003, an edge node
+      # the in-cluster overlay does not reach (http://workstation-opsapi.prod
+      # .svc.cluster.local:80/ready times out while the pod is Running). The
+      # wslproxy edge reaches every ring wherever its pods land.
+      #
+      # Needs RP_GITHUB_TOKEN to be allowed to dispatch workflows in bwalia/opsapi.
       - name: workstation-opsapi
         display_name: "Workstation OpsAPI"
         location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
-        deployer: k8sjob
-        k8sjob:
-          namespace: ring-exec
-          image: docker.io/dtzar/helm-kubectl:3.15.4
-          service_account: ring-deploy-job
-          host_network: true
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -eu
-              ns="${RP_TARGET_ENV}"
-              echo "deploy workstation-opsapi ${RP_VERSION} -> ns ${ns}"
-              rm -rf /src
-              n=0
-              until git clone --depth 1 --branch "${RP_VERSION}" https://github.com/bwalia/opsapi /src; do
-                n=$((n+1))
-                if [ "$n" -ge 5 ]; then exit 1; fi
-                echo "git clone failed (attempt $n), retrying..."
-                sleep $((n*5))
-              done
-              helm upgrade --install workstation-opsapi /src/devops/helm-charts/diytaxreturn-lapis \
-                --namespace "${ns}" \
-                -f "/src/devops/helm-charts/diytaxreturn-lapis/values-workstation-${ns}.yaml" \
-                --set image.tag="${RP_VERSION}" \
-                --wait --timeout 12m
-              echo "workstation-opsapi ${RP_VERSION} live in ${ns}"
-          resources: { cpu_request: 100m, memory_limit: 512Mi }
-          # 20m, not 15m: helm --wait above is already 12m, so 15m left just 3m
-          # for the git clone and helm's own startup. A cold pull that used most
-          # of helm's budget got the whole Job killed before helm could report,
-          # turning a slow-but-successful deploy into a reported failure (the
-          # same class of false failure as bwalia/ring-promoter#102). The other
-          # apps here already use 20m; this makes all five consistent.
-          timeout: 20m
-          retries: 0
-          ttl_after_finished: 1h
-        # PUBLIC health URLs, not the in-cluster Service DNS the other apps use.
-        # The prod pod is scheduled on cloud003, an EDGE node, and the CNI
-        # overlay from in-cluster pods to the edge nodes does not carry traffic:
-        # http://workstation-opsapi.prod.svc.cluster.local:80/ready times out
-        # (20s, no response) while the pod is Running and its endpoint is
-        # registered. That is the same overlay problem the k8sjob apps work
-        # around with host_network. Going through the wslproxy edge is the one
-        # path that reaches every ring wherever its pods land — the same reason
-        # wslvault above uses public URLs. Hosts come from each ring's
-        # values-workstation-<ring>.yaml `host:` field.
+        deployer: github
+        github:
+          owner: bwalia
+          repo: opsapi
+          workflow: deploy-k3s.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: deploy
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
         rings:
-          int:  { target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://int-opsapi.workstation.co.uk/swagger", kind: docs } ] }
-          test: { target_env: test, health_url: "https://test-opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
-          acc:  { target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready" }
-          prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://opsapi.workstation.co.uk/swagger", kind: docs } ] }
+          int:  { target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://int-opsapi.workstation.co.uk/swagger", kind: docs } ] }
+          prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://opsapi.workstation.co.uk/swagger", kind: docs } ] }
+
+      # The dashboard is built per ring (its API URL is baked into the Next.js
+      # bundle), so a promote BUILDS the release tag for the target ring:
+      # deploy-workstation-dashboard.yml checks out VERSION and deploys it. The
+      # workflow has no mode input. Promote the API first, then this, with the
+      # same release. Health is the public login page (no version endpoint).
+      - name: workstation-opsapi-ui
+        display_name: "Workstation OpsAPI UI"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: opsapi
+          workflow: deploy-workstation-dashboard.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: VERSION
+          mode_input: "-"
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "https://int-opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI int", url: "https://int-opsapi-ui.workstation.co.uk/" } ] }
+          prod: { target_env: prod, health_url: "https://opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" } ] }
 
       # ── workstation-shop — shop.workstation.co.uk (Workstation AI Shop) ──
       #
