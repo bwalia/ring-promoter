@@ -371,11 +371,25 @@ func (e *Executor) findRun(ctx context.Context, since time.Time) (Run, error) {
 	}
 }
 
-// do performs an authenticated GitHub API request, retrying on transport
-// errors (DNS/TLS handshake/connection failures) with linear backoff. A
-// transport error means the request never got a response, so retrying is safe
+// do performs an authenticated GitHub API request, retrying with linear
+// backoff on transport errors (DNS/TLS handshake/connection failures) and, for
+// requests that change nothing, on GitHub's own 5xx and 429.
+//
+// A transport error means the request never got a response, so retrying is safe
 // even for the dispatch POST — e.g. a "TLS handshake timeout" reaching
 // api.github.com is retried rather than failing the whole deploy.
+//
+// A 5xx is different: GitHub answered, and it may have done the work first.
+// That is why only GET and HEAD are retried on one. A 502 to the dispatch POST
+// can arrive after the run has been accepted, and asking again would start a
+// second deploy — so that stays a single attempt and is reported.
+//
+// Polling a run is a GET, and it used to inherit the POST's caution for no
+// reason: a single 502 while watching ended the deploy. On 2026-10-12 that
+// reported "deploy to target failed: github api: status 502" for a
+// gullycricket acc deploy that had in fact succeeded — the workflow was green
+// and the pods were running the new image, while the promoter recorded a
+// failure and left its stored version behind the cluster.
 func (e *Executor) do(ctx context.Context, method, endpoint string, body []byte) (*http.Response, error) {
 	var lastErr error
 	for attempt := 0; ; attempt++ {
@@ -395,21 +409,41 @@ func (e *Executor) do(ctx context.Context, method, endpoint string, body []byte)
 		}
 
 		resp, err := e.http.Do(req)
-		if err == nil {
+		switch {
+		case err != nil:
+			lastErr = err
+		case retriableStatus(method, resp.StatusCode):
+			// Take the message out before dropping the response: it is the
+			// only thing that says what GitHub was unhappy about, and it is
+			// what gets reported if the attempts run out.
+			lastErr = apiError("github api", resp)
+			resp.Body.Close()
+		default:
 			return resp, nil
 		}
-		lastErr = err
+
 		if attempt >= e.cfg.MaxRetries {
 			return nil, lastErr
 		}
 		backoff := time.Duration(attempt+1) * e.cfg.RetryBackoff
 		e.log.Warn("github api transient error, retrying",
 			"method", method, "attempt", attempt+1, "max", e.cfg.MaxRetries,
-			"backoff", backoff.String(), "err", err)
+			"backoff", backoff.String(), "err", lastErr)
 		if serr := sleep(ctx, backoff); serr != nil {
 			return nil, serr
 		}
 	}
+}
+
+// retriableStatus says whether an answer from GitHub is worth asking again
+// for. 502, 503 and 504 are a backend being briefly unhappy and 429 is a
+// request to wait — both usually pass. Only for methods that change nothing,
+// because a 5xx can follow work GitHub has already done; see do.
+func retriableStatus(method string, code int) bool {
+	if method != http.MethodGet && method != http.MethodHead {
+		return false
+	}
+	return code == http.StatusTooManyRequests || (code >= 500 && code < 600)
 }
 
 // ---- git refs: the versions of a github-deployed app ----
