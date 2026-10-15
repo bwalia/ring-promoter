@@ -16,20 +16,21 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    ForEach(session.instances.instances) { instance in
-                        Button {
-                            _ = session.activate(instance)
+                    if let active = session.activeInstance {
+                        InstanceRow(instance: active, isActive: true)
+                            .swipeActions {
+                                Button("Remove", role: .destructive) { pendingRemoval = active }
+                                Button("Edit") { editingInstance = active }
+                                    .tint(.accentColor)
+                            }
+                    }
+                    NavigationLink {
+                        ControlPlanesView()
+                    } label: {
+                        LabeledContent {
+                            Text("\(session.instances.instances.count)")
                         } label: {
-                            InstanceRow(
-                                instance: instance,
-                                isActive: instance.id == session.activeInstance?.id
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions {
-                            Button("Remove", role: .destructive) { pendingRemoval = instance }
-                            Button("Token") { editingInstance = instance }
-                                .tint(.accentColor)
+                            Label("Manage control planes", systemImage: "server.rack")
                         }
                     }
                     Button {

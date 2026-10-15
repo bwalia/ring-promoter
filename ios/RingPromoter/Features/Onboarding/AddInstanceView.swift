@@ -4,12 +4,21 @@ import SwiftUI
 ///
 /// The token only reaches the Keychain after the server has accepted it, so the
 /// app never stores a credential it has never seen work.
+///
+/// Only the URL and token are required for a new control plane: a blank name
+/// is filled from the host and the colour defaults to one no other instance
+/// uses. When editing, the token may be left blank to keep the saved one, so
+/// renaming or recolouring never means re-pasting a credential.
 struct AddInstanceView: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
-    /// Pre-filled when editing an existing record's token.
+    /// Pre-filled when editing an existing record.
     var editing: Instance?
+    /// Make the saved instance the active one. Off when adding from the
+    /// control-planes list, so several can be added in a row without the app
+    /// switching to each in turn.
+    var switchesOnSave = true
 
     @State private var name = ""
     @State private var urlText = ""
@@ -32,7 +41,7 @@ struct AddInstanceView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Name (e.g. Production)", text: $name)
+                    TextField(namePlaceholder, text: $name)
                         .focused($focus, equals: .name)
                         .textInputAutocapitalization(.words)
                     TextField("https://ring-promoter.example.com", text: $urlText)
@@ -55,7 +64,7 @@ struct AddInstanceView: View {
                 }
 
                 Section {
-                    SecureField("Bearer token", text: $token)
+                    SecureField(editing == nil ? "Bearer token" : "Unchanged", text: $token)
                         .focused($focus, equals: .token)
                         .textContentType(.password)
                         .autocorrectionDisabled()
@@ -64,8 +73,9 @@ struct AddInstanceView: View {
                     Text("API token")
                 } footer: {
                     Text(
-                        "Stored in the iOS Keychain, on this device only, and never written to "
-                            + "a log or shared with the widget."
+                        (editing == nil ? "" : "Leave blank to keep the saved token. ")
+                            + "Stored in the iOS Keychain, on this device only, and never "
+                            + "written to a log or shared with the widget."
                     )
                 }
 
@@ -117,7 +127,7 @@ struct AddInstanceView: View {
                     }
                 }
             }
-            .navigationTitle(editing == nil ? "Add control plane" : "Update token")
+            .navigationTitle(editing == nil ? "Add control plane" : "Edit control plane")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -127,7 +137,7 @@ struct AddInstanceView: View {
                     if state == .checking {
                         ProgressView()
                     } else {
-                        Button("Connect") { Task { await connect() } }
+                        Button(editing == nil ? "Connect" : "Save") { Task { await connect() } }
                             .disabled(!canSubmit)
                     }
                 }
@@ -138,20 +148,35 @@ struct AddInstanceView: View {
 
     private var canSubmit: Bool {
         Instance.normalise(urlText: urlText) != nil
-            && !token.trimmingCharacters(in: .whitespaces).isEmpty
-            && !name.trimmingCharacters(in: .whitespaces).isEmpty
+            && (editing != nil || !token.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
+    private var namePlaceholder: String {
+        if let url = Instance.normalise(urlText: urlText) {
+            return "Name (\(Instance.defaultName(for: url)))"
+        }
+        return "Name (optional, e.g. Production)"
     }
 
     private func prefill() {
         guard let editing else {
-            focus = .name
+            tint = session.instances.nextUnusedTint()
+            focus = .url
             return
         }
         name = editing.name
         urlText = editing.baseURL.absoluteString
         tint = editing.tint
         requireBiometrics = editing.requireBiometricsForProduction
-        focus = .token
+    }
+
+    /// The token to validate: what was typed, or — when editing with the field
+    /// left blank — the one already in the Keychain.
+    private func resolvedToken() -> String? {
+        let typed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty { return typed }
+        guard let editing else { return nil }
+        return (try? Keychain.token(for: editing.keychainAccount)) ?? nil
     }
 
     private func connect() async {
@@ -159,7 +184,11 @@ struct AddInstanceView: View {
             state = .failed(.invalidURL)
             return
         }
-        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmedToken = resolvedToken(), !trimmedToken.isEmpty else {
+            state = .failed(.tokenRejected("No token is saved for this control plane. Paste one."))
+            focus = .token
+            return
+        }
         state = .checking
 
         switch await ConnectionValidator.live.validate(url: url, token: trimmedToken) {
@@ -177,17 +206,27 @@ struct AddInstanceView: View {
         // Reuse an existing record for the same URL so re-adding a server
         // refreshes its token instead of leaving two entries that disagree.
         let existing = editing ?? session.instances.instance(withBaseURL: url)
+        let typedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let instance = Instance(
             id: existing?.id ?? UUID(),
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            name: typedName.isEmpty ? Instance.defaultName(for: url) : typedName,
             baseURL: url,
             tint: tint,
             requireBiometricsForProduction: requireBiometrics,
             addedAt: existing?.addedAt ?? .now
         )
+        // Read before saving, which overwrites it.
+        let previousToken = existing.flatMap { (try? Keychain.token(for: $0.keychainAccount)) ?? nil }
         do {
             try session.instances.save(instance, token: token)
-            session.connect(to: instance, token: token)
+            let isActive = session.activeInstance?.id == instance.id
+            if isActive, existing?.baseURL == url, token == previousToken {
+                // Only the name, colour or Face ID preference changed: update in
+                // place rather than rebuilding every screen.
+                session.updateActiveInstance(instance)
+            } else if switchesOnSave || isActive {
+                session.connect(to: instance, token: token)
+            }
             dismiss()
         } catch let failure as Keychain.Failure {
             state = .failed(.other(failure.message))

@@ -21,10 +21,7 @@ struct OverviewView: View {
             .navigationTitle("Applications")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    InstanceBanner(
-                        name: session.instanceName, tint: session.instanceTint,
-                        isDemo: session.isDemo
-                    )
+                    InstanceSwitcher()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if let store, !store.groups.isEmpty {

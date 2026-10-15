@@ -112,13 +112,20 @@ mint one.
 
 ### Connecting
 
-**Settings → Add a control plane**, then:
+Tap the instance banner at the top of any screen, then **Add a control plane**
+(or use **Settings → Manage control planes → +**). Only two fields are required:
 
-1. **Name** — how you will recognise it ("Production", "Staging").
-2. **URL** — `https://ring-promoter.example.com`. A bare hostname gets
+1. **URL** — `https://ring-promoter.example.com`. A bare hostname gets
    `https://` added; a trailing slash is trimmed.
-3. **Token** — pasted; it goes to the Keychain only after the server accepts it.
-4. **Colour tag** — the dot shown on every screen that can change something.
+2. **Token** — pasted; it goes to the Keychain only after the server accepts it.
+
+Two more are filled in for you and can be changed:
+
+- **Name** — left blank, it comes from the host (`rp.workstation.co.uk` →
+  "Workstation").
+- **Colour tag** — defaults to one no other saved instance uses (red last, since
+  it reads as production). It is the dot shown on every screen that can change
+  something.
 
 Connecting validates in two steps so you know *which* thing is wrong:
 
@@ -131,10 +138,24 @@ rejected token are four different messages.
 ### Several control planes
 
 Saved instances live side by side, each with its own token and colour. The
-active one is named and colour-coded on the Overview, the Activity feed and
-every action sheet — because "which cluster am I on?" is the question behind
-most 2am mistakes. Switch from Settings; deleting an instance deletes its token
-too.
+active one is named and colour-coded on the Overview, the Rings screen, the
+Activity feed and every action sheet — because "which cluster am I on?" is the
+question behind most 2am mistakes.
+
+- **Switch from anywhere.** The instance banner is a menu: pick another control
+  plane and the app opens on its Overview.
+- **See them all at once.** **Manage control planes** lists every instance with
+  a live status line — reachable, app and ring count, failed or in-flight
+  deploys, or a rejected / missing token. Tap one to open its rings; swipe to
+  edit or remove. Adding from here does not switch to each new instance, so
+  several can be added in a row.
+- **Edit without re-pasting.** Rename, recolour or change the Face ID setting
+  with the token field left blank; the saved token is kept.
+- **Nothing leaks between instances.** Switching rebuilds every screen and
+  store, resets navigation, and drops any response still in flight from the
+  previous server.
+
+Deleting an instance deletes its token too.
 
 ---
 

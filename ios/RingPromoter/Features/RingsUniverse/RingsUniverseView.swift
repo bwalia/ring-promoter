@@ -37,10 +37,7 @@ struct RingsUniverseView: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    InstanceBanner(
-                        name: session.instanceName, tint: session.instanceTint,
-                        isDemo: session.isDemo
-                    )
+                    InstanceSwitcher()
                 }
             }
         }

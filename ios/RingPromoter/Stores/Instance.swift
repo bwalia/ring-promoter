@@ -43,6 +43,21 @@ struct Instance: Codable, Hashable, Sendable, Identifiable {
         return host
     }
 
+    /// The name used when the operator leaves it blank: the first meaningful
+    /// label of the host, capitalised ("rp.workstation.co.uk" → "Workstation"),
+    /// or the host itself for `localhost` and IP addresses.
+    static func defaultName(for url: URL) -> String {
+        guard let host = url.host(), !host.isEmpty else { return url.absoluteString }
+        if host.allSatisfy({ $0.isNumber || $0 == "." || $0 == ":" }) { return host }
+        let skip: Set<String> = ["www", "api", "rp", "ring-promoter", "ringpromoter"]
+        let labels = host.split(separator: ".").map(String.init)
+        if labels.count > 1, let first = labels.first(where: { !skip.contains($0.lowercased()) }),
+           first != labels.last {
+            return first.prefix(1).uppercased() + first.dropFirst()
+        }
+        return host
+    }
+
     /// The scheme is not HTTPS, so the token would cross the network in clear.
     /// Surfaced as a warning rather than a hard block, because a local
     /// `http://localhost:8080` is a legitimate development target.
