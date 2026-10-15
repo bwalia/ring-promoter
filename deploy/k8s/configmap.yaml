@@ -370,11 +370,10 @@ data:
       # pass. Promote one of those, not an older release.
       #
       # Merges to main deploy int directly (deploy-k3s.yml on push), outside
-      # this promoter. Only int and prod exist (values-workstation-<ring>.yaml),
-      # and rings never skip, so there is no int -> prod promote button: SEED
-      # prod with the release int runs (prod seed needs the prod password), the
-      # same as workstation-shop. Add test/acc here once those environments
-      # exist (Vault path, database, host).
+      # this promoter. Helm values and edge vhosts exist for int/test/acc/prod
+      # (values-workstation-<ring>.yaml). First promote into a ring still needs
+      # that ring's Vault key for ExternalSecret, and DNS must be a DNS-only
+      # CNAME to lon1.pop0.uk (Cloudflare-proxied A records break health checks).
       #
       # Health is the public URL: the prod pod runs on cloud003, an edge node
       # the in-cluster overlay does not reach (http://workstation-opsapi.prod
@@ -400,6 +399,8 @@ data:
           run_lookup_timeout: 90s
         rings:
           int:  { target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://int-opsapi.workstation.co.uk/swagger", kind: docs } ] }
+          test: { target_env: test, health_url: "https://test-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
+          acc:  { target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
           prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://opsapi.workstation.co.uk/swagger", kind: docs } ] }
 
       # The dashboard is built per ring (its API URL is baked into the Next.js
@@ -423,8 +424,10 @@ data:
           poll_interval: 20s
           run_lookup_timeout: 90s
         rings:
-          int:  { target_env: int,  health_url: "https://int-opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI int", url: "https://int-opsapi-ui.workstation.co.uk/" } ] }
-          prod: { target_env: prod, health_url: "https://opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" } ] }
+          int:  { target_env: int,  health_url: "https://int-opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api } ] }
+          test: { target_env: test, health_url: "https://test-opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
+          acc:  { target_env: acc,  health_url: "https://acc-opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
+          prod: { target_env: prod, health_url: "https://opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api } ] }
 
       # ── workstation-shop — shop.workstation.co.uk (Workstation AI Shop) ──
       #
