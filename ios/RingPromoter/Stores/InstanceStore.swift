@@ -84,6 +84,15 @@ final class InstanceStore {
         instances.first { $0.baseURL == url }
     }
 
+    /// A colour no saved instance uses yet, so a new one is told apart from the
+    /// rest without the operator having to pick. Red is left until last: it
+    /// reads as "production" and should be a deliberate choice.
+    func nextUnusedTint() -> InstanceTint {
+        let used = Set(instances.map(\.tint))
+        let order: [InstanceTint] = [.blue, .green, .orange, .purple, .graphite, .red]
+        return order.first { !used.contains($0) } ?? .blue
+    }
+
     private func load() {
         if let data = defaults.data(forKey: Key.instances),
            let decoded = try? JSONDecoder().decode([Instance].self, from: data) {

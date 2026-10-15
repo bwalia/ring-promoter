@@ -86,6 +86,14 @@ final class Router {
         overviewPath = [.app(app), .job(app: app, id: id)]
     }
 
+    /// Forget navigation when the app moves to another control plane, so the
+    /// new one opens on its own Overview rather than on a screen for an app
+    /// from the previous server.
+    func resetForNewConnection() {
+        tab = .overview
+        overviewPath = []
+    }
+
     /// The deep link that points at an application, used by the widget and by
     /// Live Activities.
     static func url(forApp app: String) -> URL? {

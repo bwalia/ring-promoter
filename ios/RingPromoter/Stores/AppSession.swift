@@ -32,6 +32,10 @@ final class AppSession {
     /// Set when the server rejected the token, so the UI can send the operator
     /// back to the token screen instead of showing a dismissible toast.
     private(set) var needsReauthentication = false
+    /// Bumped every time `api` is replaced, so a response that was in flight
+    /// for the previous control plane is dropped instead of being applied to
+    /// the new one.
+    private var generation = 0
 
     var instances: InstanceStore
     var settings: AppSettings
@@ -53,6 +57,18 @@ final class AppSession {
     // MARK: - Derived state
 
     var isDemo: Bool { mode == .demo }
+
+    /// Identifies the control plane the app is talking to; nil when
+    /// disconnected. The tab tree is keyed on it, so switching instance
+    /// rebuilds every screen and store instead of leaving the previous
+    /// server's apps, rings and history on screen.
+    var connectionKey: String? {
+        switch mode {
+        case .disconnected: nil
+        case .demo: "demo"
+        case .live(let instance): instance.id.uuidString
+        }
+    }
 
     var activeInstance: Instance? {
         if case .live(let instance) = mode { return instance }
@@ -112,6 +128,7 @@ final class AppSession {
 
     func connect(to instance: Instance, token: String) {
         api = RingPromoterClient(baseURL: instance.baseURL, token: token, session: session)
+        generation += 1
         mode = .live(instance)
         needsReauthentication = false
         capabilities = nil
@@ -120,15 +137,15 @@ final class AppSession {
     }
 
     /// Switch to a saved instance whose token is already in the Keychain.
-    /// Returns false when the token has been removed behind the app's back.
+    /// Returns false when the token has been removed behind the app's back;
+    /// the caller then asks for that instance's token. Nothing is flagged here:
+    /// `needsReauthentication` belongs to the *active* instance, and a missing
+    /// token on another one says nothing about it.
     @discardableResult
     func activate(_ instance: Instance) -> Bool {
         guard let token = (try? Keychain.token(for: instance.keychainAccount)) ?? nil,
               !token.isEmpty
-        else {
-            needsReauthentication = true
-            return false
-        }
+        else { return false }
         connect(to: instance, token: token)
         return true
     }
@@ -147,6 +164,7 @@ final class AppSession {
 
     func enterDemoMode() {
         api = DemoClient()
+        generation += 1
         mode = .demo
         capabilities = nil
         needsReauthentication = false
@@ -157,6 +175,7 @@ final class AppSession {
     func disconnect() {
         mode = .disconnected
         api = UnconfiguredClient()
+        generation += 1
         capabilities = nil
         settings.startsInDemoMode = false
         WidgetSnapshotStore.clear()
@@ -168,13 +187,19 @@ final class AppSession {
     /// pipeline and the capability flags.
     @discardableResult
     func loadCapabilities() async throws(APIError) -> AppsResponse {
-        do {
+        let started = generation
+        do throws(APIError) {
             let response = try await api.apps()
+            // The operator switched control plane while this was in flight:
+            // these capabilities describe the old server, so drop them.
+            guard started == generation else { throw APIError.transport(.cancelled) }
             capabilities = response
             needsReauthentication = false
             return response
         } catch {
-            if error.requiresReauthentication { needsReauthentication = true }
+            if started == generation, error.requiresReauthentication {
+                needsReauthentication = true
+            }
             throw error
         }
     }

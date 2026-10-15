@@ -64,10 +64,7 @@ struct ActivityFeedView: View {
             .navigationTitle("Activity")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    InstanceBanner(
-                        name: session.instanceName, tint: session.instanceTint,
-                        isDemo: session.isDemo
-                    )
+                    InstanceSwitcher()
                 }
             }
             .refreshable { await load() }

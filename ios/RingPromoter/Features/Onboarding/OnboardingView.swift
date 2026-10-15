@@ -4,6 +4,8 @@ import SwiftUI
 struct OnboardingView: View {
     @Environment(AppSession.self) private var session
     @State private var isAddingInstance = false
+    /// A saved instance whose token has gone; re-entering it reconnects.
+    @State private var needsToken: Instance?
 
     var body: some View {
         NavigationStack {
@@ -12,7 +14,7 @@ struct OnboardingView: View {
                     Section("Saved control planes") {
                         ForEach(session.instances.instances) { instance in
                             Button {
-                                if !session.activate(instance) { isAddingInstance = true }
+                                if !session.activate(instance) { needsToken = instance }
                             } label: {
                                 InstanceRow(instance: instance)
                             }
@@ -55,6 +57,7 @@ struct OnboardingView: View {
             .sheet(isPresented: $isAddingInstance) {
                 AddInstanceView()
             }
+            .sheet(item: $needsToken) { AddInstanceView(editing: $0) }
         }
     }
 }

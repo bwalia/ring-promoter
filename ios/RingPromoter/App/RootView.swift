@@ -28,7 +28,17 @@ struct RootView: View {
                             .tag(tab)
                     }
                 }
+                // One tab tree per control plane: every screen and store is
+                // rebuilt on a switch, so nothing from the previous server
+                // survives on screen or in a cached store.
+                .id(session.connectionKey)
             }
+        }
+        .onChange(of: session.connectionKey) { old, _ in
+            // A stack pushed on one control plane names apps that may not
+            // exist on the next. Launch (nil → instance) is left alone so a
+            // deep link or Shortcut opened at start-up still lands.
+            if old != nil { router.resetForNewConnection() }
         }
         // The token was rejected mid-session: take the operator straight to the
         // screen that can fix it rather than showing an error they can dismiss.
