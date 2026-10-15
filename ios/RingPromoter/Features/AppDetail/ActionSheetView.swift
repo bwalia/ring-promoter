@@ -220,16 +220,24 @@ struct ActionSheetView: View {
     private var versionSection: some View {
         Section {
             if store.versions.offersPicker {
-                Picker("Version", selection: $seedVersion) {
-                    Text("Choose…").tag("")
-                    ForEach(store.versions.branches) { version in
-                        Label(version.name, systemImage: version.systemImage).tag(version.name)
-                    }
-                    ForEach(store.versions.tags) { version in
-                        Label(version.name, systemImage: version.systemImage).tag(version.name)
+                // A searchable list rather than a Picker: repositories can
+                // have hundreds of tags, and a Picker cannot take a commit SHA
+                // or show a prefilled version that is not in its list.
+                NavigationLink {
+                    VersionPickerView(versions: store.versions, selection: $seedVersion)
+                } label: {
+                    LabeledContent("Version") {
+                        if versionInFlight.isEmpty {
+                            Text("Choose…")
+                        } else {
+                            Text(versionInFlight)
+                                .font(.body.monospaced())
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
                 }
-                .pickerStyle(.navigationLink)
+                .accessibilityIdentifier("seed-version-picker")
             } else {
                 TextField("Version, branch or tag", text: $seedVersion)
                     .autocorrectionDisabled()
@@ -241,7 +249,8 @@ struct ActionSheetView: View {
         } footer: {
             Text(
                 store.versions.offersPicker
-                    ? "Only versions that exist in the application's source repository are offered."
+                    ? "Search the repository's branches and tags, or paste a commit SHA. The "
+                        + "server checks it exists before deploying."
                     : "This application's deployer cannot list versions, so the value is not "
                         + "checked until the server tries it."
             )

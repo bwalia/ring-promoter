@@ -47,6 +47,22 @@ struct VersionsResponse: Codable, Hashable, Sendable {
     var branches: [AppVersion] { versions.filter { !$0.isTag } }
     var tags: [AppVersion] { versions.filter(\.isTag) }
 
+    /// The versions whose name contains `query`, ignoring case, in server
+    /// order (branches first). A blank query matches everything.
+    func matching(_ query: String) -> [AppVersion] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return versions }
+        return versions.filter { $0.name.localizedCaseInsensitiveContains(needle) }
+    }
+
+    /// Whether `name` is exactly one of the listed branches or tags. Anything
+    /// else typed into the picker is offered as a commit SHA, which the server
+    /// resolves against the repository before deploying.
+    func contains(name: String) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return versions.contains { $0.name == name }
+    }
+
     static let unsupported = VersionsResponse(supported: false, versions: [])
 }
 
