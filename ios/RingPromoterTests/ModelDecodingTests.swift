@@ -302,6 +302,29 @@ struct ModelDecodingTests {
         #expect(!versions.offersPicker)
     }
 
+    @Test("searching versions ignores case and keeps branches before tags")
+    func searchVersions() {
+        let versions = VersionsResponse(
+            supported: true,
+            versions: [
+                AppVersion(name: "main", type: "branch"),
+                AppVersion(name: "release/2.8", type: "branch"),
+                AppVersion(name: "v2.8.0", type: "tag"),
+                AppVersion(name: "v2.7.1", type: "tag"),
+            ]
+        )
+
+        #expect(versions.matching("").count == 4)
+        #expect(versions.matching("  ").count == 4)
+        #expect(versions.matching("2.8").map(\.name) == ["release/2.8", "v2.8.0"])
+        #expect(versions.matching("V2.7").map(\.name) == ["v2.7.1"])
+        #expect(versions.matching("4f3c2a1").isEmpty)
+
+        #expect(versions.contains(name: "v2.8.0"))
+        #expect(versions.contains(name: " main "))
+        #expect(!versions.contains(name: "v2.8"))
+    }
+
     @Test("the version endpoint decodes build metadata")
     func serverVersion() throws {
         let version = try FixtureLoader
