@@ -106,12 +106,31 @@ type HTTPChecker struct {
 	client *http.Client
 }
 
+// maxHealthRedirects caps how many redirects a health probe will follow.
+// Go's default is 10; a trailing-slash / http↔https ping-pong at an edge
+// proxy then surfaces as the opaque "stopped after 10 redirects". Three is
+// enough for a single scheme upgrade + one path normalisation.
+const maxHealthRedirects = 3
+
 // NewHTTPChecker returns an HTTPChecker with the given per-request timeout.
 func NewHTTPChecker(timeout time.Duration) *HTTPChecker {
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	return &HTTPChecker{client: &http.Client{Timeout: timeout}}
+	return &HTTPChecker{client: &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= maxHealthRedirects {
+				return fmt.Errorf("stopped after %d redirects (last %s)", len(via), req.URL)
+			}
+			for _, prev := range via {
+				if prev.URL.String() == req.URL.String() {
+					return fmt.Errorf("redirect loop involving %s", req.URL)
+				}
+			}
+			return nil
+		},
+	}}
 }
 
 // Check implements Checker.

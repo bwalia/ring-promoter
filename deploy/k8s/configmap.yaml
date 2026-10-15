@@ -407,7 +407,15 @@ data:
       # bundle), so a promote BUILDS the release tag for the target ring:
       # deploy-workstation-dashboard.yml checks out VERSION and deploys it. The
       # workflow has no mode input. Promote the API first, then this, with the
-      # same release. Health is the public login page (no version endpoint).
+      # same release.
+      #
+      # Health: int/test/acc probe the in-cluster Service directly (port 8039).
+      # The public /login URL can briefly redirect-loop at the wslproxy edge
+      # right after the first helm install (GitHub workflow already green,
+      # pods Ready) — Go's client then fails with "stopped after 10 redirects"
+      # even though curl from a laptop eventually sees 200. In-cluster skips
+      # that edge. Prod stays on the public URL: dashboard pods can land on
+      # cloud003, which the cluster overlay does not reach.
       - name: workstation-opsapi-ui
         display_name: "Workstation OpsAPI UI"
         location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
@@ -424,9 +432,9 @@ data:
           poll_interval: 20s
           run_lookup_timeout: 90s
         rings:
-          int:  { target_env: int,  health_url: "https://int-opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api } ] }
-          test: { target_env: test, health_url: "https://test-opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
-          acc:  { target_env: acc,  health_url: "https://acc-opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
+          int:  { target_env: int,  health_url: "http://workstation-opsapi-dashboard.int.svc.cluster.local:8039/login", links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api } ] }
+          test: { target_env: test, health_url: "http://workstation-opsapi-dashboard.test.svc.cluster.local:8039/login", links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
+          acc:  { target_env: acc,  health_url: "http://workstation-opsapi-dashboard.acc.svc.cluster.local:8039/login", links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
           prod: { target_env: prod, health_url: "https://opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api } ] }
 
       # ── workstation-shop — shop.workstation.co.uk (Workstation AI Shop) ──

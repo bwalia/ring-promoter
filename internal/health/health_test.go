@@ -193,3 +193,25 @@ func TestHTTPChecker_VersionIgnoredWhenNotWanted(t *testing.T) {
 		t.Fatalf("no version source configured: status-only check should pass: %v", err)
 	}
 }
+
+// TestHTTPChecker_RedirectLoop: an edge that ping-pongs Locations must fail
+// fast with a clear error, not Go's opaque default "stopped after 10 redirects".
+func TestHTTPChecker_RedirectLoop(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/a" {
+			http.Redirect(w, r, srv.URL+"/b", http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, srv.URL+"/a", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	err := NewHTTPChecker(2 * time.Second).Check(context.Background(), Probe{URL: srv.URL + "/a"})
+	if err == nil {
+		t.Fatal("redirect loop should be unhealthy")
+	}
+	if !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("error should mention redirect, got: %v", err)
+	}
+}
