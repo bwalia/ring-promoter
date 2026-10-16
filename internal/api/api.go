@@ -41,6 +41,7 @@ type Server struct {
 	diag      Diagnoser
 	histDiag  historyDiagnoses
 	plans     testPlans
+	cors      CORSPolicy
 }
 
 // NewServer constructs an API server. ui serves the embedded web assets and
@@ -57,7 +58,8 @@ func NewServer(prom *promoter.Promoter, token, prodPass string, ui http.Handler,
 	}
 	return &Server{prom: prom, token: token, prodPass: prodPass, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now(), diag: diag,
 		histDiag: historyDiagnoses{state: make(map[int64]historyDiagState)},
-		plans:    testPlans{state: make(map[string]historyDiagState)}}
+		plans:    testPlans{state: make(map[string]historyDiagState)},
+		cors:     CORSPolicy{any: true}}
 }
 
 // ResumePendingOps resolves the operations a previous process left in flight
@@ -177,7 +179,7 @@ func (s *Server) Handler() http.Handler {
 	// metrics.HTTPMiddleware wraps the mux so it reads the matched route pattern
 	// (set during ServeMux routing) for a bounded `route` label. logRequests
 	// stays outermost so access logs cover the metrics endpoint too.
-	return s.logRequests(metrics.HTTPMiddleware(mux))
+	return s.logRequests(s.withCORS(metrics.HTTPMiddleware(mux)))
 }
 
 // ---- middleware ----

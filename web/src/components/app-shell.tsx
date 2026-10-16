@@ -4,6 +4,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleDot } from "lucide-react";
 import { AppFooter } from "@/components/app-footer";
+import { ClusterDialogs } from "@/components/clusters";
 import { CommandPalette } from "@/components/command-palette";
 import { Dashboard } from "@/components/dashboard/dashboard";
 import { FleetView } from "@/components/fleet-view";
@@ -16,7 +17,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useGroups } from "@/lib/queries";
-import { useAuthStore, usePrefsStore } from "@/lib/stores";
+import { LOCAL_CLUSTER_ID, useAuthStore, usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
 
 function isEditable(el: EventTarget | null): boolean {
@@ -35,6 +36,7 @@ let migratedLegacyGroups = false;
 
 export function AppShell() {
   const token = useAuthStore((s) => s.token);
+  const activeId = useAuthStore((s) => s.activeId);
   const selectedApp = usePrefsStore((s) => s.selectedApp);
   const selectApp = usePrefsStore((s) => s.selectApp);
   const selectGroup = usePrefsStore((s) => s.selectGroup);
@@ -105,7 +107,8 @@ export function AppShell() {
 
   // One-time migration of legacy browser-local groups to the server.
   useEffect(() => {
-    if (!mounted || !token || migratedLegacyGroups) return;
+    // Legacy groups came from this server; never push them to another cluster.
+    if (!mounted || !token || migratedLegacyGroups || activeId !== LOCAL_CLUSTER_ID) return;
     const legacy = usePrefsStore.getState().groups;
     if (!legacy?.length) return;
     migratedLegacyGroups = true;
@@ -128,7 +131,7 @@ export function AppShell() {
         migratedLegacyGroups = false; // retry on the next page load
       }
     })();
-  }, [mounted, token, queryClient]);
+  }, [mounted, token, activeId, queryClient]);
 
   // Mirror navigation state into the address bar. Use selectedGroup (not
   // activeGroup) so a deep link is preserved while groups are still loading;
@@ -183,10 +186,18 @@ export function AppShell() {
     );
   }
 
-  if (!token) return <TokenGate />;
+  if (!token) {
+    return (
+      <>
+        <TokenGate />
+        <ClusterDialogs />
+      </>
+    );
+  }
 
   return (
-    <div className="rp-console flex h-dvh overflow-hidden">
+    // Keyed on the cluster so every view starts fresh after a switch.
+    <div key={activeId} className="rp-console flex h-dvh overflow-hidden">
       {/* Fluid width: 288px on laptops, growing with the viewport up to
           352px on large monitors. */}
       <aside className="hidden shrink-0 border-r bg-sidebar lg:flex lg:w-[clamp(18rem,17vw,22rem)] lg:flex-col">
@@ -234,6 +245,7 @@ export function AppShell() {
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <ShortcutsDialog />
+      <ClusterDialogs />
     </div>
   );
 }

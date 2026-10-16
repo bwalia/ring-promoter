@@ -14,11 +14,14 @@ import {
   Moon,
   Pause,
   Play,
+  Plus,
+  Server,
   Star,
   Sun,
   Tag,
   Undo2,
 } from "lucide-react";
+import { ClusterDot, clusterHost, useSwitchCluster } from "@/components/clusters";
 import {
   CommandDialog,
   CommandEmpty,
@@ -53,6 +56,11 @@ export function CommandPalette({
   const autoRefresh = usePrefsStore((s) => s.autoRefresh);
   const setAutoRefresh = usePrefsStore((s) => s.setAutoRefresh);
   const signOut = useAuthStore((s) => s.signOut);
+  const clusters = useAuthStore((s) => s.clusters);
+  const activeId = useAuthStore((s) => s.activeId);
+  const switchCluster = useSwitchCluster();
+  const setClusterDialog = useUiStore((s) => s.setClusterDialog);
+  const setClustersOpen = useUiStore((s) => s.setClustersOpen);
   const setPendingAction = useUiStore((s) => s.setPendingAction);
   const setShortcutsOpen = useUiStore((s) => s.setShortcutsOpen);
   const { setTheme } = useTheme();
@@ -205,6 +213,37 @@ export function CommandPalette({
             </CommandGroup>
           </>
         )}
+
+        <CommandSeparator />
+        <CommandGroup heading="Clusters">
+          {clusters
+            .filter((c) => c.id !== activeId)
+            .map((c) => (
+              <CommandItem
+                key={c.id}
+                value={`cluster switch ${c.name} ${clusterHost(c)}`}
+                onSelect={run(() => void switchCluster(c.id))}
+              >
+                <ClusterDot color={c.color} />
+                Switch to {c.name}
+                <span className="ml-auto truncate font-mono text-xs text-muted-foreground">
+                  {clusterHost(c)}
+                </span>
+              </CommandItem>
+            ))}
+          <CommandItem
+            value="cluster add new server"
+            onSelect={run(() => setClusterDialog({ mode: "add" }))}
+          >
+            <Plus aria-hidden className="size-4" /> Add a cluster…
+          </CommandItem>
+          <CommandItem
+            value="cluster manage servers"
+            onSelect={run(() => setClustersOpen(true))}
+          >
+            <Server aria-hidden className="size-4" /> Manage clusters…
+          </CommandItem>
+        </CommandGroup>
 
         <CommandSeparator />
         <CommandGroup heading="Preferences">

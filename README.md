@@ -273,6 +273,15 @@ changes.
   cd web && npm run build:embed
   ```
 
+**Several clusters in one browser.** The cluster menu at the top left lists
+every Ring Promoter saved in this browser. **Add a cluster…** takes its URL
+and API token (checked before saving); pick one to switch, and the console
+reloads against it with no sign-in. **Manage clusters…** shows whether each is
+reachable and lets you rename, re-token or remove it. Tokens stay in this
+browser's local storage. The other servers must run a build with CORS
+support, which is on by default (see `RP_CORS_ORIGINS`). An HTTPS console
+can only reach HTTPS servers.
+
 See [`web/README.md`](web/README.md) for the frontend architecture.
 
 Drive it from the CLI:
@@ -861,6 +870,7 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 | `RP_QA_AGENT_NAME` | `qa_agent.name`     | – (optional)   | Display/actor name for an external QA agent. Integration is off until a name is set (file or env). |
 | `RP_QA_AGENT_URL`  | `qa_agent.url`      | – (optional)   | Optional deep-link to the QA agent's own UI. |
 | `RP_CONFIG_FILE`  | – (flag `--config`) | `config.yaml`  | Path to the config file.               |
+| `RP_CORS_ORIGINS` | – (env only)        | any origin     | Which other web consoles may call this server, so one browser can switch between clusters. Comma-separated origins (e.g. `https://rp.int.example.com,https://rp.prod.example.com`), or `off`. The API takes bearer tokens only (no cookies), so a console still needs this server's token. |
 
 The application registry (`apps:`) lives in the file only.
 

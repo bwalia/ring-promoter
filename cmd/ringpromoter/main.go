@@ -125,6 +125,8 @@ func run(configPath string, logger *slog.Logger) error {
 
 	srv := api.NewServer(prom, cfg.APIToken, cfg.ProdPassword, web.Handler(), cfg.OperationTimeout.Std(), logger,
 		api.BuildInfo{Version: version, Commit: commit, BuildTime: buildTime}, diag)
+	// Lets a console served by another Ring Promoter switch to this one.
+	srv.SetCORSOrigins(api.ParseCORSOrigins(os.Getenv("RP_CORS_ORIGINS")))
 
 	// Resolve operations a previous process left mid-deploy (it was restarted
 	// while a seed/promote/rollback was in flight) so their outcomes land in
