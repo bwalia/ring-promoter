@@ -51,7 +51,7 @@ struct AddInstanceView: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 } header: {
-                    Text("Control plane")
+                    Text("Cluster")
                 } footer: {
                     if let url = Instance.normalise(urlText: urlText), url.scheme == "http" {
                         Label(
@@ -127,7 +127,7 @@ struct AddInstanceView: View {
                     }
                 }
             }
-            .navigationTitle(editing == nil ? "Add control plane" : "Edit control plane")
+            .navigationTitle(editing == nil ? "Add cluster" : "Edit cluster")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -185,7 +185,7 @@ struct AddInstanceView: View {
             return
         }
         guard let trimmedToken = resolvedToken(), !trimmedToken.isEmpty else {
-            state = .failed(.tokenRejected("No token is saved for this control plane. Paste one."))
+            state = .failed(.tokenRejected("No token is saved for this cluster. Paste one."))
             focus = .token
             return
         }

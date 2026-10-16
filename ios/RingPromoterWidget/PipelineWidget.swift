@@ -207,7 +207,7 @@ private struct WidgetEmptyState: View {
                 .foregroundStyle(.secondary)
             Text("Open Ring Promoter")
                 .font(.caption.weight(.medium))
-            Text("Connect to a control plane to see your pipelines here.")
+            Text("Connect to a cluster to see your pipelines here.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

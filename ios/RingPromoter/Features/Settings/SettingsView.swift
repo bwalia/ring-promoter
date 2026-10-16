@@ -30,13 +30,13 @@ struct SettingsView: View {
                         LabeledContent {
                             Text("\(session.instances.instances.count)")
                         } label: {
-                            Label("Manage control planes", systemImage: "server.rack")
+                            Label("Manage clusters", systemImage: "server.rack")
                         }
                     }
                     Button {
                         isAddingInstance = true
                     } label: {
-                        Label("Add a control plane", systemImage: "plus.circle")
+                        Label("Add a cluster", systemImage: "plus.circle")
                     }
                     if !session.isDemo {
                         Button {
@@ -46,7 +46,7 @@ struct SettingsView: View {
                         }
                     }
                 } header: {
-                    Text("Control planes")
+                    Text("Clusters")
                 } footer: {
                     Text(
                         session.isDemo
@@ -94,7 +94,7 @@ struct SettingsView: View {
                     Text("Notifications")
                 } footer: {
                     Text(
-                        "This control plane cannot send notifications yet — it has no push "
+                        "This cluster cannot send notifications yet — it has no push "
                             + "sender. Granting permission now means the app is ready if that "
                             + "changes. See docs/API-GAPS.md."
                     )
@@ -150,7 +150,7 @@ struct SettingsView: View {
 
                 Section {
                     Button("Sign out", role: .destructive) { session.disconnect() }
-                    Button("Forget every control plane", role: .destructive) {
+                    Button("Forget every cluster", role: .destructive) {
                         showingForgetEverything = true
                     }
                 } footer: {
@@ -166,7 +166,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showingGroups) { GroupsView() }
             .task { await loadVersion() }
             .confirmationDialog(
-                "Remove this control plane?",
+                "Remove this cluster?",
                 isPresented: Binding(
                     get: { pendingRemoval != nil },
                     set: { if !$0 { pendingRemoval = nil } }
@@ -182,7 +182,7 @@ struct SettingsView: View {
                 Text("Its API token is deleted from the Keychain too.")
             }
             .confirmationDialog(
-                "Forget every control plane?",
+                "Forget every cluster?",
                 isPresented: $showingForgetEverything,
                 titleVisibility: .visible
             ) {

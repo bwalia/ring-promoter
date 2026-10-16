@@ -33,11 +33,11 @@ struct ControlPlanesView: View {
         List {
             if session.instances.isEmpty {
                 ContentUnavailableView {
-                    Label("No control planes yet", systemImage: "server.rack")
+                    Label("No clusters yet", systemImage: "server.rack")
                 } description: {
                     Text("Add the URL and API token of each Ring Promoter you look after.")
                 } actions: {
-                    Button("Add a control plane") { isAdding = true }
+                    Button("Add a cluster") { isAdding = true }
                         .buttonStyle(.borderedProminent)
                 }
             } else {
@@ -78,13 +78,13 @@ struct ControlPlanesView: View {
                     }
                 } footer: {
                     Text(
-                        "Tap a control plane to open its applications and rings. Swipe to "
+                        "Tap a cluster to open its applications and rings. Swipe to "
                             + "edit or remove. Each one keeps its own token in the Keychain."
                     )
                 }
             }
         }
-        .navigationTitle("Control planes")
+        .navigationTitle("Clusters")
         .toolbar {
             if isSheet {
                 ToolbarItem(placement: .cancellationAction) {
@@ -95,7 +95,7 @@ struct ControlPlanesView: View {
                 Button {
                     isAdding = true
                 } label: {
-                    Label("Add a control plane", systemImage: "plus")
+                    Label("Add a cluster", systemImage: "plus")
                 }
             }
         }
@@ -110,7 +110,7 @@ struct ControlPlanesView: View {
         }
         .sheet(item: $editing) { AddInstanceView(editing: $0, switchesOnSave: false) }
         .confirmationDialog(
-            "Remove this control plane?",
+            "Remove this cluster?",
             isPresented: Binding(
                 get: { pendingRemoval != nil },
                 set: { if !$0 { pendingRemoval = nil } }
@@ -206,7 +206,7 @@ private struct ControlPlaneRow: View {
         .padding(.vertical, 2)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityHint(isActive ? "Open its applications" : "Switch to this control plane")
+        .accessibilityHint(isActive ? "Open its applications" : "Switch to this cluster")
     }
 
     @ViewBuilder
@@ -247,6 +247,6 @@ private struct ControlPlaneRow: View {
     }
 }
 
-#Preview("Control planes") {
+#Preview("Clusters") {
     PreviewHost { NavigationStack { ControlPlanesView() } }
 }

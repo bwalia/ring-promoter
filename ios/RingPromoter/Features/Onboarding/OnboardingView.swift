@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// First run, and the "add another control plane" screen.
+/// First run, and the "add another cluster" screen.
 struct OnboardingView: View {
     @Environment(AppSession.self) private var session
     @State private var isAddingInstance = false
@@ -11,7 +11,7 @@ struct OnboardingView: View {
         NavigationStack {
             List {
                 if !session.instances.isEmpty {
-                    Section("Saved control planes") {
+                    Section("Saved clusters") {
                         ForEach(session.instances.instances) { instance in
                             Button {
                                 if !session.activate(instance) { needsToken = instance }
@@ -32,7 +32,7 @@ struct OnboardingView: View {
                     Button {
                         isAddingInstance = true
                     } label: {
-                        Label("Connect to a control plane", systemImage: "link")
+                        Label("Connect to a cluster", systemImage: "link")
                     }
                     Button {
                         session.enterDemoMode()
@@ -84,7 +84,7 @@ private struct WelcomePanel: View {
 
             VStack(spacing: 10) {
                 Button(action: onConnect) {
-                    Label("Connect to a control plane", systemImage: "link")
+                    Label("Connect to a cluster", systemImage: "link")
                         .frame(maxWidth: 300)
                 }
                 .buttonStyle(.borderedProminent)

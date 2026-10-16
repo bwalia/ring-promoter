@@ -4,7 +4,7 @@ import Testing
 @testable import RingPromoter
 
 /// Moving between several saved control planes.
-@Suite("Several control planes")
+@Suite("Several clusters")
 struct MultiInstanceTests {
 
     @MainActor
@@ -20,7 +20,7 @@ struct MultiInstanceTests {
         Instance(name: name, baseURL: URL(string: "https://\(name.lowercased()).example.com")!)
     }
 
-    @Test("each control plane has its own connection key, so the tab tree is rebuilt")
+    @Test("each cluster has its own connection key, so the tab tree is rebuilt")
     @MainActor
     func connectionKeyPerInstance() {
         let session = makeSession()
@@ -86,7 +86,7 @@ struct MultiInstanceTests {
         #expect(try name("http://192.168.1.5:8080") == "192.168.1.5")
     }
 
-    @Test("a new control plane gets a colour no other one uses, red last")
+    @Test("a new cluster gets a colour no other one uses, red last")
     @MainActor
     func nextUnusedTint() throws {
         let defaults = UserDefaults(suiteName: "MultiInstanceTests-\(UUID().uuidString)")!
@@ -104,7 +104,7 @@ struct MultiInstanceTests {
         for saved in store.instances { store.remove(saved) }
     }
 
-    @Test("moving to another control plane resets navigation to its Overview")
+    @Test("moving to another cluster resets navigation to its Overview")
     @MainActor
     func routerResetsOnSwitch() {
         let router = Router()

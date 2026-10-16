@@ -44,7 +44,7 @@ final class CriticalPathUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(
-            app.buttons["Connect to a control plane"].waitForExistence(timeout: 10),
+            app.buttons["Connect to a cluster"].waitForExistence(timeout: 10),
             "a fresh install should offer to connect"
         )
         XCTAssertTrue(app.buttons["Explore in demo mode"].exists)
@@ -228,8 +228,11 @@ final class CriticalPathUITests: XCTestCase {
 
         app.tabBars.buttons["Settings"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
-        // List section headers render uppercased.
-        XCTAssertTrue(app.staticTexts["CONTROL PLANES"].waitForExistence(timeout: 5))
+        // Section headers were uppercased before iOS 26 and are not since, so
+        // match either.
+        let header = app.staticTexts
+            .matching(NSPredicate(format: "label ==[c] %@", "Clusters")).firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 5))
         attachScreenshot(named: "09-settings")
     }
 
