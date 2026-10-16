@@ -563,3 +563,44 @@ func TestK8sJobDeployer_RestartArgs(t *testing.T) {
 		}
 	}
 }
+
+const ringOverrideApp = `
+apps:
+  - name: shop
+    deployer: github
+    github: { owner: o, repo: r, workflow: d.yml }
+    k8sjob: { image: img:1 }
+    rings:
+      int:  { target_env: int,  health_url: "http://int/health", deployer: k8sjob }
+      test: { target_env: test, health_url: "http://test/health" }
+`
+
+func TestRingDeployerOverride(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	cfg, err := Load(writeConfig(t, ringOverrideApp))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	app, _ := cfg.App("shop")
+	if got := cfg.RingDeployerFor(app, "int"); got != DeployerK8sJob {
+		t.Fatalf("int deployer = %q, want k8sjob", got)
+	}
+	if got := cfg.RingDeployerFor(app, "test"); got != DeployerGitHub {
+		t.Fatalf("test deployer = %q, want github (the app's)", got)
+	}
+	if k := cfg.DeployerKinds(app); !k[DeployerGitHub] || !k[DeployerK8sJob] || len(k) != 2 {
+		t.Fatalf("DeployerKinds = %v", k)
+	}
+}
+
+func TestRingDeployerOverrideNeedsItsBlock(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	noJobBlock := strings.Replace(ringOverrideApp, "    k8sjob: { image: img:1 }\n", "", 1)
+	if _, err := Load(writeConfig(t, noJobBlock)); err == nil || !strings.Contains(err.Error(), "k8sjob") {
+		t.Fatalf("ring k8sjob override without a k8sjob block: err = %v, want a k8sjob error", err)
+	}
+	bad := strings.Replace(ringOverrideApp, "deployer: k8sjob }", "deployer: ftp }", 1)
+	if _, err := Load(writeConfig(t, bad)); err == nil || !strings.Contains(err.Error(), "unknown deployer") {
+		t.Fatalf("unknown ring deployer: err = %v", err)
+	}
+}

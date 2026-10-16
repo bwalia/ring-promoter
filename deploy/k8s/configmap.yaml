@@ -469,8 +469,45 @@ data:
           token_env: RP_GITHUB_TOKEN
           poll_interval: 20s
           run_lookup_timeout: 90s
+        # K8SJOB deployer, ring by ring (rings.<ring>.deployer overrides the app's
+        # github deployer). The Job (bwalia/rp-deployer, ring-promoter
+        # deploy/deployer/) clones shop-chart from the PRIVATE workstation-website at
+        # the promoted commit with a read-only deploy key (ESO Secret
+        # rp-deploy-workstation-website-key, from wslvault), helm-upgrades
+        # shop-<ring> with --wait=legacy, waits for the rollout and checks
+        # /api/health reports the tag: what shop-deploy.yaml's deploy job did,
+        # without a GitHub runner. Secrets are already in wslvault
+        # (workstation-shop/<env>/config via ESO), so no repo secrets are needed.
+        # Runs as ServiceAccount rp-deploy-workstation-shop (rbac.yaml), bound in
+        # int/test/acc only. Roll a ring back to GitHub by deleting its
+        # `deployer: k8sjob`.
+        k8sjob:
+          namespace: ring-exec
+          image: docker.io/bwalia/rp-deployer:0.1.0
+          service_account: rp-deploy-workstation-shop
+          env_from_secrets: [rp-deploy-workstation-website-key]
+          env:
+            GIT_REPO: "git@github.com:bwalia/workstation-website.git"
+            CHART_PATH: devops/helm-charts/shop-chart
+            RELEASE_PREFIX: "shop-"
+            DEPLOYMENT_SUFFIX: "-shop-chart"
+            IMAGE_REPOSITORY: bwalia/wsw-shop
+            SMOKE_URL: "https://{env}-shop.workstation.co.uk/api/health"
+            SMOKE_URL_PROD: "https://shop.workstation.co.uk/api/health"
+          # LAN workers only: edge nodes' pod traffic can't reach the rest.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - { key: node-role.kubernetes.io/edge, operator: DoesNotExist }
+          resources: { cpu_request: 100m, memory_request: 128Mi, memory_limit: 512Mi }
+          # helm --timeout 15m + rollout + smoke fit inside 25m.
+          timeout: 25m
+          retries: 0
+          ttl_after_finished: 1h
         rings:
-          int:  { target_env: int,  health_url: "https://int-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop int", url: "https://int-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://int-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
+          int:  { deployer: k8sjob, target_env: int,  health_url: "https://int-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop int", url: "https://int-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://int-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
           test: { target_env: test, health_url: "https://test-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop test", url: "https://test-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://test-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
           acc:  { target_env: acc,  health_url: "https://acc-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop acc", url: "https://acc-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://acc-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
           prod: { target_env: prod, health_url: "https://shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop", url: "https://shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://opsapi-ui.workstation.co.uk/dashboard/shop" } ] }

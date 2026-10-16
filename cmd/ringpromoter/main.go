@@ -205,19 +205,49 @@ func buildDeployers(cfg *config.Config, logger *slog.Logger) (map[string]deploye
 
 	perApp := make(map[string]deployer.Deployer, len(cfg.Apps))
 	for _, app := range cfg.Apps {
-		switch cfg.DeployerFor(app) {
-		case config.DeployerGitHub:
-			d, err := buildGitHubDeployer(app, logger)
-			if err != nil {
-				return nil, nil, err
+		// One deployer per kind this app uses (app-level + ring overrides).
+		byKind := make(map[string]deployer.Deployer, 2)
+		build := func(kind string) (deployer.Deployer, error) {
+			if d, ok := byKind[kind]; ok {
+				return d, nil
 			}
-			perApp[app.Name] = d
-		case config.DeployerK8sJob:
-			perApp[app.Name] = buildK8sJobDeployer(app, logger, sharedK8sExec())
-		case config.DeployerKubectl:
-			perApp[app.Name] = shared(config.DeployerKubectl)
-		default:
-			perApp[app.Name] = shared(config.DeployerLog)
+			var d deployer.Deployer
+			switch kind {
+			case config.DeployerGitHub:
+				gd, err := buildGitHubDeployer(app, logger)
+				if err != nil {
+					return nil, err
+				}
+				d = gd
+			case config.DeployerK8sJob:
+				d = buildK8sJobDeployer(app, logger, sharedK8sExec())
+			case config.DeployerKubectl:
+				d = shared(config.DeployerKubectl)
+			default:
+				d = shared(config.DeployerLog)
+			}
+			byKind[kind] = d
+			return d, nil
+		}
+		appKind := cfg.DeployerFor(app)
+		def, err := build(appKind)
+		if err != nil {
+			return nil, nil, err
+		}
+		byRing := map[string]deployer.Deployer{}
+		for ring := range app.Rings {
+			if kind := cfg.RingDeployerFor(app, ring); kind != appKind {
+				d, err := build(kind)
+				if err != nil {
+					return nil, nil, err
+				}
+				byRing[ring] = d
+			}
+		}
+		if len(byRing) == 0 {
+			perApp[app.Name] = def
+		} else {
+			perApp[app.Name] = deployer.RingRouter(def, byRing)
 		}
 	}
 
