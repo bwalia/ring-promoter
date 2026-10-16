@@ -10,7 +10,7 @@ import Foundation
 /// the failure this app cannot afford.
 struct UnconfiguredClient: RingPromoterAPI {
     private var notConnected: APIError {
-        .unauthorized("Not connected to a control plane yet.")
+        .unauthorized("Not connected to a cluster yet.")
     }
 
     func checkHealth() async throws(APIError) { throw notConnected }

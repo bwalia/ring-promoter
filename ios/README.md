@@ -112,8 +112,8 @@ mint one.
 
 ### Connecting
 
-Tap the instance banner at the top of any screen, then **Add a control plane**
-(or use **Settings → Manage control planes → +**). Only two fields are required:
+Tap the instance banner at the top of any screen, then **Add a cluster**
+(or use **Settings → Manage clusters → +**). Only two fields are required:
 
 1. **URL** — `https://ring-promoter.example.com`. A bare hostname gets
    `https://` added; a trailing slash is trimmed.
@@ -135,16 +135,15 @@ Connecting validates in two steps so you know *which* thing is wrong:
 An unreachable host, a TLS failure, a server that is not Ring Promoter, and a
 rejected token are four different messages.
 
-### Several control planes
+### Several clusters
 
 Saved instances live side by side, each with its own token and colour. The
 active one is named and colour-coded on the Overview, the Rings screen, the
 Activity feed and every action sheet — because "which cluster am I on?" is the
 question behind most 2am mistakes.
 
-- **Switch from anywhere.** The instance banner is a menu: pick another control
-  plane and the app opens on its Overview.
-- **See them all at once.** **Manage control planes** lists every instance with
+- **Switch from anywhere.** The instance banner is a menu: pick another cluster and the app opens on its Overview.
+- **See them all at once.** **Manage clusters** lists every instance with
   a live status line — reachable, app and ring count, failed or in-flight
   deploys, or a rejected / missing token. Tap one to open its rings; swipe to
   edit or remove. Adding from here does not switch to each new instance, so

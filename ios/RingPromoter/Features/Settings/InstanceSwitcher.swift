@@ -16,7 +16,7 @@ struct InstanceSwitcher: View {
 
     var body: some View {
         Menu {
-            Section("Control planes") {
+            Section("Clusters") {
                 ForEach(session.instances.instances) { instance in
                     Button {
                         switchTo(instance)
@@ -33,12 +33,12 @@ struct InstanceSwitcher: View {
             Button {
                 isAddingInstance = true
             } label: {
-                Label("Add a control plane", systemImage: "plus.circle")
+                Label("Add a cluster", systemImage: "plus.circle")
             }
             Button {
                 isManaging = true
             } label: {
-                Label("Manage control planes…", systemImage: "server.rack")
+                Label("Manage clusters…", systemImage: "server.rack")
             }
             if !session.isDemo {
                 Button {
@@ -53,7 +53,7 @@ struct InstanceSwitcher: View {
                 isDemo: session.isDemo
             )
         }
-        .accessibilityHint("Switch control plane")
+        .accessibilityHint("Switch cluster")
         .sheet(isPresented: $isAddingInstance) { AddInstanceView() }
         .sheet(isPresented: $isManaging) { ControlPlanesView(isSheet: true) }
         .sheet(item: $needsToken) { AddInstanceView(editing: $0) }

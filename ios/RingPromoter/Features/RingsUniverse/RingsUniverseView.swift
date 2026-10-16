@@ -113,7 +113,7 @@ private struct RingsUniverseContent: View {
                 } else if store.error == nil {
                     CalmEmptyState(
                         title: "No applications",
-                        message: "This control plane has no applications configured.",
+                        message: "This cluster has no applications configured.",
                         systemImage: "circle.dotted",
                         tint: .rpNeutral
                     )

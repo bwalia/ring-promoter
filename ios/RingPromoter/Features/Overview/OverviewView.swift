@@ -131,7 +131,7 @@ private struct OverviewList: View {
                         title: store.searchText.isEmpty
                             ? "No applications" : "No matches",
                         message: store.searchText.isEmpty
-                            ? "This control plane has no applications configured."
+                            ? "This cluster has no applications configured."
                             : "Nothing matches “\(store.searchText)”.",
                         systemImage: "magnifyingglass",
                         tint: .rpNeutral
