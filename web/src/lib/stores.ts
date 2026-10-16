@@ -4,24 +4,177 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AppGroup } from "@/lib/types";
 
-// ---- auth ----
+// ---- clusters and auth ----
+//
+// Each cluster is a Ring Promoter server. "This server" (the origin the
+// console was loaded from) is always present; others are reached cross-origin
+// with their own bearer token (the server allows that; see RP_CORS_ORIGINS).
+// Tokens stay in this browser's localStorage, as the single token always has.
+
+export const LOCAL_CLUSTER_ID = "local";
+
+export const CLUSTER_COLORS = [
+  "chart-1",
+  "chart-2",
+  "chart-3",
+  "chart-4",
+  "chart-5",
+] as const;
+export type ClusterColor = (typeof CLUSTER_COLORS)[number];
+
+export interface Cluster {
+  id: string;
+  name: string;
+  /** Origin such as https://rp.example.com; "" means this server. */
+  url: string;
+  color: ClusterColor;
+}
+
+export const localCluster = (): Cluster => ({
+  id: LOCAL_CLUSTER_ID,
+  name: "This server",
+  url: "",
+  color: "chart-1",
+});
+
+/**
+ * Normalise what an operator typed into an origin: add https:// when no
+ * scheme is given, and drop any path, query or trailing slash. Returns null
+ * for anything that is not an http(s) URL.
+ */
+export function normaliseClusterUrl(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return null;
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    if (!u.hostname) return null;
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** A readable default name from a cluster URL: rp.int.example.com → "int". */
+export function defaultClusterName(url: string): string {
+  try {
+    const host = new URL(url).hostname;
+    if (/^[\d.]+$/.test(host) || !host.includes(".")) return host;
+    const generic = new Set(["rp", "www", "api", "ring-promoter", "ringpromoter", "app", "console"]);
+    const labels = host.split(".");
+    const pick = labels.slice(0, -2).find((l) => !generic.has(l)) ?? labels[labels.length - 2];
+    return pick.charAt(0).toUpperCase() + pick.slice(1);
+  } catch {
+    return url;
+  }
+}
 
 interface AuthState {
+  /** Token for the active cluster (null shows the token gate). */
   token: string | null;
+  clusters: Cluster[];
+  activeId: string;
+  tokens: Record<string, string>;
+
   setToken: (token: string) => void;
+  /** Forget the active cluster's token. */
   signOut: () => void;
+  switchCluster: (id: string) => void;
+  /** Save a cluster (new or edited). A null token keeps the saved one. */
+  saveCluster: (cluster: Cluster, token: string | null) => void;
+  removeCluster: (id: string) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       token: null,
-      setToken: (token) => set({ token }),
-      signOut: () => set({ token: null }),
+      clusters: [localCluster()],
+      activeId: LOCAL_CLUSTER_ID,
+      tokens: {},
+
+      setToken: (token) =>
+        set((s) => ({ token, tokens: { ...s.tokens, [s.activeId]: token } })),
+
+      signOut: () =>
+        set((s) => {
+          const tokens = { ...s.tokens };
+          delete tokens[s.activeId];
+          return { token: null, tokens };
+        }),
+
+      switchCluster: (id) =>
+        set((s) =>
+          s.clusters.some((c) => c.id === id)
+            ? { activeId: id, token: s.tokens[id] ?? null }
+            : {},
+        ),
+
+      saveCluster: (cluster, token) =>
+        set((s) => {
+          const exists = s.clusters.some((c) => c.id === cluster.id);
+          const clusters = exists
+            ? s.clusters.map((c) => (c.id === cluster.id ? cluster : c))
+            : [...s.clusters, cluster];
+          const tokens = token ? { ...s.tokens, [cluster.id]: token } : s.tokens;
+          return {
+            clusters,
+            tokens,
+            token: cluster.id === s.activeId ? (tokens[cluster.id] ?? null) : s.token,
+          };
+        }),
+
+      removeCluster: (id) =>
+        set((s) => {
+          if (id === LOCAL_CLUSTER_ID) return {};
+          const tokens = { ...s.tokens };
+          delete tokens[id];
+          const clusters = s.clusters.filter((c) => c.id !== id);
+          if (s.activeId !== id) return { clusters, tokens };
+          return {
+            clusters,
+            tokens,
+            activeId: LOCAL_CLUSTER_ID,
+            token: tokens[LOCAL_CLUSTER_ID] ?? null,
+          };
+        }),
     }),
-    { name: "rp-auth" },
+    {
+      name: "rp-auth",
+      // v0 stored a single { token } for this server.
+      version: 1,
+      migrate: (persisted, version) => {
+        const p = (persisted ?? {}) as Partial<AuthState>;
+        if (version < 1) {
+          const token = p.token ?? null;
+          return {
+            token,
+            clusters: [localCluster()],
+            activeId: LOCAL_CLUSTER_ID,
+            tokens: token ? { [LOCAL_CLUSTER_ID]: token } : {},
+          } as AuthState;
+        }
+        return p as AuthState;
+      },
+      partialize: (s) => ({
+        token: s.token,
+        clusters: s.clusters,
+        activeId: s.activeId,
+        tokens: s.tokens,
+      }),
+    },
   ),
 );
+
+/** The active cluster; falls back to this server. */
+export function activeCluster(s: Pick<AuthState, "clusters" | "activeId">): Cluster {
+  return s.clusters.find((c) => c.id === s.activeId) ?? localCluster();
+}
+
+/** Prefix for API paths on the active cluster ("" for this server). */
+export function activeBaseUrl(): string {
+  return activeCluster(useAuthStore.getState()).url;
+}
 
 // ---- UI preferences (all persisted) ----
 

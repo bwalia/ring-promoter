@@ -1,4 +1,4 @@
-import { useAuthStore } from "@/lib/stores";
+import { activeCluster, useAuthStore } from "@/lib/stores";
 import type {
   AppGroup,
   AppsResponse,
@@ -48,15 +48,23 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = useAuthStore.getState().token;
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
-  });
+  const auth = useAuthStore.getState();
+  const { token, activeId } = auth;
+  const baseUrl = activeCluster(auth).url;
+  let res: Response;
+  try {
+    res = await fetch(baseUrl + path, {
+      ...init,
+      headers: {
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init?.headers,
+      },
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError(0, unreachableMessage(baseUrl));
+  }
 
   let body: unknown;
   try {
@@ -66,8 +74,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
-    if (res.status === 401) {
-      // Token rejected: drop back to the token gate.
+    // Token rejected: drop back to the token gate — unless the operator has
+    // switched cluster since, when the 401 is about a token no longer in use.
+    if (res.status === 401 && useAuthStore.getState().activeId === activeId) {
       useAuthStore.getState().signOut();
     }
     const message =
@@ -79,17 +88,55 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/**
+ * Why a fetch to another cluster threw. Browsers hide the reason (DNS, TLS,
+ * CORS and mixed content all look the same), so name the likely ones.
+ */
+export function unreachableMessage(baseUrl: string): string {
+  if (!baseUrl) return "Could not reach the server. Is it running?";
+  const host = baseUrl.replace(/^https?:\/\//, "");
+  if (
+    baseUrl.startsWith("http:") &&
+    typeof window !== "undefined" &&
+    window.location.protocol === "https:"
+  ) {
+    return `This console is on HTTPS, so the browser blocks plain-HTTP ${host}. Use its https:// address.`;
+  }
+  return (
+    `Could not reach ${host}. Check the address, that this browser can reach it, ` +
+    "and that it runs a Ring Promoter recent enough to accept other consoles " +
+    "(and RP_CORS_ORIGINS, if set, includes this console)."
+  );
+}
+
 const app = (name: string) => `/api/apps/${encodeURIComponent(name)}`;
 
 export const api = {
-  /** Validate a token without touching the store (used by the token gate). */
-  async validateToken(token: string): Promise<boolean> {
-    const res = await fetch("/api/apps", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.status === 401) return false;
+  /**
+   * Validate a token without touching the store (used by the token gate and
+   * the add-cluster dialog). Resolves to the number of applications, or null
+   * when the token is rejected. `baseUrl` defaults to the active cluster.
+   */
+  async validateToken(
+    token: string,
+    baseUrl: string = activeCluster(useAuthStore.getState()).url,
+  ): Promise<number | null> {
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/api/apps`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      throw new ApiError(0, unreachableMessage(baseUrl));
+    }
+    if (res.status === 401) return null;
     if (!res.ok) throw new ApiError(res.status, `server error (${res.status})`);
-    return true;
+    try {
+      const body = (await res.json()) as Partial<AppsResponse>;
+      return body.apps?.length ?? 0;
+    } catch {
+      throw new ApiError(res.status, "That address answered, but not as a Ring Promoter server.");
+    }
   },
 
   /** Build metadata of the running server. Served outside the auth mux. */

@@ -12,6 +12,7 @@ import {
   Search,
   Star,
 } from "lucide-react";
+import { ClusterSwitcher } from "@/components/clusters";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,7 +28,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAppTitle, useGroups } from "@/lib/queries";
-import { useAuthStore, usePrefsStore } from "@/lib/stores";
+import { activeCluster, useAuthStore, usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,7 @@ export function Topbar() {
   const autoRefresh = usePrefsStore((s) => s.autoRefresh);
   const setAutoRefresh = usePrefsStore((s) => s.setAutoRefresh);
   const signOut = useAuthStore((s) => s.signOut);
+  const clusterName = useAuthStore((s) => activeCluster(s).name);
   const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
   const setShortcutsOpen = useUiStore((s) => s.setShortcutsOpen);
   const setMobileNavOpen = useUiStore((s) => s.setMobileNavOpen);
@@ -61,6 +63,8 @@ export function Topbar() {
       >
         <Menu aria-hidden className="size-5" />
       </Button>
+
+      <ClusterSwitcher className="shrink-0" />
 
       <div className="flex min-w-0 items-center gap-1.5">
         <h1 className="rp-heading-toolbar truncate">
@@ -169,7 +173,7 @@ export function Topbar() {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={signOut}>
-              <LogOut aria-hidden className="size-4" /> Sign out
+              <LogOut aria-hidden className="size-4" /> Sign out of {clusterName}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

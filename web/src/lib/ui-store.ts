@@ -19,7 +19,14 @@ export type PendingAction =
   // routes the switch through a confirmation dialog that collects it.
   | { type: "autoPromote"; app: string; ring: string };
 
+/** The add/edit cluster dialog: closed, adding, or editing one cluster. */
+export type ClusterDialogState = { mode: "add" } | { mode: "edit"; id: string } | null;
+
 interface UiState {
+  clusterDialog: ClusterDialogState;
+  clustersOpen: boolean;
+  setClusterDialog: (state: ClusterDialogState) => void;
+  setClustersOpen: (open: boolean) => void;
   paletteOpen: boolean;
   shortcutsOpen: boolean;
   mobileNavOpen: boolean;
@@ -31,6 +38,10 @@ interface UiState {
 }
 
 export const useUiStore = create<UiState>()((set) => ({
+  clusterDialog: null,
+  clustersOpen: false,
+  setClusterDialog: (clusterDialog) => set({ clusterDialog }),
+  setClustersOpen: (clustersOpen) => set({ clustersOpen }),
   paletteOpen: false,
   shortcutsOpen: false,
   mobileNavOpen: false,
