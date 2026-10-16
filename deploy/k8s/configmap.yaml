@@ -508,8 +508,8 @@ data:
           ttl_after_finished: 1h
         rings:
           int:  { deployer: k8sjob, target_env: int,  health_url: "https://int-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop int", url: "https://int-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://int-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
-          test: { target_env: test, health_url: "https://test-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop test", url: "https://test-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://test-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
-          acc:  { target_env: acc,  health_url: "https://acc-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop acc", url: "https://acc-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://acc-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
+          test: { deployer: k8sjob, target_env: test, health_url: "https://test-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop test", url: "https://test-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://test-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
+          acc:  { deployer: k8sjob, target_env: acc,  health_url: "https://acc-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop acc", url: "https://acc-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://acc-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
           prod: { target_env: prod, health_url: "https://shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop", url: "https://shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
 
       # ── fishers + gullycricket — the club-sports app, one stack per brand ──
