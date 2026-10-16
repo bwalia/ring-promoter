@@ -144,3 +144,105 @@ subjects:
     name: ring-deploy-job
     namespace: ring-exec
 roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-jobshout }
+---
+# --- 3. workstation-shop runner: its OWN ServiceAccount (least privilege) -----
+# The shop's k8sjob Jobs (image bwalia/rp-deployer, deploy/deployer/) helm-deploy
+# shop-chart (bwalia/workstation-website) into a ring namespace. A dedicated
+# ServiceAccount, not the shared ring-deploy-job, so the shop runner cannot
+# touch the other apps' deploy rights and vice versa.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rp-deploy-workstation-shop
+  namespace: ring-exec
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+---
+# Exactly the kinds shop-chart manages, plus what helm and the script read:
+# Helm release Secrets (ordinary Secrets in the ring namespace), the
+# ExternalSecret + SecretStore (prod creates its own store), the market-sync
+# CronJob, and read-only pods/logs/events/replicasets for rollout status and
+# failure diagnostics. Kubernetes RBAC cannot restrict Secrets to the release's
+# own, so this is "secrets in the bound namespace" — another reason prod is not
+# bound until it moves to k8sjob.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rp-deploy-workstation-shop
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+rules:
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets", "secretstores"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-workstation-shop
+  namespace: int
+subjects:
+  - { kind: ServiceAccount, name: rp-deploy-workstation-shop, namespace: ring-exec }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-workstation-shop }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-workstation-shop
+  namespace: test
+subjects:
+  - { kind: ServiceAccount, name: rp-deploy-workstation-shop, namespace: ring-exec }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-workstation-shop }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-workstation-shop
+  namespace: acc
+subjects:
+  - { kind: ServiceAccount, name: rp-deploy-workstation-shop, namespace: ring-exec }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-workstation-shop }
+# prod: add the same RoleBinding in namespace prod when the shop's prod ring
+# moves to k8sjob (configmap.yaml: rings.prod.deployer). Until then prod is
+# deployed by the GitHub workflow and this identity has no rights there.
+---
+# The read-only GitHub deploy key for the PRIVATE bwalia/workstation-website
+# (registered on the repo as "rp-deployer k8sjob (ring-exec) read-only"). It
+# lives in wslvault at ring-promoter/deploy-keys/workstation-website; ESO keeps
+# this Secret in sync and the Job reads it as env (env_from_secrets).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: rp-deploy-workstation-website-key
+  namespace: ring-exec
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+spec:
+  refreshInterval: 1h
+  secretStoreRef: { name: wslvault-backend, kind: ClusterSecretStore }
+  target:
+    name: rp-deploy-workstation-website-key
+    creationPolicy: Owner
+  data:
+    - secretKey: GIT_SSH_KEY
+      remoteRef:
+        key: ring-promoter/deploy-keys/workstation-website
+        property: GIT_SSH_KEY

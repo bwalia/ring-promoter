@@ -512,6 +512,12 @@ type RingConfig struct {
 	// ring to (e.g. "int", "test", "prod"). Required for the "github" deployer;
 	// ignored by the kubectl deployer.
 	TargetEnv string `yaml:"target_env"`
+	// Deployer overrides the app's deployer for THIS ring only ("github",
+	// "k8sjob", "kubectl" or "log"; empty = the app's). It lets one app move
+	// rings to a new mechanism one at a time — e.g. int on k8sjob while prod
+	// stays on github until int has proven it. The app must carry the config
+	// block every deployer it uses needs (a `github` and/or `k8sjob` block).
+	Deployer string `yaml:"deployer"`
 	// Ref pins the version (git branch/tag/sha) this ring always deploys,
 	// overriding the seeded/promoted version. Use it when a ring is fixed to a
 	// source branch — e.g. acceptance may only ever run `release`: setting
@@ -849,6 +855,27 @@ func (c *Config) DeployerFor(a AppConfig) string {
 	return c.Deployer
 }
 
+// RingDeployerFor returns the effective deployer kind for one ring of an app:
+// the ring's own override if set, otherwise the app's (DeployerFor).
+func (c *Config) RingDeployerFor(a AppConfig, ring string) string {
+	if rc, ok := a.Rings[ring]; ok && rc.Deployer != "" {
+		return rc.Deployer
+	}
+	return c.DeployerFor(a)
+}
+
+// DeployerKinds returns every deployer kind an app uses: the app's and any
+// ring override's. Each needs its config block.
+func (c *Config) DeployerKinds(a AppConfig) map[string]bool {
+	kinds := map[string]bool{c.DeployerFor(a): true}
+	for _, rc := range a.Rings {
+		if rc.Deployer != "" {
+			kinds[rc.Deployer] = true
+		}
+	}
+	return kinds
+}
+
 // validateAppDeployer checks an app's deployer selection and any deployer-
 // specific requirements (e.g. github needs a github block + per-ring env).
 func (c *Config) validateAppDeployer(a AppConfig) error {
@@ -857,8 +884,24 @@ func (c *Config) validateAppDeployer(a AppConfig) error {
 	default:
 		return fmt.Errorf("application %q has unknown deployer %q", a.Name, a.Deployer)
 	}
+	for rname, rc := range a.Rings {
+		switch rc.Deployer {
+		case "", DeployerKubectl, DeployerLog, DeployerGitHub, DeployerK8sJob:
+		default:
+			return fmt.Errorf("application %q ring %q has unknown deployer %q", a.Name, rname, rc.Deployer)
+		}
+	}
+	for kind := range c.DeployerKinds(a) {
+		if err := c.validateDeployerKind(a, kind); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	switch c.DeployerFor(a) {
+// validateDeployerKind checks the config block one deployer kind needs.
+func (c *Config) validateDeployerKind(a AppConfig, kind string) error {
+	switch kind {
 	case DeployerGitHub:
 		g := a.GitHub
 		if g == nil {
