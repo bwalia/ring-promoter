@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Poppins, Unbounded } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
@@ -40,6 +41,9 @@ export const metadata: Metadata = {
   },
 };
 
+// Google tag (gtag.js). Lives in the root layout so every route gets it.
+const GA_ID = "G-NM0J18KLK7";
+
 export const viewport: Viewport = {
   themeColor: "#0a0a0a",
 };
@@ -58,6 +62,16 @@ export default function RootLayout({
       <body className="min-h-full">
         <Providers>{children}</Providers>
         <ServiceWorkerRegister />
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="gtag-init" strategy="afterInteractive">
+          {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${GA_ID}');`}
+        </Script>
       </body>
     </html>
   );
