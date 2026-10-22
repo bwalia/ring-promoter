@@ -88,6 +88,22 @@ func (c *kitCollector) AddOutput(text string) {
 	c.mu.Unlock()
 }
 
+// SetStages implements progress.StageSink by passing through to the wrapped
+// reporter, so a deploy's live stage breakdown is not swallowed by the
+// collector.
+func (c *kitCollector) SetStages(stages []progress.Stage) {
+	if s, ok := c.Reporter.(progress.StageSink); ok {
+		s.SetStages(stages)
+	}
+}
+
+// AddGate implements progress.GateSink by passing through.
+func (c *kitCollector) AddGate(g progress.GateVerdict) {
+	if s, ok := c.Reporter.(progress.GateSink); ok {
+		s.AddGate(g)
+	}
+}
+
 // logLines returns every collected line: streamed ones, then unstreamed
 // output (e.g. a GitHub run's log archive).
 func (c *kitCollector) logLines() []string {

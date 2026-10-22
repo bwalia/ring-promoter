@@ -37,6 +37,9 @@ func actorFrom(ctx context.Context) Actor {
 	return Actor{Type: store.ActorHuman, Name: "anonymous"}
 }
 
+// ActorFrom returns the context's actor (anonymous when none is set).
+func ActorFrom(ctx context.Context) Actor { return actorFrom(ctx) }
+
 type correlationKey struct{}
 
 // WithCorrelationID returns a context carrying the operation's correlation id,

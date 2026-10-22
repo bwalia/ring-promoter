@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, Pencil } from "lucide-react";
+import { ChevronRight, Pencil, Search } from "lucide-react";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { GroupDialog } from "@/components/group-dialog";
 import { GroupRing, type NodeStatus } from "@/components/group-ring";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -71,6 +72,8 @@ export function GroupView({ group }: { group: AppGroup }) {
   const selectApp = usePrefsStore((s) => s.selectApp);
   const setPendingAction = useUiStore((s) => s.setPendingAction);
   const [editOpen, setEditOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const q = filter.trim().toLowerCase();
 
   const statuses: NodeStatus[] = results.map((r) =>
     deploying.has(r.app) ? "deploying" : baseStatus(r),
@@ -125,11 +128,28 @@ export function GroupView({ group }: { group: AppGroup }) {
 
           <div className="grid items-start gap-6 xl:grid-cols-3">
             <section className="rounded-xl border bg-card xl:col-span-2">
-              <div className="border-b p-3">
+              <div className="flex flex-wrap items-center gap-2 border-b p-3">
                 <h3 className="rp-heading-panel">Applications</h3>
+                {members.length > 6 && (
+                  <div className="relative ml-auto w-full sm:w-56">
+                    <Search
+                      aria-hidden
+                      className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <Input
+                      placeholder="Search services…"
+                      className="h-8 pl-8 text-sm"
+                      value={filter}
+                      onChange={(e) => setFilter(e.target.value)}
+                      aria-label={`Search services in ${group.name}`}
+                    />
+                  </div>
+                )}
               </div>
               <ol className="divide-y">
-                {results.map((r, i) => (
+                {results.map((r, i) => (q &&
+                  !r.app.toLowerCase().includes(q) &&
+                  !title(r.app).toLowerCase().includes(q)) ? null : (
                   <li key={r.app}>
                     <button
                       type="button"

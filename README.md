@@ -25,6 +25,7 @@ full history **per (application, ring)**.
 - [Deploy on k3s](#deploy-on-k3s)
 - [How an app's CI calls the API](#how-an-apps-ci-calls-the-api)
 - [Connect a QA agent](#connect-a-qa-agent)
+- [Pipelines (multi-app releases)](#pipelines-multi-app-releases)
 - [Postgres schema](#postgres-schema)
 - [Configuration reference](#configuration-reference)
 - [Testing](#testing)
@@ -783,6 +784,82 @@ app-level summary. The UI shows a minimal strip (fleet + per-app) when the
 agent is registered; until the first report arrives it reads “waiting for
 reports”. This does **not** replace the per-version `qa_signoff` promotion gate
 — it is a live status feed. Wiring reports into a blocking gate can come later.
+
+## Pipelines (multi-app releases)
+
+A pipeline ships several apps into one ring as a DAG of stages — the
+CircleCI-workflow / GitHub-Actions-jobs model, across services. A stage is one
+of:
+
+- **deploy** (default) — deploys its `apps` in parallel. Into `int` that is a
+  seed (each app's version comes from the run request, else the app's pinned
+  int `ref`); into any later ring it is a promotion from the ring before. Every
+  app deploy is an ordinary job, so it keeps its own steps, GitHub Actions
+  jobs and gate verdicts in the UI.
+- **gate** — a QA **Go / No-Go**: reads the [QA agent](#connect-a-qa-agent)'s
+  latest verdict for each app on the run's ring. `go` passes, `no_go` fails at
+  once, `check`/`unknown` waits (up to `timeout`, default 10m). With no `apps`
+  it checks every app its direct `needs` deployed.
+- **approval** — a hold until someone approves or rejects it (default timeout
+  24h).
+
+A stage starts once everything in its `needs` succeeded; when a need fails,
+its dependents are skipped. Example — database, QA gate, frontend, a manual
+hold, then the iOS app (an app whose `github` deployer dispatches
+`ios-release.yml`, i.e. the fastlane TestFlight lanes):
+
+```yaml
+pipelines:
+  - name: diytaxreturn-release
+    display_name: DIY Tax Return release
+    description: Schema first, then the web app, then the iOS app.
+    stages:
+      - name: database
+        display_name: Deploy database
+        apps: [diytaxreturn-db]
+      - name: qa-db
+        display_name: QA Go / No-Go
+        type: gate
+        needs: [database]
+        timeout: 15m
+      - name: frontend
+        display_name: Deploy frontend
+        apps: [diytaxreturn-opsapi, diytaxreturn-web]
+        needs: [qa-db]
+      - name: release-approval
+        display_name: Release manager approval
+        type: approval
+        needs: [frontend]
+      - name: ios
+        display_name: iOS TestFlight (fastlane)
+        apps: [diytaxreturn-ios]
+        needs: [release-approval]
+```
+
+API (Bearer token, like every `/api` route):
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/api/pipelines` | configured pipelines with their stages and `last_run` |
+| `POST` | `/api/pipelines/{name}/runs` | start a run: `{"ring":"int","versions":{"app":"v1"},"change_request_code":"…","triggered_by":"…"}` (`password` too for prod) → 202 |
+| `GET` | `/api/pipelines/{name}/runs` | the newest 50 runs |
+| `GET` | `/api/pipeline-runs/{id}` | one run: stages, their items (app, status, `job_id`, version, QA verdict) |
+| `POST` | `/api/pipeline-runs/{id}/stages/{stage}/approve` · `/reject` | decide a waiting approval: `{"by":"…","note":"…"}` |
+| `POST` | `/api/pipeline-runs/{id}/cancel` | stop scheduling; queued and waiting stages are cancelled, deploys already running finish |
+| `POST` | `/api/pipeline-runs/{id}/rerun` | rerun from failed: stages that succeeded are `reused`, the rest run again |
+
+Runs are kept in memory (the newest 100), like jobs; starts, approvals,
+rejections and cancels are recorded in the audit ledger (category `pipeline`).
+
+In the console, pipelines get their own sidebar section (searchable by
+pipeline or by any service they deploy). A run renders as a live graph:
+stages as boxes with their services, QA gates as Go / No-Go diamonds,
+approvals with Approve / Reject buttons. Solid edges carry a version forward
+(data plane) and dashed edges carry a decision (control plane); edges into
+live stages animate. Selecting a service opens its own deploy flow — policy
+gates, the GitHub Actions jobs of its workflow run with their steps, health,
+and the QA gate. The same flow view is the default tab of every app's live
+job card.
 
 ---
 

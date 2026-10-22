@@ -19,6 +19,7 @@ import {
   Star,
   Sun,
   Tag,
+  Workflow,
   Undo2,
 } from "lucide-react";
 import { ClusterDot, clusterHost, useSwitchCluster } from "@/components/clusters";
@@ -31,7 +32,13 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { useApps, useAppTitle, useGroups, useRings } from "@/lib/queries";
+import {
+  useApps,
+  useAppTitle,
+  useGroups,
+  usePipelines,
+  useRings,
+} from "@/lib/queries";
 import { useAuthStore, usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
 import type { RingView } from "@/lib/types";
@@ -52,6 +59,8 @@ export function CommandPalette({
   const selectGroup = usePrefsStore((s) => s.selectGroup);
   const selectedGroup = usePrefsStore((s) => s.selectedGroup);
   const groups = useGroups().data ?? [];
+  const pipelines = usePipelines().data ?? [];
+  const selectPipeline = usePrefsStore((s) => s.selectPipeline);
   const favorites = usePrefsStore((s) => s.favorites);
   const autoRefresh = usePrefsStore((s) => s.autoRefresh);
   const setAutoRefresh = usePrefsStore((s) => s.setAutoRefresh);
@@ -145,6 +154,30 @@ export function CommandPalette({
                   <span className="truncate">{g.name}</span>
                   <span className="ml-auto text-xs text-muted-foreground">
                     {g.apps.length} app{g.apps.length === 1 ? "" : "s"}
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
+
+        {pipelines.length > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Pipelines">
+              {pipelines.map((p) => (
+                <CommandItem
+                  key={p.name}
+                  // Services are in the value so "pipeline with <app>" finds it.
+                  value={`pipeline ${p.name} ${p.display_name ?? ""} ${p.stages
+                    .flatMap((s) => s.apps ?? [])
+                    .join(" ")}`}
+                  onSelect={run(() => selectPipeline(p.name))}
+                >
+                  <Workflow aria-hidden className="size-4" />
+                  <span className="truncate">{p.display_name ?? p.name}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {p.stages.length} stage{p.stages.length === 1 ? "" : "s"}
                   </span>
                 </CommandItem>
               ))}

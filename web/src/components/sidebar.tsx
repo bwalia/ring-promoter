@@ -12,6 +12,7 @@ import {
   Search,
   Star,
   Trash2,
+  Workflow,
 } from "lucide-react";
 import { GroupDialog } from "@/components/group-dialog";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import {
   useAppTitle,
   useDeleteGroup,
   useGroups,
+  usePipelines,
   useUpdateGroup,
 } from "@/lib/queries";
 import { usePrefsStore } from "@/lib/stores";
@@ -67,7 +69,10 @@ export function Sidebar({
   const selectedApp = usePrefsStore((s) => s.selectedApp);
   const selectedGroup = usePrefsStore((s) => s.selectedGroup);
   const selectGroup = usePrefsStore((s) => s.selectGroup);
-  const fleetActive = !selectedApp && !selectedGroup;
+  const selectedPipeline = usePrefsStore((s) => s.selectedPipeline);
+  const selectPipeline = usePrefsStore((s) => s.selectPipeline);
+  const pipelines = usePipelines().data ?? [];
+  const fleetActive = !selectedApp && !selectedGroup && !selectedPipeline;
 
   const q = filter.trim().toLowerCase();
   const title = useAppTitle();
@@ -77,6 +82,19 @@ export function Sidebar({
 
   const favApps = favorites.filter(known).filter(match);
   const allApps = apps.filter(match);
+  // A group whose NAME matches shows all its members; otherwise it shows the
+  // members that match, and hides when none do.
+  const groupNameMatch = (g: AppGroup) => !q || g.name.toLowerCase().includes(q);
+  const shownGroups = groups.filter(
+    (g) => groupNameMatch(g) || g.apps.some((a) => known(a) && match(a)),
+  );
+  // Pipelines match by name or by any service they deploy.
+  const shownPipelines = pipelines.filter(
+    (p) =>
+      !q ||
+      [p.name, p.display_name ?? ""].some((t) => t.toLowerCase().includes(q)) ||
+      p.stages.some((s) => (s.apps ?? []).some(match)),
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -105,11 +123,11 @@ export function Sidebar({
           />
           <Input
             id={searchInputId}
-            placeholder="Filter applications…"
+            placeholder="Filter apps, groups, pipelines…"
             className="h-9 pl-8 text-sm"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            aria-label="Filter applications"
+            aria-label="Filter applications, groups and pipelines"
           />
           <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border bg-muted px-1 font-mono text-[10px] text-muted-foreground">
             /
@@ -181,7 +199,50 @@ export function Sidebar({
             </Section>
           )}
 
-          {groups.length > 0 && (
+          {shownPipelines.length > 0 && (
+            <Section id="pipelines" label="Pipelines">
+              {shownPipelines.map((p) => {
+                const active = selectedPipeline === p.name;
+                const last = p.last_run?.status;
+                return (
+                  <button
+                    key={p.name}
+                    type="button"
+                    onClick={() => {
+                      selectPipeline(p.name);
+                      onNavigate?.();
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-semibold 2xl:text-[15px]",
+                      active
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-foreground/80 hover:bg-sidebar-accent/60 hover:text-foreground",
+                    )}
+                  >
+                    <Workflow aria-hidden className="size-4 shrink-0 opacity-80" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {p.display_name ?? p.name}
+                    </span>
+                    {last && (
+                      <span
+                        aria-label={`last run ${last}`}
+                        className={cn(
+                          "size-2 shrink-0 rounded-full",
+                          last === "success" && "bg-status-good",
+                          last === "failed" && "bg-status-critical",
+                          (last === "running" || last === "queued") && "animate-pulse bg-primary",
+                          last === "waiting" && "animate-pulse bg-status-warning",
+                          last === "cancelled" && "bg-muted-foreground/40",
+                        )}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </Section>
+          )}
+
+          {groups.length > 0 && shownGroups.length > 0 && (
             <Section
               id="groups"
               label="Rings"
@@ -197,11 +258,11 @@ export function Sidebar({
                 </Button>
               }
             >
-              {groups.map((g) => (
+              {shownGroups.map((g) => (
                 <GroupSection
                   key={g.id}
                   group={g}
-                  filterMatch={match}
+                  filterMatch={groupNameMatch(g) ? () => true : match}
                   known={known}
                   onEdit={() => setGroupDialog({ open: true, group: g })}
                   onNavigate={onNavigate}

@@ -253,6 +253,7 @@ const (
 	AuditOverride      = "override"       // a human overruled a blocking gate
 	AuditConfig        = "config"         // settings changed at runtime
 	AuditAgentDecision = "agent_decision" // a Ring Agent decision record
+	AuditPipeline      = "pipeline"       // a multi-app pipeline run's lifecycle
 )
 
 // AuditEvent is one append-only entry in the audit ledger: who did what, to

@@ -54,10 +54,11 @@ type podDoc struct {
 }
 
 type podCondition struct {
-	Type    string `json:"type"`
-	Status  string `json:"status"`
-	Reason  string `json:"reason"`
-	Message string `json:"message"`
+	Type               string     `json:"type"`
+	Status             string     `json:"status"`
+	Reason             string     `json:"reason"`
+	Message            string     `json:"message"`
+	LastTransitionTime *time.Time `json:"lastTransitionTime"`
 }
 
 type containerStatus struct {
@@ -70,11 +71,18 @@ type containerState struct {
 		Reason  string `json:"reason"`
 		Message string `json:"message"`
 	} `json:"waiting"`
-	Terminated *struct {
-		ExitCode int    `json:"exitCode"`
-		Reason   string `json:"reason"`
-		Message  string `json:"message"`
-	} `json:"terminated"`
+	Running *struct {
+		StartedAt *time.Time `json:"startedAt"`
+	} `json:"running"`
+	Terminated *terminatedState `json:"terminated"`
+}
+
+type terminatedState struct {
+	ExitCode   int        `json:"exitCode"`
+	Reason     string     `json:"reason"`
+	Message    string     `json:"message"`
+	StartedAt  *time.Time `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
 }
 
 // mapStatus translates raw Job + Pod state into the backend-agnostic Status,

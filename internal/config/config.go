@@ -77,6 +77,8 @@ type Config struct {
 	// go/no-go and environment health. Nil / absent = integration off.
 	QAAgent *QAAgentConfig `yaml:"qa_agent"`
 	Apps    []AppConfig    `yaml:"apps"`
+	// Pipelines are multi-app release workflows (see PipelineConfig).
+	Pipelines []PipelineConfig `yaml:"pipelines"`
 }
 
 // OllamaConfig configures the optional AI failure-diagnosis feature: when a
@@ -810,7 +812,7 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
-	return nil
+	return c.validatePipelines()
 }
 
 // ProdRingName is the last ring in the pipeline — the one deploys into which

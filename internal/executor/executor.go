@@ -10,6 +10,8 @@ import (
 	"errors"
 	"io"
 	"time"
+
+	"github.com/example/ring-promoter/internal/progress"
 )
 
 // Environment variable names of the runner contract: every execution receives
@@ -129,6 +131,14 @@ type Outputs struct {
 // what it could gather, and an error only when it gathered nothing useful.
 type OutputReporter interface {
 	Outputs(ctx context.Context) (Outputs, error)
+}
+
+// StageReporter is implemented by executions that can break their work down
+// into stages — the jobs of a GitHub Actions run, the phases of a Kubernetes
+// Job — for a live pipeline view. Optional and best effort: it is polled
+// alongside Status and its errors never affect the execution.
+type StageReporter interface {
+	Stages(ctx context.Context) ([]progress.Stage, error)
 }
 
 // Phase is the backend-agnostic lifecycle state of an execution.

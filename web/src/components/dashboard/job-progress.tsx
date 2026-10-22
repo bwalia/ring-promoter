@@ -10,6 +10,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+import { JobFlow } from "@/components/flow/job-flow";
 import { ACTION_META } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,14 +18,16 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useActiveJob, useApps, useAppTitle, useDiagnoseJob } from "@/lib/queries";
 import { duration } from "@/lib/time";
 import type { Job, JobStep, StepStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
- * Live view of the app's running (or just-finished) seed/promote/rollback:
- * one row per step with status, elapsed time and streaming logs, à la CI.
+ * Live view of the app's running (or just-finished) seed/promote/rollback.
+ * "Flow" draws the run as a graph (policy gates → CI jobs → health → QA gate);
+ * "Steps" is the classic one-row-per-step log view.
  */
 export function JobProgress({ app }: { app: string }) {
   const { job, running, dismiss } = useActiveJob(app);
@@ -81,16 +84,33 @@ export function JobProgress({ app }: { app: string }) {
         )}
       </div>
 
-      <ol className="divide-y">
-        {job.steps.length === 0 && (
-          <li className="px-4 py-3 text-sm text-muted-foreground">
-            Waiting for the first step…
-          </li>
-        )}
-        {job.steps.map((step, i) => (
-          <StepRow key={`${step.id}-${i}`} step={step} />
-        ))}
-      </ol>
+      <Tabs defaultValue="flow" className="gap-0">
+        <div className="border-b px-4 pt-2">
+          <TabsList className="h-8">
+            <TabsTrigger value="flow" className="text-xs">
+              Flow
+            </TabsTrigger>
+            <TabsTrigger value="steps" className="text-xs">
+              Steps &amp; logs
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="flow">
+          <JobFlow job={job} />
+        </TabsContent>
+        <TabsContent value="steps">
+          <ol className="divide-y">
+            {job.steps.length === 0 && (
+              <li className="px-4 py-3 text-sm text-muted-foreground">
+                Waiting for the first step…
+              </li>
+            )}
+            {job.steps.map((step, i) => (
+              <StepRow key={`${step.id}-${i}`} step={step} />
+            ))}
+          </ol>
+        </TabsContent>
+      </Tabs>
 
       {job.status === "failed" && <DiagnosisFooter app={app} job={job} />}
     </section>

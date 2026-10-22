@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/example/ring-promoter/internal/progress"
 	"github.com/example/ring-promoter/internal/promoter"
 )
 
@@ -25,17 +26,53 @@ type stepView struct {
 	Logs       []string   `json:"logs"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	// Stages is the step's breakdown into the jobs a backend ran for it (the
+	// GitHub Actions jobs of a workflow run, the phases of a Kubernetes Job).
+	Stages []stageView `json:"stages,omitempty"`
+}
+
+// stageView is the JSON view of one stage of a step.
+type stageView struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Status     string          `json:"status"`
+	URL        string          `json:"url,omitempty"`
+	StartedAt  *time.Time      `json:"started_at,omitempty"`
+	FinishedAt *time.Time      `json:"finished_at,omitempty"`
+	Steps      []stageStepView `json:"steps,omitempty"`
+}
+
+// stageStepView is the JSON view of one step inside a stage.
+type stageStepView struct {
+	Number     int        `json:"number"`
+	Name       string     `json:"name"`
+	Status     string     `json:"status"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+}
+
+// gateView is the JSON view of one promotion-policy gate verdict.
+type gateView struct {
+	Gate    string `json:"gate"`
+	Verdict string `json:"verdict"`
+	Detail  string `json:"detail"`
+	Ring    string `json:"ring,omitempty"`
 }
 
 // jobState is the JSON view of a job (no mutex, safe to marshal).
 type jobState struct {
-	ID     string           `json:"id"`
-	App    string           `json:"app"`
-	Action string           `json:"action"`
+	ID     string `json:"id"`
+	App    string `json:"app"`
+	Action string `json:"action"`
+	// Ring is the ring the operation deploys to, when known.
+	Ring   string           `json:"ring,omitempty"`
 	Status string           `json:"status"`
 	Steps  []stepView       `json:"steps"`
 	Result *promoter.Result `json:"result,omitempty"`
 	Error  string           `json:"error,omitempty"`
+	// Gates are the promotion-policy verdicts the operation was checked
+	// against, in evaluation order.
+	Gates []gateView `json:"gates,omitempty"`
 	// AI diagnosis of a failed job (see handleDiagnoseJob). The generation
 	// runs detached from the request, so the UI polls the job for these:
 	// DiagnosisStatus moves "" → running → done|failed, and Diagnosis carries
@@ -59,6 +96,14 @@ const (
 type Job struct {
 	mu sync.Mutex
 	st jobState
+	// done is closed once the job reaches a terminal status.
+	done chan struct{}
+}
+
+// wait blocks until the job has finished and returns its final state.
+func (j *Job) wait() jobState {
+	<-j.done
+	return j.snapshot()
 }
 
 func (j *Job) id() string {
@@ -99,6 +144,53 @@ func (j *Job) FinishStep(status, message string) {
 		t := time.Now().UTC()
 		s.FinishedAt = &t
 	}
+}
+
+// SetStages implements progress.StageSink: stages replace the current step's
+// stage breakdown wholesale.
+func (j *Job) SetStages(stages []progress.Stage) {
+	views := make([]stageView, len(stages))
+	for i, st := range stages {
+		v := stageView{
+			ID: st.ID, Name: st.Name, Status: st.Status, URL: st.URL,
+			StartedAt: copyTime(st.StartedAt), FinishedAt: copyTime(st.FinishedAt),
+		}
+		for _, sp := range st.Steps {
+			v.Steps = append(v.Steps, stageStepView{
+				Number: sp.Number, Name: sp.Name, Status: sp.Status,
+				StartedAt: copyTime(sp.StartedAt), FinishedAt: copyTime(sp.FinishedAt),
+			})
+		}
+		views[i] = v
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if n := len(j.st.Steps); n > 0 {
+		j.st.Steps[n-1].Stages = views
+	}
+}
+
+// AddGate implements progress.GateSink.
+func (j *Job) AddGate(g progress.GateVerdict) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.st.Gates = append(j.st.Gates, gateView{Gate: g.Gate, Verdict: g.Verdict, Detail: g.Detail, Ring: g.Ring})
+}
+
+// setRing records the ring the operation deploys to.
+func (j *Job) setRing(r string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.st.Ring = r
+}
+
+// copyTime returns a copy of t so a view never aliases its source.
+func copyTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	c := *t
+	return &c
 }
 
 // StepLogs implements promoter.StepLogsProvider: it renders the steps and logs
@@ -156,6 +248,7 @@ func (j *Job) finish(res promoter.Result, err error) {
 	}
 	t := time.Now().UTC()
 	j.st.FinishedAt = &t
+	defer close(j.done)
 	if err != nil {
 		j.st.Status = jobFailed
 		j.st.Error = err.Error()
@@ -181,7 +274,16 @@ func (j *Job) snapshot() jobState {
 		// append([]string(nil), ...) of an empty slice yields nil → JSON null.
 		sc.Logs = make([]string, len(s.Logs))
 		copy(sc.Logs, s.Logs)
+		// Stage views are never mutated in place (SetStages swaps the whole
+		// slice), so sharing the slice is safe; copy the header anyway so the
+		// snapshot does not observe a later swap.
+		if s.Stages != nil {
+			sc.Stages = append([]stageView(nil), s.Stages...)
+		}
 		cp.Steps[i] = sc
+	}
+	if j.st.Gates != nil {
+		cp.Gates = append([]gateView(nil), j.st.Gates...)
 	}
 	if j.st.Result != nil {
 		r := *j.st.Result
@@ -216,7 +318,7 @@ func (m *JobManager) create(app, action string) *Job {
 	j := &Job{st: jobState{
 		ID: id, App: app, Action: action, Status: jobPending,
 		Steps: []stepView{}, StartedAt: time.Now().UTC(),
-	}}
+	}, done: make(chan struct{})}
 	m.jobs[id] = j
 	m.order = append(m.order, id)
 	for len(m.order) > m.max {
@@ -262,7 +364,14 @@ func (m *JobManager) latestPerApp() []jobState {
 // context that carries the Job as the progress Reporter. It returns immediately
 // with the Job so the caller can hand back its ID.
 func (m *JobManager) run(baseCtx context.Context, timeout time.Duration, app, action string, fn func(ctx context.Context) (promoter.Result, error)) *Job {
+	return m.runOn(baseCtx, timeout, app, action, "", fn)
+}
+
+// runOn is run for an operation whose target ring is known up front; the ring
+// is recorded on the job so views can place it without parsing step titles.
+func (m *JobManager) runOn(baseCtx context.Context, timeout time.Duration, app, action, targetRing string, fn func(ctx context.Context) (promoter.Result, error)) *Job {
 	j := m.create(app, action)
+	j.setRing(targetRing)
 	ctx, cancel := context.WithTimeout(promoter.WithReporter(context.WithoutCancel(baseCtx), j), timeout)
 	go func() {
 		defer cancel()

@@ -182,6 +182,8 @@ interface PrefsState {
   selectedApp: string | null;
   /** When set, the group page is shown instead of the app dashboard. */
   selectedGroup: string | null;
+  /** When set, that multi-service pipeline's page is shown. */
+  selectedPipeline: string | null;
   favorites: string[];
   recents: string[];
   /**
@@ -195,6 +197,7 @@ interface PrefsState {
 
   selectApp: (app: string) => void;
   selectGroup: (id: string | null) => void;
+  selectPipeline: (name: string | null) => void;
   toggleFavorite: (app: string) => void;
   clearGroups: () => void;
   toggleCollapsed: (key: string) => void;
@@ -206,6 +209,7 @@ export const usePrefsStore = create<PrefsState>()(
     (set) => ({
       selectedApp: null,
       selectedGroup: null,
+      selectedPipeline: null,
       favorites: [],
       recents: [],
       groups: [],
@@ -216,15 +220,19 @@ export const usePrefsStore = create<PrefsState>()(
         set((s) => ({
           selectedApp: app,
           selectedGroup: null,
+          selectedPipeline: null,
           recents: [app, ...s.recents.filter((a) => a !== app)].slice(0, 5),
         })),
 
       selectGroup: (id) =>
         set(
           id
-            ? { selectedGroup: id, selectedApp: null }
-            : { selectedGroup: null, selectedApp: null },
+            ? { selectedGroup: id, selectedApp: null, selectedPipeline: null }
+            : { selectedGroup: null, selectedApp: null, selectedPipeline: null },
         ),
+
+      selectPipeline: (name) =>
+        set({ selectedPipeline: name, selectedGroup: null, selectedApp: null }),
 
       toggleFavorite: (app) =>
         set((s) => ({
@@ -267,6 +275,7 @@ export const usePrefsStore = create<PrefsState>()(
           autoRefresh: p.autoRefresh ?? true,
           selectedApp: null,
           selectedGroup: null,
+          selectedPipeline: null,
         };
       },
       // Drop any legacy navigation keys still sitting in older localStorage.
@@ -277,6 +286,7 @@ export const usePrefsStore = create<PrefsState>()(
           ...p,
           selectedApp: null,
           selectedGroup: null,
+          selectedPipeline: null,
         };
       },
     },

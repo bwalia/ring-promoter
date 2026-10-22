@@ -8,10 +8,17 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useNow } from "@/lib/use-now";
 import { useAuthStore, useJobsStore, usePrefsStore } from "@/lib/stores";
-import type { AppLocation, HistoryEntry, Job, RingView } from "@/lib/types";
+import type {
+  AppLocation,
+  HistoryEntry,
+  Job,
+  PipelineRun,
+  RingView,
+  StartPipelineRequest,
+} from "@/lib/types";
 
 // Polling cadence. The UI never asks the user to refresh: server state is
 // re-fetched on these intervals (and instantly after a job finishes).
@@ -693,4 +700,115 @@ export function useRollbackMutation(app: string | null) {
     onError: (err: Error) =>
       toast.error("Rollback failed", { description: err.message }),
   });
+}
+
+// ---- multi-service pipelines (config `pipelines:`) ----
+
+const PIPELINES_INTERVAL = 10_000;
+
+const pipelineTerminal = (status: string | undefined) =>
+  status === "success" || status === "failed" || status === "cancelled";
+
+export function usePipelines() {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["pipelines"],
+    queryFn: api.pipelines,
+    enabled: !!token,
+    refetchInterval: PIPELINES_INTERVAL,
+    // An older server has no pipelines endpoint; treat that as "none".
+    retry: (n, err) => !(err instanceof ApiError && err.status === 404) && n < 2,
+    select: (data) => data ?? [],
+  });
+}
+
+export function usePipelineRuns(name: string | null) {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["pipeline-runs", name],
+    queryFn: () => api.pipelineRuns(name!),
+    enabled: !!token && !!name,
+    // Poll fast while any run is live, so the history list and the graph move
+    // together.
+    refetchInterval: (q) =>
+      (q.state.data ?? []).some((r) => !pipelineTerminal(r.status))
+        ? JOBS_INTERVAL
+        : // Idle, but a run may be started from another screen or by CI.
+          5_000,
+    select: (data) => data ?? [],
+  });
+}
+
+export function usePipelineRun(id: string | null) {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["pipeline-run", id],
+    queryFn: () => api.pipelineRun(id!),
+    enabled: !!token && !!id,
+    refetchInterval: (q) =>
+      pipelineTerminal(q.state.data?.status) ? false : JOBS_INTERVAL,
+  });
+}
+
+/** One specific job (not just the newest per app); polls until it finishes. */
+export function useJob(app: string | null, id: string | null | undefined) {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["job", app, id],
+    queryFn: () => api.job(app!, id!),
+    enabled: !!token && !!app && !!id,
+    refetchInterval: (q) => (isTerminal(q.state.data) ? false : JOBS_INTERVAL),
+  });
+}
+
+function usePipelineMutation<V>(
+  fn: (v: V) => Promise<PipelineRun>,
+  failure: string,
+  onRun?: (run: PipelineRun) => void,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (run) => {
+      queryClient.setQueryData(["pipeline-run", run.id], run);
+      queryClient.invalidateQueries({ queryKey: ["pipeline-runs", run.pipeline] });
+      queryClient.invalidateQueries({ queryKey: ["pipelines"] });
+      onRun?.(run);
+    },
+    onError: (err: Error) => toast.error(failure, { description: err.message }),
+  });
+}
+
+export function useStartPipeline(
+  name: string,
+  onRun?: (run: PipelineRun) => void,
+) {
+  return usePipelineMutation(
+    (body: StartPipelineRequest) => api.startPipeline(name, body),
+    "Could not start pipeline",
+    onRun,
+  );
+}
+
+export function useDecidePipelineStage() {
+  return usePipelineMutation(
+    (v: { id: string; stage: string; decision: "approve" | "reject"; note?: string }) =>
+      api.decidePipelineStage(v.id, v.stage, v.decision, v.note),
+    "Could not record the decision",
+  );
+}
+
+export function useCancelPipelineRun() {
+  return usePipelineMutation(
+    (id: string) => api.cancelPipelineRun(id),
+    "Could not cancel the run",
+  );
+}
+
+export function useRerunPipeline(onRun?: (run: PipelineRun) => void) {
+  return usePipelineMutation(
+    (v: { id: string; password?: string }) => api.rerunPipeline(v.id, v.password),
+    "Could not re-run",
+    onRun,
+  );
 }

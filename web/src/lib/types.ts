@@ -293,6 +293,46 @@ export interface JobStep {
   logs: string[];
   started_at: string;
   finished_at?: string;
+  /**
+   * Live sub-stages of this step reported by the execution backend — the
+   * GitHub Actions jobs of the dispatched workflow run, or the phases of a
+   * Kubernetes Job. Replaced wholesale on every poll.
+   */
+  stages?: JobStage[];
+}
+
+export type StageStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+
+export interface JobStageStep {
+  number: number;
+  name: string;
+  status: StageStatus;
+  started_at?: string;
+  finished_at?: string;
+}
+
+export interface JobStage {
+  id: string;
+  name: string;
+  status: StageStatus;
+  url?: string;
+  started_at?: string;
+  finished_at?: string;
+  steps?: JobStageStep[];
+}
+
+/** One promotion-policy gate verdict recorded while the job ran. */
+export interface JobGate {
+  gate: string;
+  verdict: "pass" | "fail" | "overridden" | string;
+  detail?: string;
+  ring?: string;
 }
 
 export interface Job {
@@ -311,8 +351,90 @@ export interface Job {
   diagnosis?: string;
   diagnosis_status?: "running" | "done" | "failed";
   diagnosis_error?: string;
+  /** Target ring of the operation, when known. */
+  ring?: string;
+  /** Policy gates evaluated before the deploy (Go/No-Go). */
+  gates?: JobGate[];
   started_at: string;
   finished_at?: string;
+}
+
+// ---- multi-service pipelines (config `pipelines:`) ----
+
+export type PipelineStageType = "deploy" | "gate" | "approval";
+
+export type PipelineStatus =
+  | "queued"
+  | "running"
+  | "waiting"
+  | "success"
+  | "failed"
+  | "skipped"
+  | "cancelled"
+  | "reused";
+
+export interface PipelineStageDef {
+  name: string;
+  display_name?: string;
+  type: PipelineStageType;
+  apps?: string[];
+  needs?: string[];
+  gate?: string;
+  timeout_seconds?: number;
+}
+
+export interface PipelineRunItem {
+  app: string;
+  status: PipelineStatus;
+  job_id?: string;
+  version?: string;
+  /** Gate stages only: the QA agent's verdict for this app on the run's ring. */
+  verdict?: GateState;
+  detail?: string;
+}
+
+export interface PipelineRunStage {
+  name: string;
+  display_name?: string;
+  type: PipelineStageType;
+  needs?: string[];
+  status: PipelineStatus;
+  message?: string;
+  started_at?: string;
+  finished_at?: string;
+  approved_by?: string;
+  items?: PipelineRunItem[];
+}
+
+export interface PipelineRun {
+  id: string;
+  pipeline: string;
+  display_name?: string;
+  ring: string;
+  status: PipelineStatus;
+  triggered_by?: string;
+  error?: string;
+  rerun_of?: string;
+  started_at: string;
+  finished_at?: string;
+  stages: PipelineRunStage[];
+}
+
+export interface PipelineDef {
+  name: string;
+  display_name?: string;
+  description?: string;
+  stages: PipelineStageDef[];
+  last_run?: PipelineRun | null;
+}
+
+export interface StartPipelineRequest {
+  ring: string;
+  versions?: Record<string, string>;
+  change_request_code?: string;
+  /** Production password — required when the run targets prod. */
+  password?: string;
+  triggered_by?: string;
 }
 
 export interface AppGroup {

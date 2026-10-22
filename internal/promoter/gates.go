@@ -8,6 +8,7 @@ import (
 
 	"github.com/example/ring-promoter/internal/changerequest"
 	"github.com/example/ring-promoter/internal/config"
+	"github.com/example/ring-promoter/internal/progress"
 	"github.com/example/ring-promoter/internal/ring"
 	"github.com/example/ring-promoter/internal/store"
 )
@@ -133,6 +134,9 @@ func (p *Promoter) evaluateGates(ctx context.Context, app, targetRing, version s
 			rep.Log("gate: " + res.Detail)
 		}
 		if !isValidateOnly(ctx) {
+			progress.AddGate(ctx, progress.GateVerdict{
+				Gate: res.Gate, Verdict: res.Verdict, Detail: res.Detail, Ring: targetRing,
+			})
 			p.audit(ctx, store.AuditEvent{
 				App: app, Ring: targetRing, Category: store.AuditGate, Action: res.Gate,
 				Version: version,

@@ -15,6 +15,7 @@ import (
 
 	"github.com/example/ring-promoter/internal/deployer"
 	"github.com/example/ring-promoter/internal/metrics"
+	"github.com/example/ring-promoter/internal/pipeline"
 	"github.com/example/ring-promoter/internal/promoter"
 	"github.com/example/ring-promoter/internal/ring"
 	"github.com/example/ring-promoter/internal/store"
@@ -42,6 +43,7 @@ type Server struct {
 	histDiag  historyDiagnoses
 	plans     testPlans
 	cors      CORSPolicy
+	pipes     *pipeline.Manager
 }
 
 // NewServer constructs an API server. ui serves the embedded web assets and
@@ -56,10 +58,12 @@ func NewServer(prom *promoter.Promoter, token, prodPass string, ui http.Handler,
 	if opTimeout <= 0 {
 		opTimeout = 10 * time.Minute
 	}
-	return &Server{prom: prom, token: token, prodPass: prodPass, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now(), diag: diag,
+	s := &Server{prom: prom, token: token, prodPass: prodPass, ui: ui, opTimeout: opTimeout, log: log, jobs: NewJobManager(), build: build, startedAt: time.Now(), diag: diag,
 		histDiag: historyDiagnoses{state: make(map[int64]historyDiagState)},
 		plans:    testPlans{state: make(map[string]historyDiagState)},
 		cors:     CORSPolicy{any: true}}
+	s.pipes = pipeline.NewManager(pipelineRunner{s: s})
+	return s
 }
 
 // ResumePendingOps resolves the operations a previous process left in flight
@@ -76,7 +80,7 @@ func (s *Server) ResumePendingOps(ctx context.Context) {
 	for _, op := range ops {
 		s.log.Info("recovering operation interrupted by a restart",
 			"app", op.App, "ring", op.Ring, "action", op.Action, "version", op.Version, "started_at", op.StartedAt)
-		s.jobs.run(ctx, s.opTimeout, op.App, op.Action, func(ctx context.Context) (promoter.Result, error) {
+		s.jobs.runOn(ctx, s.opTimeout, op.App, op.Action, op.Ring, func(ctx context.Context) (promoter.Result, error) {
 			return s.prom.ResumePendingOp(ctx, op)
 		})
 	}
@@ -171,6 +175,16 @@ func (s *Server) Handler() http.Handler {
 	// External QA agent — optional; inert when qa_agent is absent from config.
 	api.HandleFunc("GET /api/qa", s.handleQAStatus)
 	api.HandleFunc("POST /api/qa/reports", s.handleCreateQAReport)
+	// Multi-app pipelines — config-defined stage DAGs (deploy, QA gate,
+	// approval) run across several apps, with rerun-from-failed.
+	api.HandleFunc("GET /api/pipelines", s.handleListPipelines)
+	api.HandleFunc("POST /api/pipelines/{name}/runs", s.handleStartPipeline)
+	api.HandleFunc("GET /api/pipelines/{name}/runs", s.handleListPipelineRuns)
+	api.HandleFunc("GET /api/pipeline-runs/{id}", s.handleGetPipelineRun)
+	api.HandleFunc("POST /api/pipeline-runs/{id}/stages/{stage}/approve", s.handleApprovePipelineStage)
+	api.HandleFunc("POST /api/pipeline-runs/{id}/stages/{stage}/reject", s.handleRejectPipelineStage)
+	api.HandleFunc("POST /api/pipeline-runs/{id}/cancel", s.handleCancelPipelineRun)
+	api.HandleFunc("POST /api/pipeline-runs/{id}/rerun", s.handleRerunPipeline)
 	mux.Handle("/api/", s.authenticate(api))
 
 	// Web UI (single-page app) — served at the root.
@@ -348,7 +362,7 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 			writeError(w, statusForErr(err), err)
 			return
 		}
-		job := s.jobs.run(gateCtx, s.opTimeout, app, "seed", func(ctx context.Context) (promoter.Result, error) {
+		job := s.jobs.runOn(gateCtx, s.opTimeout, app, "seed", body.Ring, func(ctx context.Context) (promoter.Result, error) {
 			return s.prom.Seed(ctx, app, body.Ring, body.Version)
 		})
 		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.id()})
@@ -395,7 +409,8 @@ func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
 			writeError(w, statusForErr(err), err)
 			return
 		}
-		job := s.jobs.run(gateCtx, s.opTimeout, app, "promote", func(ctx context.Context) (promoter.Result, error) {
+		target, _ := ring.Next(body.FromRing)
+		job := s.jobs.runOn(gateCtx, s.opTimeout, app, "promote", target.Name, func(ctx context.Context) (promoter.Result, error) {
 			return s.prom.Promote(ctx, app, body.FromRing)
 		})
 		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.id()})
@@ -417,7 +432,7 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 	}
 	app := r.PathValue("app")
 	if wantsAsync(r) {
-		job := s.jobs.run(r.Context(), s.opTimeout, app, "rollback", func(ctx context.Context) (promoter.Result, error) {
+		job := s.jobs.runOn(r.Context(), s.opTimeout, app, "rollback", body.Ring, func(ctx context.Context) (promoter.Result, error) {
 			return s.prom.Rollback(ctx, app, body.Ring)
 		})
 		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.id()})
@@ -457,7 +472,7 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 			writeError(w, statusForErr(err), err)
 			return
 		}
-		job := s.jobs.run(r.Context(), s.opTimeout, app, "restart", func(ctx context.Context) (promoter.Result, error) {
+		job := s.jobs.runOn(r.Context(), s.opTimeout, app, "restart", ringName, func(ctx context.Context) (promoter.Result, error) {
 			return s.prom.Restart(ctx, app, ringName, opts)
 		})
 		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.id()})

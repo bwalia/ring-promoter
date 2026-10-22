@@ -341,3 +341,40 @@
     block-size: auto;
   }
 }
+
+/* Flow graphs (deploy run + multi-service pipelines). Colours come from the
+   existing tokens — the theme itself is unchanged. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rp-glow {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 0%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 18px -2px color-mix(in oklab, var(--primary) 45%, transparent);
+    }
+  }
+  @keyframes rp-wait {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--status-warning) 0%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 16px -2px color-mix(in oklab, var(--status-warning) 50%, transparent);
+    }
+  }
+  @keyframes rp-march {
+    to {
+      stroke-dashoffset: -22;
+    }
+  }
+  .rp-node-running {
+    animation: rp-glow 1.8s ease-in-out infinite;
+  }
+  .rp-node-waiting {
+    animation: rp-wait 2.2s ease-in-out infinite;
+  }
+  .rp-edge-march {
+    animation: rp-march 0.9s linear infinite;
+  }
+}

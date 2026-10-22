@@ -248,11 +248,7 @@ func termPod(created time.Time, exitCode int, reason string) podDoc {
 	p.Metadata.CreationTimestamp = created
 	p.Status.Phase = "Failed"
 	p.Status.ContainerStatuses = []containerStatus{{}}
-	p.Status.ContainerStatuses[0].State.Terminated = &struct {
-		ExitCode int    `json:"exitCode"`
-		Reason   string `json:"reason"`
-		Message  string `json:"message"`
-	}{ExitCode: exitCode, Reason: reason}
+	p.Status.ContainerStatuses[0].State.Terminated = &terminatedState{ExitCode: exitCode, Reason: reason}
 	return p
 }
 

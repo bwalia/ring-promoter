@@ -32,6 +32,8 @@ type ghFake struct {
 	statusPolls   int
 	// omitRun makes the runs list empty (simulating the run never appearing).
 	omitRun bool
+	// jobs, when set, is served verbatim by the run-jobs endpoint (404 otherwise).
+	jobs string
 }
 
 func newGHServer(t *testing.T, f *ghFake) *httptest.Server {
@@ -90,6 +92,17 @@ func newGHServer(t *testing.T, f *ghFake) *httptest.Server {
 			ID: 42, Status: status, Conclusion: concl,
 			HTMLURL: "https://github.com/o/r/actions/runs/42",
 		})
+	})
+
+	mux.HandleFunc("/repos/o/r/actions/runs/42/jobs", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		jobs := f.jobs
+		f.mu.Unlock()
+		if jobs == "" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, jobs)
 	})
 
 	srv := httptest.NewServer(mux)
