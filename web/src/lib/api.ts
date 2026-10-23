@@ -9,9 +9,15 @@ import type {
   Job,
   MaintenanceView,
   MaintenanceWindow,
+  PipelineDef,
+  PipelineRun,
   QAStatus,
   RingView,
+  SecurityEvaluation,
+  SecurityView,
+  SecurityWaiver,
   Signoff,
+  StartPipelineRequest,
   TopologyResponse,
   VersionsResponse,
 } from "@/lib/types";
@@ -318,4 +324,73 @@ export const api = {
         body: JSON.stringify({ enabled, ...(password ? { password } : {}) }),
       },
     ),
+
+  // ---- multi-service pipelines ----
+
+  pipelines: () => request<PipelineDef[]>("/api/pipelines"),
+
+  pipelineRuns: (name: string) =>
+    request<PipelineRun[]>(
+      `/api/pipelines/${encodeURIComponent(name)}/runs`,
+    ),
+
+  startPipeline: (name: string, body: StartPipelineRequest) =>
+    request<PipelineRun>(`/api/pipelines/${encodeURIComponent(name)}/runs`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  pipelineRun: (id: string) =>
+    request<PipelineRun>(`/api/pipeline-runs/${encodeURIComponent(id)}`),
+
+  decidePipelineStage: (
+    id: string,
+    stage: string,
+    decision: "approve" | "reject",
+    note?: string,
+  ) =>
+    request<PipelineRun>(
+      `/api/pipeline-runs/${encodeURIComponent(id)}/stages/${encodeURIComponent(stage)}/${decision}`,
+      { method: "POST", body: JSON.stringify(note ? { note } : {}) },
+    ),
+
+  cancelPipelineRun: (id: string) =>
+    request<PipelineRun>(
+      `/api/pipeline-runs/${encodeURIComponent(id)}/cancel`,
+      { method: "POST" },
+    ),
+
+  rerunPipeline: (id: string, password?: string) =>
+    request<PipelineRun>(
+      `/api/pipeline-runs/${encodeURIComponent(id)}/rerun`,
+      {
+        method: "POST",
+        body: JSON.stringify(password ? { password } : {}),
+      },
+    ),
+
+  // ---- security & compliance ----
+
+  security: (name: string) => request<SecurityView>(`${app(name)}/security`),
+
+  evaluateSecurity: (name: string, version: string, ring?: string) =>
+    request<SecurityEvaluation>(
+      `${app(name)}/security/evaluate?version=${encodeURIComponent(version)}${
+        ring ? `&ring=${encodeURIComponent(ring)}` : ""
+      }`,
+    ),
+
+  createWaiver: (
+    name: string,
+    w: { finding: string; ring?: string; reason: string; days?: number },
+  ) =>
+    request<SecurityWaiver>(`${app(name)}/security/waivers`, {
+      method: "POST",
+      body: JSON.stringify(w),
+    }),
+
+  deleteWaiver: (name: string, id: string) =>
+    request<void>(`${app(name)}/security/waivers/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
 };

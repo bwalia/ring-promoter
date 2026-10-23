@@ -4,7 +4,10 @@
 // log lines into the current step) can emit progress without import cycles.
 package progress
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Reporter receives fine-grained progress during an operation. The promoter
 // drives a single operation from one goroutine, so StartStep/FinishStep calls
@@ -70,5 +73,74 @@ func AddLink(ctx context.Context, l Link) {
 func AddOutput(ctx context.Context, text string) {
 	if s, ok := FromContext(ctx).(OutputSink); ok {
 		s.AddOutput(text)
+	}
+}
+
+// Stage is one unit of work inside a step that a backend runs as its own job
+// — a GitHub Actions job, a phase of a Kubernetes Job. Status is one of
+// queued|running|success|failed|skipped|cancelled. Stages are a snapshot: each
+// SetStages call replaces the previous set wholesale.
+type Stage struct {
+	ID         string
+	Name       string
+	Status     string
+	URL        string
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+	Steps      []StageStep
+}
+
+// StageStep is one step of a Stage (a GitHub Actions job step).
+type StageStep struct {
+	Number     int
+	Name       string
+	Status     string
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+}
+
+// Stage statuses.
+const (
+	StageQueued    = "queued"
+	StageRunning   = "running"
+	StageSuccess   = "success"
+	StageFailed    = "failed"
+	StageSkipped   = "skipped"
+	StageCancelled = "cancelled"
+)
+
+// StageSink is optionally implemented by a Reporter that wants the stage
+// breakdown of the current step.
+type StageSink interface {
+	SetStages(stages []Stage)
+}
+
+// SetStages hands stages to the context's Reporter when it is a StageSink.
+func SetStages(ctx context.Context, stages []Stage) {
+	if s, ok := FromContext(ctx).(StageSink); ok {
+		s.SetStages(stages)
+	}
+}
+
+// GateVerdict is one promotion-policy gate's verdict for an operation (see
+// promoter.Gate): Verdict is pass|fail|overridden.
+type GateVerdict struct {
+	Gate    string
+	Verdict string
+	Detail  string
+	Ring    string
+	// Version is the version the gate checked.
+	Version string
+}
+
+// GateSink is optionally implemented by a Reporter that records gate verdicts.
+type GateSink interface {
+	AddGate(g GateVerdict)
+}
+
+// AddGate hands g to the context's Reporter when it is a GateSink.
+func AddGate(ctx context.Context, g GateVerdict) {
+	if s, ok := FromContext(ctx).(GateSink); ok {
+		s.AddGate(g)
 	}
 }

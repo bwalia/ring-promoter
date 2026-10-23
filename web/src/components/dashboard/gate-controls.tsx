@@ -17,8 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { VerdictPill } from "@/components/flow/flow-graph";
+import {
+  SecurityChecksList,
+  evaluationToVerdict,
+} from "@/components/security/security-checks";
 import {
   useCreateMaintenanceWindow,
+  useSecurityEvaluation,
   useRecordSignoff,
   useSignoffs,
 } from "@/lib/queries";
@@ -67,6 +73,34 @@ export function GateChecklist({
           onChange={setCrCode}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * The AppSec gate for this exact version, evaluated live: shown only when the
+ * app's security policy guards the target ring. It cannot be overridden here;
+ * fix the findings, re-scan, or record a waiver on the Security panel.
+ */
+export function SecurityGateCheck({
+  app,
+  ring,
+  version,
+}: {
+  app: string;
+  ring: string;
+  version: string;
+}) {
+  const { data } = useSecurityEvaluation(app, version || undefined, ring);
+  if (!data?.guarded) return null;
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        AppSec gate · {ring}
+        <VerdictPill verdict={evaluationToVerdict(data.verdict)} />
+      </p>
+      {data.detail && <p className="text-sm">{data.detail}</p>}
+      <SecurityChecksList checks={data.checks} />
     </div>
   );
 }

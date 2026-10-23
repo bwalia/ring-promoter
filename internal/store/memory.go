@@ -20,6 +20,8 @@ type Memory struct {
 	qaReports            map[string]QAReport          // key: app + "\x00" + ring
 	testKits             map[string]TestKit           // key: app + "\x00" + ring + "\x00" + version
 	pending              map[int64]PendingOp
+	securityScans        map[string]SecurityScan   // key: app, version, kind, scanner
+	securityWaivers      map[string]SecurityWaiver // key: id
 	audit                []AuditEvent
 	nextID               int64
 	nextOpID             int64
@@ -52,6 +54,8 @@ func NewMemoryWithClock(clock func() time.Time) *Memory {
 		qaReports:            make(map[string]QAReport),
 		testKits:             make(map[string]TestKit),
 		pending:              make(map[int64]PendingOp),
+		securityScans:        make(map[string]SecurityScan),
+		securityWaivers:      make(map[string]SecurityWaiver),
 		nextID:               1,
 		nextOpID:             1,
 		nextAuditID:          1,

@@ -253,6 +253,8 @@ const (
 	AuditOverride      = "override"       // a human overruled a blocking gate
 	AuditConfig        = "config"         // settings changed at runtime
 	AuditAgentDecision = "agent_decision" // a Ring Agent decision record
+	AuditPipeline      = "pipeline"       // a multi-app pipeline run's lifecycle
+	AuditSecurity      = "security"       // security scans recorded, waivers granted/revoked
 )
 
 // AuditEvent is one append-only entry in the audit ledger: who did what, to
@@ -384,6 +386,20 @@ type Store interface {
 	// ListQAReports returns every stored QA report, newest first. When app is
 	// non-empty, only that application's reports are returned.
 	ListQAReports(ctx context.Context, app string) ([]QAReport, error)
+	// UpsertSecurityScan stores (or replaces) the scan for the exact
+	// (App, Version, Kind, Scanner) key.
+	UpsertSecurityScan(ctx context.Context, s SecurityScan) error
+	// ListSecurityScans returns an app's scans, newest first; a non-empty
+	// version narrows them to that version.
+	ListSecurityScans(ctx context.Context, app, version string) ([]SecurityScan, error)
+	// CreateSecurityWaiver stores a new waiver (the caller assigns its ID).
+	CreateSecurityWaiver(ctx context.Context, w SecurityWaiver) error
+	// ListSecurityWaivers returns an app's waivers (expired ones included),
+	// newest first.
+	ListSecurityWaivers(ctx context.Context, app string) ([]SecurityWaiver, error)
+	// DeleteSecurityWaiver removes one of an app's waivers. It returns
+	// ErrNotFound when no such waiver exists for that app.
+	DeleteSecurityWaiver(ctx context.Context, app, id string) error
 	// CreatePendingOp journals a deploy operation about to start and returns
 	// its assigned ID.
 	CreatePendingOp(ctx context.Context, op PendingOp) (int64, error)

@@ -27,7 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useAppTitle, useGroups } from "@/lib/queries";
+import { useAppTitle, useGroups, usePipelines } from "@/lib/queries";
 import { activeCluster, useAuthStore, usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,10 @@ export function Topbar() {
   const selectedGroup = usePrefsStore((s) => s.selectedGroup);
   const groups = useGroups().data ?? [];
   const activeGroup = groups.find((g) => g.id === selectedGroup);
+  const selectedPipeline = usePrefsStore((s) => s.selectedPipeline);
+  const activePipeline = usePipelines().data?.find(
+    (p) => p.name === selectedPipeline,
+  );
   const favorites = usePrefsStore((s) => s.favorites);
   const toggleFavorite = usePrefsStore((s) => s.toggleFavorite);
   const autoRefresh = usePrefsStore((s) => s.autoRefresh);
@@ -68,7 +72,10 @@ export function Topbar() {
 
       <div className="flex min-w-0 items-center gap-1.5">
         <h1 className="rp-heading-toolbar truncate">
-          {activeGroup?.name ?? (selectedApp ? title(selectedApp) : "Dashboard")}
+          {activePipeline
+            ? (activePipeline.display_name ?? activePipeline.name)
+            : (activeGroup?.name ??
+              (selectedApp ? title(selectedApp) : "Dashboard"))}
         </h1>
         {!activeGroup && selectedApp && (
           <Tooltip>

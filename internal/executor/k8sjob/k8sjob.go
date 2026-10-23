@@ -86,6 +86,18 @@ type execution struct {
 	id   string
 	name string
 	spec executor.Spec
+
+	// last is the Job + pod state the latest Status read saw, so Stages can
+	// describe it without another round of kubectl calls.
+	mu   sync.Mutex
+	last *observed
+}
+
+// observed is one Status read's raw state.
+type observed struct {
+	job   jobDoc
+	pods  []podDoc
+	phase executor.Phase
 }
 
 func (x *execution) ID() string { return x.id }
@@ -111,6 +123,9 @@ func (x *execution) Status(ctx context.Context) (executor.Status, error) {
 	}
 
 	st := mapStatus(x.spec, job, pods.Items, time.Now())
+	x.mu.Lock()
+	x.last = &observed{job: job, pods: pods.Items, phase: st.Phase}
+	x.mu.Unlock()
 	st.Details["job_name"] = x.name
 	st.Details["namespace"] = x.spec.Namespace
 	st.Details["execution_id"] = x.id

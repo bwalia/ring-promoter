@@ -9,6 +9,7 @@ import { CommandPalette } from "@/components/command-palette";
 import { Dashboard } from "@/components/dashboard/dashboard";
 import { FleetView } from "@/components/fleet-view";
 import { GroupView } from "@/components/group-view";
+import { PipelineView } from "@/components/pipelines/pipeline-view";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
@@ -16,7 +17,7 @@ import { TokenGate } from "@/components/token-gate";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useGroups } from "@/lib/queries";
+import { useGroups, usePipelines } from "@/lib/queries";
 import { LOCAL_CLUSTER_ID, useAuthStore, usePrefsStore } from "@/lib/stores";
 import { useUiStore } from "@/lib/ui-store";
 
@@ -41,6 +42,12 @@ export function AppShell() {
   const selectApp = usePrefsStore((s) => s.selectApp);
   const selectGroup = usePrefsStore((s) => s.selectGroup);
   const selectedGroup = usePrefsStore((s) => s.selectedGroup);
+  const selectedPipeline = usePrefsStore((s) => s.selectedPipeline);
+  const selectPipeline = usePrefsStore((s) => s.selectPipeline);
+  const pipelinesQuery = usePipelines();
+  const activePipeline = selectedPipeline
+    ? pipelinesQuery.data?.find((p) => p.name === selectedPipeline)
+    : undefined;
   const groupsQuery = useGroups();
   const groups = groupsQuery.data ?? [];
   const activeGroup = selectedGroup
@@ -81,7 +88,10 @@ export function AppShell() {
     const params = new URLSearchParams(window.location.search);
     const groupParam = params.get("group");
     const appParam = params.get("app");
-    if (groupParam) {
+    const pipelineParam = params.get("pipeline");
+    if (pipelineParam) {
+      selectPipeline(pipelineParam);
+    } else if (groupParam) {
       selectGroup(groupParam);
     } else if (appParam) {
       // Unconditionally: selectApp also clears a persisted selectedGroup, so
@@ -104,6 +114,24 @@ export function AppShell() {
       selectGroup(null);
     }
   }, [selectedGroup, groupsQuery.isSuccess, groupsQuery.data, selectGroup]);
+
+  // Same for a pipeline removed from the server config.
+  useEffect(() => {
+    if (
+      selectedPipeline &&
+      (pipelinesQuery.isError ||
+        (pipelinesQuery.isSuccess &&
+          !pipelinesQuery.data.some((p) => p.name === selectedPipeline)))
+    ) {
+      selectGroup(null);
+    }
+  }, [
+    selectedPipeline,
+    pipelinesQuery.isError,
+    pipelinesQuery.isSuccess,
+    pipelinesQuery.data,
+    selectGroup,
+  ]);
 
   // One-time migration of legacy browser-local groups to the server.
   useEffect(() => {
@@ -139,7 +167,9 @@ export function AppShell() {
   // a stale ?group= from localStorage.
   useEffect(() => {
     if (!mounted || !prefsReady) return;
-    const desired = selectedGroup
+    const desired = selectedPipeline
+      ? `?pipeline=${encodeURIComponent(selectedPipeline)}`
+      : selectedGroup
       ? `?group=${encodeURIComponent(selectedGroup)}`
       : selectedApp
         ? `?app=${encodeURIComponent(selectedApp)}`
@@ -150,7 +180,7 @@ export function AppShell() {
       "",
       desired || window.location.pathname,
     );
-  }, [mounted, prefsReady, selectedApp, selectedGroup]);
+  }, [mounted, prefsReady, selectedApp, selectedGroup, selectedPipeline]);
 
   // Global keyboard shortcuts.
   useEffect(() => {
@@ -215,12 +245,24 @@ export function AppShell() {
         <Topbar />
         <main
           className={
-            selectedApp || selectedGroup
+            selectedApp || selectedGroup || selectedPipeline
               ? "min-h-0 flex-1 overflow-y-auto"
               : "flex min-h-0 flex-1 flex-col overflow-hidden"
           }
         >
-          {selectedGroup ? (
+          {selectedPipeline ? (
+            activePipeline ? (
+              <PipelineView key={activePipeline.name} pipeline={activePipeline} />
+            ) : (
+              <div className="flex min-h-[50vh] items-center justify-center p-6">
+                <CircleDot
+                  aria-hidden
+                  className="size-8 animate-pulse text-muted-foreground"
+                />
+                <span className="sr-only">Loading pipeline</span>
+              </div>
+            )
+          ) : selectedGroup ? (
             activeGroup ? (
               <GroupView key={activeGroup.id} group={activeGroup} />
             ) : (

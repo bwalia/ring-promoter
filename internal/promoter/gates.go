@@ -8,6 +8,7 @@ import (
 
 	"github.com/example/ring-promoter/internal/changerequest"
 	"github.com/example/ring-promoter/internal/config"
+	"github.com/example/ring-promoter/internal/progress"
 	"github.com/example/ring-promoter/internal/ring"
 	"github.com/example/ring-promoter/internal/store"
 )
@@ -119,7 +120,12 @@ func (p *Promoter) policy(app string) *config.PromotionPolicy {
 func (p *Promoter) evaluateGates(ctx context.Context, app, targetRing, version string, in GateInputs) error {
 	pol := p.policy(app)
 	if pol == nil {
-		return nil
+		// The top-level security_policy applies to apps without a policy of
+		// their own; every other gate is then nil and skips.
+		if _, _, ok := p.cfg.SecurityPolicyFor(app); !ok {
+			return nil
+		}
+		pol = &config.PromotionPolicy{}
 	}
 	rep := reporterFrom(ctx)
 	req := GateRequest{App: app, TargetRing: targetRing, Version: version, Inputs: in, Policy: pol}
@@ -133,6 +139,9 @@ func (p *Promoter) evaluateGates(ctx context.Context, app, targetRing, version s
 			rep.Log("gate: " + res.Detail)
 		}
 		if !isValidateOnly(ctx) {
+			progress.AddGate(ctx, progress.GateVerdict{
+				Gate: res.Gate, Verdict: res.Verdict, Detail: res.Detail, Ring: targetRing, Version: version,
+			})
 			p.audit(ctx, store.AuditEvent{
 				App: app, Ring: targetRing, Category: store.AuditGate, Action: res.Gate,
 				Version: version,

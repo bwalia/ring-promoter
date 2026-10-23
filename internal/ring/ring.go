@@ -62,6 +62,16 @@ func IsValid(name string) bool {
 	return Index(name) >= 0
 }
 
+// Prev returns the ring immediately before name in the pipeline. ok is false
+// when name is the first ring or is unknown.
+func Prev(name string) (Ring, bool) {
+	i := Index(name)
+	if i <= 0 {
+		return Ring{}, false
+	}
+	return ordered[i-1], true
+}
+
 // Next returns the ring immediately after name in the pipeline. ok is false
 // when name is the last ring (production) or is unknown.
 func Next(name string) (Ring, bool) {

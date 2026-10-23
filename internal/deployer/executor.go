@@ -106,6 +106,7 @@ func (d *ExecDeployer) execute(ctx context.Context, t Target, spec executor.Spec
 				"app", t.App, "ring", t.Ring, "execution", ex.ID(),
 				"phase", st.Phase, "msg", st.Message)
 		}
+		d.reportStages(ctx, t, ex)
 		if st.Phase.Terminal() {
 			if st.Phase == executor.PhaseSucceeded {
 				d.reportOutputs(ctx, ex, st)
@@ -123,6 +124,25 @@ func (d *ExecDeployer) execute(ctx context.Context, t Target, spec executor.Spec
 		if err := sleepCtx(ctx, d.poll); err != nil {
 			return d.cancelled(ctx, ex, rep)
 		}
+	}
+}
+
+// reportStages pushes the execution's stage breakdown (when its backend has
+// one) into the reporter. It is called on every status poll, after the
+// terminal phase included. Purely informational: a failure is logged and never
+// affects the deploy.
+func (d *ExecDeployer) reportStages(ctx context.Context, t Target, ex executor.Execution) {
+	sr, ok := ex.(executor.StageReporter)
+	if !ok {
+		return
+	}
+	stages, err := sr.Stages(ctx)
+	if err != nil {
+		d.log.Debug("fetch execution stages failed", "app", t.App, "ring", t.Ring, "execution", ex.ID(), "err", err)
+		return
+	}
+	if stages != nil {
+		progress.SetStages(ctx, stages)
 	}
 }
 

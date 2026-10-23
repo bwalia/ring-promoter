@@ -293,6 +293,48 @@ export interface JobStep {
   logs: string[];
   started_at: string;
   finished_at?: string;
+  /**
+   * Live sub-stages of this step reported by the execution backend — the
+   * GitHub Actions jobs of the dispatched workflow run, or the phases of a
+   * Kubernetes Job. Replaced wholesale on every poll.
+   */
+  stages?: JobStage[];
+}
+
+export type StageStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+
+export interface JobStageStep {
+  number: number;
+  name: string;
+  status: StageStatus;
+  started_at?: string;
+  finished_at?: string;
+}
+
+export interface JobStage {
+  id: string;
+  name: string;
+  status: StageStatus;
+  url?: string;
+  started_at?: string;
+  finished_at?: string;
+  steps?: JobStageStep[];
+}
+
+/** One promotion-policy gate verdict recorded while the job ran. */
+export interface JobGate {
+  gate: string;
+  verdict: "pass" | "fail" | "overridden" | string;
+  detail?: string;
+  ring?: string;
+  /** The version the gate judged. */
+  version?: string;
 }
 
 export interface Job {
@@ -311,8 +353,94 @@ export interface Job {
   diagnosis?: string;
   diagnosis_status?: "running" | "done" | "failed";
   diagnosis_error?: string;
+  /** Target ring of the operation, when known. */
+  ring?: string;
+  /** Policy gates evaluated before the deploy (Go/No-Go). */
+  gates?: JobGate[];
   started_at: string;
   finished_at?: string;
+}
+
+// ---- multi-service pipelines (config `pipelines:`) ----
+
+export type PipelineStageType = "deploy" | "gate" | "approval";
+
+export type PipelineStatus =
+  | "queued"
+  | "running"
+  | "waiting"
+  | "success"
+  | "failed"
+  | "skipped"
+  | "cancelled"
+  | "reused";
+
+export interface PipelineStageDef {
+  name: string;
+  display_name?: string;
+  type: PipelineStageType;
+  apps?: string[];
+  needs?: string[];
+  gate?: string;
+  timeout_seconds?: number;
+}
+
+export interface PipelineRunItem {
+  app: string;
+  status: PipelineStatus;
+  job_id?: string;
+  version?: string;
+  /** Gate stages only: the QA agent's verdict for this app on the run's ring. */
+  verdict?: GateState;
+  detail?: string;
+  /** Security gate items only: one check per scan kind. */
+  checks?: SecurityCheck[];
+}
+
+export interface PipelineRunStage {
+  name: string;
+  display_name?: string;
+  type: PipelineStageType;
+  /** Gate stages: which gate ("qa" or "security"). */
+  gate?: string;
+  needs?: string[];
+  status: PipelineStatus;
+  message?: string;
+  started_at?: string;
+  finished_at?: string;
+  approved_by?: string;
+  items?: PipelineRunItem[];
+}
+
+export interface PipelineRun {
+  id: string;
+  pipeline: string;
+  display_name?: string;
+  ring: string;
+  status: PipelineStatus;
+  triggered_by?: string;
+  error?: string;
+  rerun_of?: string;
+  started_at: string;
+  finished_at?: string;
+  stages: PipelineRunStage[];
+}
+
+export interface PipelineDef {
+  name: string;
+  display_name?: string;
+  description?: string;
+  stages: PipelineStageDef[];
+  last_run?: PipelineRun | null;
+}
+
+export interface StartPipelineRequest {
+  ring: string;
+  versions?: Record<string, string>;
+  change_request_code?: string;
+  /** Production password — required when the run targets prod. */
+  password?: string;
+  triggered_by?: string;
 }
 
 export interface AppGroup {
@@ -343,4 +471,90 @@ export interface BuildInfo {
    * deploy this is also when this build was rolled out.
    */
   started_at: string;
+}
+
+// ---- security & compliance gates ----
+
+export type Severity = "critical" | "high" | "medium" | "low";
+export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
+
+export type ScanKind =
+  | "sast"
+  | "sca"
+  | "secrets"
+  | "container"
+  | "iac"
+  | "dast"
+  | "license";
+
+export type SeverityCounts = Record<Severity, number>;
+
+export interface SecurityFinding {
+  id: string;
+  severity: Severity;
+  title?: string;
+  location?: string;
+  package?: string;
+  installed?: string;
+  fixed?: string;
+  waived?: boolean;
+}
+
+export interface SecurityScan extends SeverityCounts {
+  id: string;
+  app: string;
+  version: string;
+  kind: ScanKind;
+  scanner: string;
+  findings?: SecurityFinding[];
+  summary?: string;
+  url?: string;
+  scanned_at: string;
+  created_at: string;
+}
+
+export interface SecurityCheck extends Partial<SeverityCounts> {
+  kind: ScanKind;
+  status: "pass" | "fail" | "missing" | "stale";
+  scanners?: string[];
+  waived?: number;
+  scanned_at?: string;
+  detail?: string;
+}
+
+export interface SecurityEvaluation {
+  ring?: string;
+  version?: string;
+  guarded: boolean;
+  verdict: "go" | "no_go" | "pending" | "none";
+  detail?: string;
+  checks?: SecurityCheck[];
+  counts?: SeverityCounts;
+  waived?: number;
+}
+
+export interface SecurityPolicy {
+  rings: string[];
+  require: ScanKind[];
+  max: Partial<Record<Severity, number>>;
+  max_age_seconds?: number;
+  source: "app" | "default" | "builtin";
+}
+
+export interface SecurityWaiver {
+  id: string;
+  app: string;
+  finding: string;
+  ring?: string;
+  reason: string;
+  created_by?: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface SecurityView {
+  policy: SecurityPolicy | null;
+  posture: SecurityEvaluation[];
+  scans: SecurityScan[];
+  waivers: SecurityWaiver[];
 }

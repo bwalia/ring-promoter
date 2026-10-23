@@ -83,8 +83,25 @@ func (f *fakeExecutor) Start(ctx context.Context, spec executor.Spec) (executor.
 // recordingReporter collects Log lines (concurrency-safe: the log pump runs in
 // its own goroutine).
 type recordingReporter struct {
-	mu    sync.Mutex
-	lines []string
+	mu     sync.Mutex
+	lines  []string
+	stages [][]progress.Stage
+}
+
+// SetStages implements progress.StageSink.
+func (r *recordingReporter) SetStages(st []progress.Stage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stages = append(r.stages, st)
+}
+
+func (r *recordingReporter) lastStages() []progress.Stage {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.stages) == 0 {
+		return nil
+	}
+	return r.stages[len(r.stages)-1]
 }
 
 func (r *recordingReporter) StartStep(string, string)  {}

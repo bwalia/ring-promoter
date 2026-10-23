@@ -25,6 +25,7 @@ full history **per (application, ring)**.
 - [Deploy on k3s](#deploy-on-k3s)
 - [How an app's CI calls the API](#how-an-apps-ci-calls-the-api)
 - [Connect a QA agent](#connect-a-qa-agent)
+- [Pipelines (multi-app releases)](#pipelines-multi-app-releases)
 - [Postgres schema](#postgres-schema)
 - [Configuration reference](#configuration-reference)
 - [Testing](#testing)
@@ -784,6 +785,175 @@ agent is registered; until the first report arrives it reads “waiting for
 reports”. This does **not** replace the per-version `qa_signoff` promotion gate
 — it is a live status feed. Wiring reports into a blocking gate can come later.
 
+## Pipelines (multi-app releases)
+
+A pipeline ships several apps into one ring as a DAG of stages — the
+CircleCI-workflow / GitHub-Actions-jobs model, across services. A stage is one
+of:
+
+- **deploy** (default) — deploys its `apps` in parallel. Into `int` that is a
+  seed (each app's version comes from the run request, else the app's pinned
+  int `ref`); into any later ring it is a promotion from the ring before. Every
+  app deploy is an ordinary job, so it keeps its own steps, GitHub Actions
+  jobs and gate verdicts in the UI.
+- **gate** — a QA **Go / No-Go**: reads the [QA agent](#connect-a-qa-agent)'s
+  latest verdict for each app on the run's ring. `go` passes, `no_go` fails at
+  once, `check`/`unknown` waits (up to `timeout`, default 10m). With no `apps`
+  it checks every app its direct `needs` deployed.
+- **approval** — a hold until someone approves or rejects it (default timeout
+  24h).
+
+A stage starts once everything in its `needs` succeeded; when a need fails,
+its dependents are skipped. Example — database, QA gate, frontend, a manual
+hold, then the iOS app (an app whose `github` deployer dispatches
+`ios-release.yml`, i.e. the fastlane TestFlight lanes):
+
+```yaml
+pipelines:
+  - name: diytaxreturn-release
+    display_name: DIY Tax Return release
+    description: Schema first, then the web app, then the iOS app.
+    stages:
+      - name: database
+        display_name: Deploy database
+        apps: [diytaxreturn-db]
+      - name: qa-db
+        display_name: QA Go / No-Go
+        type: gate
+        needs: [database]
+        timeout: 15m
+      - name: frontend
+        display_name: Deploy frontend
+        apps: [diytaxreturn-opsapi, diytaxreturn-web]
+        needs: [qa-db]
+      - name: release-approval
+        display_name: Release manager approval
+        type: approval
+        needs: [frontend]
+      - name: ios
+        display_name: iOS TestFlight (fastlane)
+        apps: [diytaxreturn-ios]
+        needs: [release-approval]
+```
+
+API (Bearer token, like every `/api` route):
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/api/pipelines` | configured pipelines with their stages and `last_run` |
+| `POST` | `/api/pipelines/{name}/runs` | start a run: `{"ring":"int","versions":{"app":"v1"},"change_request_code":"…","triggered_by":"…"}` (`password` too for prod) → 202 |
+| `GET` | `/api/pipelines/{name}/runs` | the newest 50 runs |
+| `GET` | `/api/pipeline-runs/{id}` | one run: stages, their items (app, status, `job_id`, version, QA verdict) |
+| `POST` | `/api/pipeline-runs/{id}/stages/{stage}/approve` · `/reject` | decide a waiting approval: `{"by":"…","note":"…"}` |
+| `POST` | `/api/pipeline-runs/{id}/cancel` | stop scheduling; queued and waiting stages are cancelled, deploys already running finish |
+| `POST` | `/api/pipeline-runs/{id}/rerun` | rerun from failed: stages that succeeded are `reused`, the rest run again |
+
+Runs are kept in memory (the newest 100), like jobs; starts, approvals,
+rejections and cancels are recorded in the audit ledger (category `pipeline`).
+
+In the console, pipelines get their own sidebar section (searchable by
+pipeline or by any service they deploy). A run renders as a live graph:
+stages as boxes with their services, QA gates as Go / No-Go diamonds,
+approvals with Approve / Reject buttons. Solid edges carry a version forward
+(data plane) and dashed edges carry a decision (control plane); edges into
+live stages animate. Selecting a service opens its own deploy flow — policy
+gates, the GitHub Actions jobs of its workflow run with their steps, health,
+and the QA gate. The same flow view is the default tab of every app's live
+job card.
+
+## Security & compliance gates
+
+Ring Promoter can hold every release behind AppSec evidence: your CI runs the
+scanners (SAST, SCA, secrets, container, IaC, DAST, licence) and posts their
+reports for the **exact version** it built; a **security policy** says which
+scans must exist and how many un-waived findings each severity may have.
+
+```yaml
+security_policy:                  # default for every app (optional)
+  rings: [acc, prod]              # rings the promotion gate guards (default acc, prod)
+  require: [sast, sca, secrets]   # scans that must have reported for the version
+  max: { critical: 0, high: 0 }   # un-waived findings allowed; omitted severities are unlimited
+  max_age: 168h                   # a required scan older than this fails (optional)
+
+apps:
+  - name: diytaxreturn-web
+    promotion_policy:
+      security:                   # overrides security_policy for this app
+        rings: [test, acc, prod]
+        require: [sast, sca, secrets, container]
+        max: { critical: 0, high: 0, medium: 25 }
+```
+
+Enforcement happens in two places, from the same evaluation:
+
+- **Promotion gate** — the fifth policy gate (after maintenance window,
+  sign-off, change request and Grafana). A seed or promotion into a guarded
+  ring is refused with `409` when a required scan is missing or the findings
+  breach the policy. It cannot be overridden: a finding is accepted only by a
+  **waiver** — one finding id, a reason, an author and an expiry (default 30
+  days, at most 90), optionally limited to one ring. Every scan, waiver and
+  verdict lands in the audit ledger (category `security`, and `gate`).
+- **Pipeline gate** — `type: gate` with `gate: security`. Placed before a
+  deploy stage it checks the version about to be deployed (the run's version,
+  the ring's pinned ref for `int`, else the previous ring's current version);
+  a missing scan waits (up to `timeout`), a breach is an immediate NO-GO. Apps
+  without a policy use the built-in default above.
+
+```yaml
+      - name: appsec
+        display_name: AppSec Go / No-Go
+        type: gate
+        gate: security
+        apps: [diytaxreturn-opsapi, diytaxreturn-web]
+        timeout: 30m
+      - name: frontend
+        apps: [diytaxreturn-opsapi, diytaxreturn-web]
+        needs: [appsec]
+```
+
+Reports are SARIF 2.1.0 (Trivy, Grype, Semgrep, CodeQL, Gitleaks, Checkov…),
+a findings list, or bare counts. SARIF severity comes from
+`security-severity` (≥9 critical, ≥7 high, ≥4 medium, else low), falling back
+to the level (`error` high, `warning` medium, `note` low); every secrets
+finding is critical. A GitHub Actions job:
+
+```yaml
+  appsec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.28.0
+        with: { scan-type: fs, format: sarif, output: trivy.sarif }
+      - run: pipx run semgrep scan --config auto --sarif -o semgrep.sarif || true
+      - uses: gitleaks/gitleaks-action@v2
+        env: { GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false }
+        continue-on-error: true   # writes results.sarif
+      - name: Report to Ring Promoter
+        env:
+          RP_URL: ${{ vars.RP_URL }}
+          RP_TOKEN: ${{ secrets.RP_API_TOKEN }}
+        run: |
+          post() {  # kind file
+            jq -n --slurpfile s "$2" --arg v "${{ github.sha }}" --arg k "$1" \
+              --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              '{app:"diytaxreturn-web", version:$v, kind:$k, url:$url, sarif:$s[0]}' |
+            curl -fsS -X POST "$RP_URL/api/security/scans" \
+              -H "Authorization: Bearer $RP_TOKEN" -H "Content-Type: application/json" \
+              -H "X-Actor: github-actions" --data-binary @-
+          }
+          post sca trivy.sarif
+          post sast semgrep.sarif
+          post secrets results.sarif
+```
+
+| Method | Path | |
+|---|---|---|
+| `POST` | `/api/security/scans` | record a scan: `{"app","version","kind","scanner","url","summary","sarif"}` or `findings: [{id,severity,title,location,package,installed,fixed}]` or `critical/high/medium/low` counts (10 MB max; rescanning the same version + kind + scanner replaces it) → 201 |
+| `GET` | `/api/apps/{app}/security` | effective policy, per-ring posture (current version's verdict and checks), newest 100 scans, waivers |
+| `GET` | `/api/apps/{app}/security/evaluate?version=v&ring=r` | evaluate one version: `verdict` go / no_go / pending, per-kind `checks`, un-waived `counts` |
+| `POST` | `/api/apps/{app}/security/waivers` | `{"finding":"CVE-…","ring":"prod","reason":"…","days":14}` (or `expires_at`) → 201 |
+| `DELETE` | `/api/apps/{app}/security/waivers/{id}` | revoke a waiver → 204 |
+
 ---
 
 ## Postgres schema
@@ -872,7 +1042,7 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 | `RP_CONFIG_FILE`  | – (flag `--config`) | `config.yaml`  | Path to the config file.               |
 | `RP_CORS_ORIGINS` | – (env only)        | any origin     | Which other web consoles may call this server, so one browser can switch between clusters. Comma-separated origins (e.g. `https://rp.int.example.com,https://rp.prod.example.com`), or `off`. The API takes bearer tokens only (no cookies), so a console still needs this server's token. |
 
-The application registry (`apps:`) lives in the file only.
+The application registry (`apps:`), `pipelines:` and `security_policy:` live in the file only.
 
 ---
 

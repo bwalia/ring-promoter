@@ -7,6 +7,7 @@ import { OverviewCards } from "@/components/dashboard/overview-cards";
 import { Pipeline } from "@/components/dashboard/pipeline";
 import { ErrorState } from "@/components/error-state";
 import { QaStatusBar } from "@/components/qa-status-bar";
+import { SecurityPanel } from "@/components/security/security-panel";
 import { useHistory, useRings } from "@/lib/queries";
 import { ApiError } from "@/lib/api";
 
@@ -46,6 +47,8 @@ export function Dashboard({ app }: { app: string }) {
       <JobProgress app={app} />
 
       <Pipeline app={app} rings={rings.data} isPending={rings.isPending} />
+
+      <SecurityPanel app={app} />
 
       <HistoryPanel
         app={app}
