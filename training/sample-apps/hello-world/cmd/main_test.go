@@ -143,15 +143,23 @@ func TestUnknownMethodRejected(t *testing.T) {
 func TestResolveVersion(t *testing.T) {
 	orig := version
 	t.Cleanup(func() { version = orig })
-	version = "v0.0.1-ldflag"
 
-	t.Setenv("RP_VERSION", "")
-	if got := resolveVersion(); got != "v0.0.1-ldflag" {
-		t.Fatalf("without RP_VERSION: got %q, want the ldflag version", got)
+	// A baked-in version wins over a stale RP_VERSION left on the Deployment:
+	// Ring Promoter swaps only the image, so the env var can name an old build.
+	version = "sha-abc1234"
+	t.Setenv("RP_VERSION", "v1")
+	if got := resolveVersion(); got != "sha-abc1234" {
+		t.Fatalf("baked version with stale RP_VERSION: got %q, want sha-abc1234", got)
 	}
-	t.Setenv("RP_VERSION", "v3.0.0")
-	if got := resolveVersion(); got != "v3.0.0" {
-		t.Fatalf("with RP_VERSION: got %q, want v3.0.0 (runtime wins)", got)
+
+	// Images built without a version fall back to RP_VERSION, then "dev".
+	version = "dev"
+	if got := resolveVersion(); got != "v1" {
+		t.Fatalf("unversioned build: got %q, want RP_VERSION v1", got)
+	}
+	t.Setenv("RP_VERSION", "")
+	if got := resolveVersion(); got != "dev" {
+		t.Fatalf("unversioned build without RP_VERSION: got %q, want dev", got)
 	}
 }
 

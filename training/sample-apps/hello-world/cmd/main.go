@@ -10,9 +10,9 @@
 //	GET /readyz      -> 200 once warmed up                (readiness)
 //	GET /metrics     -> Prometheus text exposition        (observability)
 //
-// The version comes from the RP_VERSION environment variable (Ring Promoter and
-// the Helm chart set it to the image tag being deployed) or the -X ldflag,
-// falling back to "dev". Because /healthz echoes the version, a ring configured
+// The version comes from the -X ldflag baked in at build time (CI sets it to
+// the image tag), then the RP_VERSION environment variable for images built
+// without one, falling back to "dev". Because /healthz echoes the version, a ring configured
 // with `health_version_field: version` will only pass once the endpoint is
 // actually serving the promoted build — the core "did the new version really go
 // live?" guarantee.
@@ -28,16 +28,23 @@ import (
 	"time"
 )
 
-// version is overridable at build time: go build -ldflags "-X main.version=v1.2.3".
-// At runtime RP_VERSION wins so the same image can report the tag it was
-// deployed as.
+// version is set at build time: go build -ldflags "-X main.version=v1.2.3".
+// A baked-in version always wins: the image is immutable, so it is the only
+// honest answer to "which build is this?". Ring Promoter's kubectl deployer
+// changes just the image, so an RP_VERSION env var left on the Deployment by an
+// earlier Helm install would otherwise make every new build claim to be the
+// old one and fail the version-aware health check. RP_VERSION is the fallback
+// for images built without a version ("dev"), e.g. the original v1 image.
 var version = "dev"
 
 func resolveVersion() string {
+	if version != "" && version != "dev" {
+		return version
+	}
 	if v := os.Getenv("RP_VERSION"); v != "" {
 		return v
 	}
-	return version
+	return "dev"
 }
 
 func main() {

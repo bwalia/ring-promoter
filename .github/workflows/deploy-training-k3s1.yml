@@ -215,20 +215,25 @@ jobs:
           kubectl -n "${NAMESPACE}" rollout status deploy/ring-promoter --timeout=180s
 
       # The QA metrics stack behind hello-world's Grafana gate: a ClusterIP
-      # Pushgateway CI pushes unit-test results to, scraped by the obs
-      # Prometheus, plus the "Ring Promoter — QA Unit Tests" dashboard on
+      # Pushgateway CI pushes unit-test and security results to, scraped by the
+      # obs Prometheus, plus the "Ring Promoter — QA Unit Tests" and
+      # "Ring Promoter — Security & Compliance" dashboards on
       # grafana.workstation.co.uk (picked up by the obs Grafana sidecar from any
       # ConfigMap labelled obs-grafana-dashboard=1).
-      - name: Apply QA metrics stack (Pushgateway + Grafana dashboard)
+      - name: Apply QA metrics stack (Pushgateway + Grafana dashboards)
         run: |
           set -euo pipefail
           kubectl apply -f deploy/instances/fictionally/qa/pushgateway.yaml
-          kubectl -n rp-qa create configmap rp-qa-unit-tests-dashboard \
-            --from-file=rp-qa-unit-tests.json=deploy/instances/fictionally/qa/qa-unit-tests-dashboard.json \
-            --dry-run=client -o yaml \
-            | kubectl label --local -f - obs-grafana-dashboard=1 -o yaml \
-            | kubectl annotate --local -f - grafana_folder="Ring Promoter" -o yaml \
-            | kubectl apply -f -
+          dashboard() {  # configmap-name file-key source-json
+            kubectl -n rp-qa create configmap "$1" --from-file="$2=$3" --dry-run=client -o yaml \
+              | kubectl label --local -f - obs-grafana-dashboard=1 -o yaml \
+              | kubectl annotate --local -f - grafana_folder="Ring Promoter" -o yaml \
+              | kubectl apply -f -
+          }
+          dashboard rp-qa-unit-tests-dashboard rp-qa-unit-tests.json \
+            deploy/instances/fictionally/qa/qa-unit-tests-dashboard.json
+          dashboard rp-security-compliance-dashboard rp-security-compliance.json \
+            deploy/instances/fictionally/qa/security-compliance-dashboard.json
           kubectl -n rp-qa rollout status deploy/rp-qa-pushgateway --timeout=120s
           if ! kubectl -n "${NAMESPACE}" get secret ring-promoter -o jsonpath='{.data.RP_GRAFANA_TOKEN}' | grep -q .; then
             echo "::warning::secret/ring-promoter has no RP_GRAFANA_TOKEN — hello-world's QA gate will read 'unknown' (advisory) until a grafana.workstation.co.uk Viewer token is added."

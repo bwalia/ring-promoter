@@ -17,9 +17,11 @@ Dockerfile + Helm chart + CI + `architecture.md`).
 | `/readyz`  | Readiness (503 during a 2s warm-up, then 200)       |
 | `/metrics` | Prometheus text (`helloworld_requests_total`, build info) |
 
-The version comes from `RP_VERSION` (set by the Helm chart / Ring Promoter to
-the deployed tag), falling back to the `-X main.version` build ldflag, then
-`dev`.
+The version comes from the `-X main.version` build ldflag (CI bakes in the image
+tag), falling back to `RP_VERSION` for images built without one, then `dev`.
+The baked-in version wins because Ring Promoter's kubectl deployer swaps only
+the image: a `RP_VERSION` left on the Deployment by an earlier Helm install
+would otherwise make every new build report the old version.
 
 ## Run it locally
 
@@ -50,26 +52,47 @@ POP). See [`architecture.md`](./architecture.md).
 
 ## QA, security and compliance gates
 
-On the training instance hello-world is the worked example of all three gate
-families. [`hello-world-qa.yml`](../../../.github/workflows/hello-world-qa.yml)
-produces the evidence on every change and nightly:
+On the training instance hello-world is the worked example of every gate
+family. [`hello-world-qa.yml`](../../../.github/workflows/hello-world-qa.yml)
+produces the evidence on every change and nightly, using open-source tools only:
 
-| Gate | Evidence | Rings | Blocks when |
-|------|----------|-------|-------------|
-| **QA (Grafana)** | `go test` results → rp-qa Pushgateway → [QA Unit Tests dashboard](https://grafana.workstation.co.uk/d/rp-qa-unit-tests?var-app=hello-world) | int, test, acc, prod | a test fails, pass rate ≤ 95%, coverage ≤ 50% |
-| **AppSec** | gosec (SAST), govulncheck (SCA), gitleaks (secrets) SARIF → `POST /api/security/scans` | test, acc, prod | a scan is missing or older than 30 days, or any critical/high finding is unwaived |
-| **Compliance** | release-engineer sign-off for the exact version | prod | no GO sign-off recorded |
+| Control | Tool | Evidence → gate |
+|---------|------|-----------------|
+| Unit tests (QA) | `go test -race -cover` | metrics → Grafana gate |
+| SAST | gosec, Semgrep (`p/golang`, `p/dockerfile`) | metrics + SARIF |
+| SCA | govulncheck (only reachable vulnerabilities block) | metrics + SARIF |
+| Secrets | gitleaks | metrics + SARIF |
+| IaC / CIS compliance | Checkov (CIS Docker + Kubernetes) on the Dockerfile and chart | metrics + SARIF |
+| SBOM | Syft (CycloneDX), plus a buildx SPDX attestation on the image | metrics |
+| Image CVEs | Grype over the SBOM | metrics + SARIF |
+| Licences | licence policy over the SBOM (strong copyleft blocks) | metrics + SARIF |
+| Provenance | buildx SLSA provenance (`mode=max`) | metrics |
+| Release sign-off | a release engineer's GO for the exact version | Ring Promoter |
 
-The QA gate can be overruled from a ring's panel with a recorded reason (for a
-known flake); the AppSec gate cannot — waive the individual finding instead,
-with a reason and an expiry. Run the unit tests locally:
+Metrics go to the rp-qa Pushgateway and show on grafana.workstation.co.uk:
+[QA Unit Tests](https://grafana.workstation.co.uk/d/rp-qa-unit-tests?var-app=hello-world)
+and [Security & Compliance](https://grafana.workstation.co.uk/d/rp-security-compliance?var-app=hello-world).
+Ring Promoter enforces them in two ways:
+
+- **Grafana gate (int, test, acc, prod):** one Go/No-Go check per control,
+  covering the latest build. A release engineer can overrule it from the
+  ring's panel with a recorded reason, for example for a known flake.
+- **Security gate (test, acc, prod):** judges the SARIF for the exact version
+  being promoted. All six scan kinds are required, and no critical or high
+  finding may be left unwaived. It cannot be overridden: waive the individual
+  finding instead, with a reason and an expiry.
+- **Release sign-off (prod).**
+
+CIS exceptions live in [`.checkov.yaml`](./.checkov.yaml), each with its
+reason. Run the checks locally:
 
 ```bash
 go test ./... -race -cover
+go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 ```
 
-To see the gate go red, break a test on a branch, merge it, and watch the
-dashboard flip to NO-GO and Promote turn disabled on the training instance.
+To see a gate go red, break a test on a branch and merge it. The dashboard
+flips to NO-GO and Promote turns disabled on the training instance.
 
 ## How Ring Promoter manages it
 

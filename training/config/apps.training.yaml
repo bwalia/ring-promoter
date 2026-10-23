@@ -42,25 +42,36 @@ apps:
   #    Feature focus: seed/promote/rollback, auto_promote, health_version_field,
   #    and the full QA + security + compliance gate stack:
   #
-  #      ring  | QA unit tests (Grafana) | AppSec scans | release sign-off
-  #      int   |           ✓             |              |
-  #      test  |           ✓             |      ✓       |
-  #      acc   |           ✓             |      ✓       |
-  #      prod  |           ✓             |      ✓       |        ✓
+  #      ring  | Grafana: QA + security posture | AppSec (per version) | sign-off
+  #      int   |               ✓                |                      |
+  #      test  |               ✓                |          ✓           |
+  #      acc   |               ✓                |          ✓           |
+  #      prod  |               ✓                |          ✓           |    ✓
   #
   #    The evidence comes from .github/workflows/hello-world-qa.yml, which runs
-  #    on every hello-world change and nightly: unit-test results are pushed to
-  #    the rp-qa Pushgateway (deploy/instances/fictionally/qa) and read back
-  #    through grafana.workstation.co.uk; gosec / govulncheck / gitleaks SARIF
-  #    goes to POST /api/security/scans for the exact image tag it builds.
+  #    on every hello-world change and nightly, all open source: go test, gosec
+  #    + Semgrep (SAST), govulncheck (SCA), gitleaks (secrets), Checkov (CIS
+  #    Docker/Kubernetes), Syft (SBOM), Grype (image CVEs), a licence policy,
+  #    and buildx SLSA provenance. Each result is (a) pushed as metrics to the
+  #    rp-qa Pushgateway (deploy/instances/fictionally/qa) and read back through
+  #    grafana.workstation.co.uk — the Grafana gate below — and (b) uploaded as
+  #    SARIF to POST /api/security/scans for the exact version, which the
+  #    non-overridable security gate judges.
+  #
+  #    The two differ on purpose: Grafana shows the posture of the LATEST build
+  #    (a CVE published overnight turns it NO-GO for every promotion, and a
+  #    release engineer may overrule it with a recorded reason); the security
+  #    gate judges the EXACT version being promoted and can only be satisfied
+  #    by clean scans or per-finding waivers.
   - name: hello-world
     display_name: "Hello World"
     location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
     links:
       - { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/hello-world", kind: docs }
       - { label: "QA unit tests", url: "https://grafana.workstation.co.uk/d/rp-qa-unit-tests?var-app=hello-world", kind: dashboard }
+      - { label: "Security & compliance", url: "https://grafana.workstation.co.uk/d/rp-security-compliance?var-app=hello-world", kind: dashboard }
     promotion_policy:
-      # QA gate: the unit-test verdict CI pushed, read from the obs Prometheus
+      # QA + security posture gate: the verdicts CI pushed, read from the obs Prometheus
       # behind grafana.workstation.co.uk (token: RP_GRAFANA_TOKEN, a Viewer
       # service account "ring-promoter-training" on that Grafana). One red
       # check blocks the promotion; a release engineer can overrule it from the
@@ -105,13 +116,59 @@ apps:
               rp_qa_unit_coverage_percent{app="hello-world"}
                 and on(app)
               (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-world"} < 129600)
+          # Security posture ("Ring Promoter — Security & Compliance"): 2 = no
+          # critical/high finding of that kind in the latest scan, 0 = blocked.
+          - name: "SAST (gosec + Semgrep)"
+            query: |
+              min(rp_sec_scan_status{app="hello-world",kind="sast"}
+                and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="sast"} < 129600))
+          - name: "SCA (govulncheck)"
+            query: |
+              min(rp_sec_scan_status{app="hello-world",kind="sca"}
+                and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="sca"} < 129600))
+          - name: "Secrets (gitleaks)"
+            query: |
+              min(rp_sec_scan_status{app="hello-world",kind="secrets"}
+                and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="secrets"} < 129600))
+          - name: "Image CVEs (Grype)"
+            query: |
+              min(rp_sec_scan_status{app="hello-world",kind="container"}
+                and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="container"} < 129600))
+          - name: "Licences"
+            query: |
+              min(rp_sec_scan_status{app="hello-world",kind="license"}
+                and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="license"} < 129600))
+          # Compliance: Checkov CIS Docker + Kubernetes benchmark pass rate.
+          # Documented exceptions (.checkov.yaml) don't count against it.
+          - name: "CIS compliance (Checkov)"
+            unit: "%"
+            go_min: 95
+            no_go_max: 80
+            query: |
+              min(rp_sec_compliance_score_percent{app="hello-world"}
+                and on(app) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="iac"} < 129600))
+          # Supply chain: an SBOM for the latest image, and SLSA provenance
+          # attached to it (1 = in place, 0 = missing).
+          - name: "SBOM (Syft)"
+            go_min: 1
+            no_go_max: 0
+            query: |
+              min(rp_sec_sbom_present{app="hello-world"}
+                and on(app) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="container"} < 129600))
+          - name: "SLSA provenance"
+            go_min: 1
+            no_go_max: 0
+            query: |
+              min(rp_sec_supply_chain_control{app="hello-world",control="provenance"}
+                and on(app) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="container"} < 129600))
       # Security gate (cannot be overridden): every version entering test, acc
-      # or prod needs a SAST, SCA and secrets scan with no critical or high
-      # finding left unwaived. Scans older than 30 days count as stale — the
-      # nightly run refreshes them for the version currently on main.
+      # or prod needs all six scan kinds — SAST, SCA, secrets, image CVEs,
+      # IaC/CIS and licences — with no critical or high finding left unwaived.
+      # Scans older than 30 days count as stale — the nightly run refreshes
+      # them for the version currently on main.
       security:
         rings: [test, acc, prod]
-        require: [sast, sca, secrets]
+        require: [sast, sca, secrets, container, iac, license]
         max: { critical: 0, high: 0 }
         max_age: 720h
       # Compliance: a named release engineer records GO for the exact version
