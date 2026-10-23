@@ -10,7 +10,8 @@ import {
   gateVerdict,
 } from "@/components/flow/flow-graph";
 import { inferStageNeeds, type FlowNode, type FlowStatus } from "@/lib/flow-layout";
-import { useApps, useQAStatus } from "@/lib/queries";
+import { SecurityChecksList } from "@/components/security/security-checks";
+import { useApps, useQAStatus, useSecurityEvaluation } from "@/lib/queries";
 import { duration } from "@/lib/time";
 import type { GateState, Job, JobGate, JobStage, QAReport } from "@/lib/types";
 
@@ -19,6 +20,7 @@ const GATE_TITLE: Record<string, string> = {
   qa_signoff: "QA sign-off",
   change_request: "Change request",
   grafana: "Grafana health",
+  security: "AppSec scans",
 };
 
 const gateTitle = (g: string) =>
@@ -48,8 +50,8 @@ function qaVerdictFor(reports: QAReport[] | undefined, app: string, ring?: strin
 
 /**
  * Turn one job into a run graph:
- *   trigger → policy gates ◆ → [steps, with a deploy step expanded into the
- *   CI workflow's own jobs] → QA gate ◆ → ring live
+ *   trigger → policy gates ◆ → AppSec gate ◆ → [steps, with a deploy step
+ *   expanded into the CI workflow's own jobs] → QA gate ◆ → ring live
  */
 export function buildJobFlow(
   job: Job,
@@ -73,17 +75,22 @@ export function buildJobFlow(
 
   // Go / No-Go: the promotion policy evaluated before anything is deployed.
   if (job.action === "seed" || job.action === "promote") {
-    const gates = job.gates ?? [];
+    const all = job.gates ?? [];
+    // The security gate gets its own diamond: it is the AppSec control that
+    // sits on top of the release policy.
+    const gates = all.filter((g) => g.gate !== "security");
+    const sec = all.find((g) => g.gate === "security");
     const failed = gates.some((g) => g.verdict === "fail");
     const anyStep = job.steps.length > 0;
     const status: FlowStatus = failed
       ? "failed"
-      : gates.length || anyStep || finished
+      : gates.length || sec || anyStep || finished
         ? "success"
         : "running";
     nodes.push({
       id: "policy",
       kind: "gate",
+      gate: "policy",
       label: "Policy gates",
       sublabel: gates.length
         ? `${gates.length} check${gates.length === 1 ? "" : "s"}`
@@ -102,6 +109,20 @@ export function buildJobFlow(
       })),
     });
     tail = ["policy"];
+    if (sec) {
+      nodes.push({
+        id: "appsec",
+        kind: "gate",
+        gate: "security",
+        label: "AppSec gate",
+        sublabel: sec.detail,
+        status: sec.verdict === "fail" ? "failed" : "success",
+        verdict: gateToVerdict(sec.verdict),
+        needs: tail,
+        keywords: "security sast sca secrets container vulnerability cve",
+      });
+      tail = ["appsec"];
+    }
   }
 
   job.steps.forEach((step, i) => {
@@ -166,6 +187,7 @@ export function buildJobFlow(
       sublabel: opts.qa?.summary ?? (status === "waiting" ? "waiting for the QA agent" : `QA on ${ring}`),
       status,
       verdict: status === "queued" || status === "skipped" ? "unknown" : v,
+      gate: "qa",
       needs: tail,
     });
     tail = ["qa"];
@@ -308,6 +330,9 @@ function JobNodeDetail({
       </Panel>
     );
   }
+  if (node.id === "appsec") {
+    return <AppSecDetail job={job} node={node} />;
+  }
   if (node.id === "qa") {
     return (
       <Panel title="QA gate — Go / No-Go" status={node.status} verdict={gateVerdict(node)}>
@@ -327,6 +352,28 @@ function JobNodeDetail({
       </p>
       {node.id === "done" && (job.error || job.result?.message) && (
         <p className="mt-1 text-sm">{job.error ?? job.result?.message}</p>
+      )}
+    </Panel>
+  );
+}
+
+/** The security gate's verdict and, when the version is known, each scan kind. */
+function AppSecDetail({ job, node }: { job: Job; node: FlowNode }) {
+  const g = job.gates?.find((x) => x.gate === "security");
+  const ring = jobRing(job);
+  const evaluation = useSecurityEvaluation(job.app, g?.version, ring);
+  return (
+    <Panel title="AppSec gate — Go / No-Go" status={node.status} verdict={gateVerdict(node)}>
+      <p className="text-sm">
+        {g?.detail}
+      </p>
+      {g?.version && (
+        <p className="mt-1 font-mono text-xs text-muted-foreground">
+          {g.version} → {ring}
+        </p>
+      )}
+      {evaluation.data?.checks && (
+        <SecurityChecksList checks={evaluation.data.checks} className="mt-3" />
       )}
     </Panel>
   );

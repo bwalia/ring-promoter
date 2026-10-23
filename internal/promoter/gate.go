@@ -1,6 +1,6 @@
 // The promotion-policy engine: an ordered pipeline of independent gates, each
-// deciding whether a version may enter a guarded ring. The four V1 gates
-// (maintenance window, QA sign-off, change request, Grafana) are Gate
+// deciding whether a version may enter a guarded ring. The gates (maintenance
+// window, QA sign-off, change request, Grafana, security) are Gate
 // implementations; new policy kinds are added by appending to promotionGates,
 // not by growing a single function. Every non-skipped verdict is audited under
 // the operation's correlation id.
@@ -60,6 +60,7 @@ var promotionGates = []Gate{
 	signoffGate{},
 	changeRequestGate{},
 	grafanaGate{},
+	securityGate{},
 }
 
 func pass(name, detail string) GateResult {

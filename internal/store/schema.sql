@@ -165,3 +165,39 @@ CREATE TABLE IF NOT EXISTS test_kit (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (app, ring, version)
 );
+
+-- Latest security scan per (app, version, kind, scanner): severity counts and
+-- the findings (JSON, capped) that security gates evaluate.
+CREATE TABLE IF NOT EXISTS security_scan (
+    id          TEXT        NOT NULL,
+    app         TEXT        NOT NULL,
+    version     TEXT        NOT NULL,
+    kind        TEXT        NOT NULL,
+    scanner     TEXT        NOT NULL DEFAULT '',
+    critical    INTEGER     NOT NULL DEFAULT 0,
+    high        INTEGER     NOT NULL DEFAULT 0,
+    medium      INTEGER     NOT NULL DEFAULT 0,
+    low         INTEGER     NOT NULL DEFAULT 0,
+    findings    TEXT        NOT NULL DEFAULT '[]',
+    summary     TEXT        NOT NULL DEFAULT '',
+    url         TEXT        NOT NULL DEFAULT '',
+    scanned_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (app, version, kind, scanner)
+);
+
+CREATE INDEX IF NOT EXISTS idx_security_scan_app_created ON security_scan (app, created_at DESC);
+
+-- Time-boxed risk acceptances for one finding id of one app (ring '' = all).
+CREATE TABLE IF NOT EXISTS security_waiver (
+    id          TEXT        PRIMARY KEY,
+    app         TEXT        NOT NULL,
+    finding     TEXT        NOT NULL,
+    ring        TEXT        NOT NULL DEFAULT '',
+    reason      TEXT        NOT NULL DEFAULT '',
+    created_by  TEXT        NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_security_waiver_app ON security_waiver (app, created_at DESC);

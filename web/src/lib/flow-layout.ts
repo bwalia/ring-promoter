@@ -38,7 +38,12 @@ export interface FlowChild {
   startedAt?: string;
   finishedAt?: string;
   verdict?: GateState;
+  /** A compact fact shown beside the label (e.g. "2C 1H" findings). */
+  meta?: string;
 }
+
+/** What a gate decides on: promotion policy, the QA agent, or AppSec scans. */
+export type GateKind = "policy" | "qa" | "security";
 
 export interface FlowNode {
   id: string;
@@ -54,6 +59,8 @@ export interface FlowNode {
   plane?: FlowPlane;
   /** Gate nodes: the Go / No-Go verdict. */
   verdict?: GateState;
+  /** Gate nodes: what the gate checks (sets its glyph). */
+  gate?: GateKind;
   /** Parallel members (a stage's apps, a matrix) drawn inside one box. */
   children?: FlowChild[];
   /** Extra text for search (names that are not shown). */

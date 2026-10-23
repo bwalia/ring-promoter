@@ -48,6 +48,18 @@ func (p pipelineRunner) QAVerdict(ctx context.Context, app, ringName string) (st
 	return p.s.prom.QAVerdict(ctx, app, ringName)
 }
 
+func (p pipelineRunner) SecurityVerdict(ctx context.Context, app, ringName, version string) (pipeline.SecurityResult, error) {
+	ev, err := p.s.prom.SecurityVerdict(ctx, app, ringName, version)
+	if err != nil {
+		return pipeline.SecurityResult{}, err
+	}
+	checks, err := json.Marshal(ev.Checks)
+	if err != nil {
+		return pipeline.SecurityResult{}, err
+	}
+	return pipeline.SecurityResult{Verdict: ev.Verdict, Version: ev.Version, Detail: ev.Detail, Checks: checks}, nil
+}
+
 func (p pipelineRunner) Audit(ctx context.Context, ringName, action string, detail map[string]string) {
 	p.s.prom.AuditPipeline(ctx, ringName, action, detail)
 }

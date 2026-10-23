@@ -861,6 +861,99 @@ gates, the GitHub Actions jobs of its workflow run with their steps, health,
 and the QA gate. The same flow view is the default tab of every app's live
 job card.
 
+## Security & compliance gates
+
+Ring Promoter can hold every release behind AppSec evidence: your CI runs the
+scanners (SAST, SCA, secrets, container, IaC, DAST, licence) and posts their
+reports for the **exact version** it built; a **security policy** says which
+scans must exist and how many un-waived findings each severity may have.
+
+```yaml
+security_policy:                  # default for every app (optional)
+  rings: [acc, prod]              # rings the promotion gate guards (default acc, prod)
+  require: [sast, sca, secrets]   # scans that must have reported for the version
+  max: { critical: 0, high: 0 }   # un-waived findings allowed; omitted severities are unlimited
+  max_age: 168h                   # a required scan older than this fails (optional)
+
+apps:
+  - name: diytaxreturn-web
+    promotion_policy:
+      security:                   # overrides security_policy for this app
+        rings: [test, acc, prod]
+        require: [sast, sca, secrets, container]
+        max: { critical: 0, high: 0, medium: 25 }
+```
+
+Enforcement happens in two places, from the same evaluation:
+
+- **Promotion gate** — the fifth policy gate (after maintenance window,
+  sign-off, change request and Grafana). A seed or promotion into a guarded
+  ring is refused with `409` when a required scan is missing or the findings
+  breach the policy. It cannot be overridden: a finding is accepted only by a
+  **waiver** — one finding id, a reason, an author and an expiry (default 30
+  days, at most 90), optionally limited to one ring. Every scan, waiver and
+  verdict lands in the audit ledger (category `security`, and `gate`).
+- **Pipeline gate** — `type: gate` with `gate: security`. Placed before a
+  deploy stage it checks the version about to be deployed (the run's version,
+  the ring's pinned ref for `int`, else the previous ring's current version);
+  a missing scan waits (up to `timeout`), a breach is an immediate NO-GO. Apps
+  without a policy use the built-in default above.
+
+```yaml
+      - name: appsec
+        display_name: AppSec Go / No-Go
+        type: gate
+        gate: security
+        apps: [diytaxreturn-opsapi, diytaxreturn-web]
+        timeout: 30m
+      - name: frontend
+        apps: [diytaxreturn-opsapi, diytaxreturn-web]
+        needs: [appsec]
+```
+
+Reports are SARIF 2.1.0 (Trivy, Grype, Semgrep, CodeQL, Gitleaks, Checkov…),
+a findings list, or bare counts. SARIF severity comes from
+`security-severity` (≥9 critical, ≥7 high, ≥4 medium, else low), falling back
+to the level (`error` high, `warning` medium, `note` low); every secrets
+finding is critical. A GitHub Actions job:
+
+```yaml
+  appsec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.28.0
+        with: { scan-type: fs, format: sarif, output: trivy.sarif }
+      - run: pipx run semgrep scan --config auto --sarif -o semgrep.sarif || true
+      - uses: gitleaks/gitleaks-action@v2
+        env: { GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false }
+        continue-on-error: true   # writes results.sarif
+      - name: Report to Ring Promoter
+        env:
+          RP_URL: ${{ vars.RP_URL }}
+          RP_TOKEN: ${{ secrets.RP_API_TOKEN }}
+        run: |
+          post() {  # kind file
+            jq -n --slurpfile s "$2" --arg v "${{ github.sha }}" --arg k "$1" \
+              --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              '{app:"diytaxreturn-web", version:$v, kind:$k, url:$url, sarif:$s[0]}' |
+            curl -fsS -X POST "$RP_URL/api/security/scans" \
+              -H "Authorization: Bearer $RP_TOKEN" -H "Content-Type: application/json" \
+              -H "X-Actor: github-actions" --data-binary @-
+          }
+          post sca trivy.sarif
+          post sast semgrep.sarif
+          post secrets results.sarif
+```
+
+| Method | Path | |
+|---|---|---|
+| `POST` | `/api/security/scans` | record a scan: `{"app","version","kind","scanner","url","summary","sarif"}` or `findings: [{id,severity,title,location,package,installed,fixed}]` or `critical/high/medium/low` counts (10 MB max; rescanning the same version + kind + scanner replaces it) → 201 |
+| `GET` | `/api/apps/{app}/security` | effective policy, per-ring posture (current version's verdict and checks), newest 100 scans, waivers |
+| `GET` | `/api/apps/{app}/security/evaluate?version=v&ring=r` | evaluate one version: `verdict` go / no_go / pending, per-kind `checks`, un-waived `counts` |
+| `POST` | `/api/apps/{app}/security/waivers` | `{"finding":"CVE-…","ring":"prod","reason":"…","days":14}` (or `expires_at`) → 201 |
+| `DELETE` | `/api/apps/{app}/security/waivers/{id}` | revoke a waiver → 204 |
+
 ---
 
 ## Postgres schema
@@ -949,7 +1042,7 @@ variable (env wins). Secrets should always come from the environment / a Secret.
 | `RP_CONFIG_FILE`  | – (flag `--config`) | `config.yaml`  | Path to the config file.               |
 | `RP_CORS_ORIGINS` | – (env only)        | any origin     | Which other web consoles may call this server, so one browser can switch between clusters. Comma-separated origins (e.g. `https://rp.int.example.com,https://rp.prod.example.com`), or `off`. The API takes bearer tokens only (no cookies), so a console still needs this server's token. |
 
-The application registry (`apps:`) lives in the file only.
+The application registry (`apps:`), `pipelines:` and `security_policy:` live in the file only.
 
 ---
 

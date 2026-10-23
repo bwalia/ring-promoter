@@ -61,6 +61,9 @@ type PromotionPolicy struct {
 	// ring — the release-quality/build-status signal that already drives the
 	// team's own go/no-go call.
 	Grafana *GrafanaPolicy `yaml:"grafana"`
+	// Security requires the version's security scans to satisfy an AppSec
+	// policy; it overrides the top-level security_policy for this app.
+	Security *SecurityPolicy `yaml:"security"`
 }
 
 // GatePolicy is a gate that applies to a set of target rings and needs no
@@ -588,6 +591,9 @@ func validatePromotionPolicy(a AppConfig) error {
 		default:
 			return fmt.Errorf("application %q change_request has unknown provider %q (want %q or %q)", a.Name, c.Provider, CRProviderTest, CRProviderJIRA)
 		}
+	}
+	if err := p.Security.validate(fmt.Sprintf("application %q promotion_policy.security", a.Name)); err != nil {
+		return err
 	}
 	if g := p.Grafana; g != nil {
 		if err := checkRings("grafana", g.Rings); err != nil {

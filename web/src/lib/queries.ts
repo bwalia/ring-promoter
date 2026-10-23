@@ -812,3 +812,67 @@ export function useRerunPipeline(onRun?: (run: PipelineRun) => void) {
     onRun,
   );
 }
+
+// ---- security & compliance ----
+
+/** An app's security policy, per-ring posture, recent scans and waivers. */
+export function useSecurity(app: string | null) {
+  const token = useAuthStore((s) => s.token);
+  const autoRefresh = usePrefsStore((s) => s.autoRefresh);
+  return useQuery({
+    queryKey: ["security", app],
+    queryFn: () => api.security(app!),
+    enabled: !!token && !!app,
+    refetchInterval: autoRefresh ? GATES_INTERVAL : false,
+    // Older servers have no security endpoints: treat as "not available".
+    retry: (n, err) => !(err instanceof ApiError && err.status === 404) && n < 2,
+  });
+}
+
+/** Would `version` pass the security gate into `ring`? */
+export function useSecurityEvaluation(
+  app: string | null,
+  version: string | undefined,
+  ring?: string,
+) {
+  const token = useAuthStore((s) => s.token);
+  return useQuery({
+    queryKey: ["security-eval", app, version, ring ?? ""],
+    queryFn: () => api.evaluateSecurity(app!, version!, ring),
+    enabled: !!token && !!app && !!version,
+    refetchInterval: GATES_INTERVAL,
+    retry: false,
+  });
+}
+
+export function useCreateWaiver(app: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (w: { finding: string; ring?: string; reason: string; days?: number }) => {
+      if (!app) throw new Error("no application selected");
+      return api.createWaiver(app, w);
+    },
+    onSuccess: (w) => {
+      queryClient.invalidateQueries({ queryKey: ["security", app] });
+      queryClient.invalidateQueries({ queryKey: ["security-eval", app] });
+      toast.success("Waiver recorded", { description: `${w.finding} accepted until ${new Date(w.expires_at).toLocaleDateString()}` });
+    },
+    onError: (err: Error) => toast.error("Could not record waiver", { description: err.message }),
+  });
+}
+
+export function useDeleteWaiver(app: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => {
+      if (!app) throw new Error("no application selected");
+      return api.deleteWaiver(app, id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["security", app] });
+      queryClient.invalidateQueries({ queryKey: ["security-eval", app] });
+      toast.success("Waiver revoked");
+    },
+    onError: (err: Error) => toast.error("Could not revoke waiver", { description: err.message }),
+  });
+}
