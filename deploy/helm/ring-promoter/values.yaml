@@ -20,6 +20,7 @@ optionalSecretKeys:
   - RP_JIRA_TOKEN
   - RP_PROD_PASSWORD
   - RP_OLLAMA_JWT_SECRET
+  - RP_GRAFANA_TOKEN       # Grafana gate (Viewer service-account token)
 
 service:
   port: 80

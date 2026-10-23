@@ -44,7 +44,6 @@ func main() {
 	addr := ":" + envOr("PORT", "8080")
 	ver := resolveVersion()
 
-	var requests atomic.Int64
 	ready := &atomic.Bool{}
 	// Simulate a short warm-up so readiness is meaningful in demos.
 	go func() {
@@ -52,6 +51,17 @@ func main() {
 		ready.Store(true)
 	}()
 
+	srv := &http.Server{Addr: addr, Handler: newMux(ver, ready), ReadHeaderTimeout: 5 * time.Second}
+	log.Printf("hello-world %s listening on %s", ver, addr)
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// newMux wires the four endpoints. It is separate from main so the unit tests
+// exercise exactly the handlers the server runs, without opening a socket.
+func newMux(ver string, ready *atomic.Bool) *http.ServeMux {
+	var requests atomic.Int64
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -81,11 +91,7 @@ func main() {
 		fmt.Fprintf(w, "helloworld_build_info{version=%q} 1\n", ver)
 	})
 
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	log.Printf("hello-world %s listening on %s", ver, addr)
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatal(err)
-	}
+	return mux
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -39,11 +39,85 @@ ollama:
 
 apps:
   # 1) hello-world — kubectl deployer, version-aware health via a JSON field.
-  #    Feature focus: seed/promote/rollback, auto_promote, health_version_field.
+  #    Feature focus: seed/promote/rollback, auto_promote, health_version_field,
+  #    and the full QA + security + compliance gate stack:
+  #
+  #      ring  | QA unit tests (Grafana) | AppSec scans | release sign-off
+  #      int   |           ✓             |              |
+  #      test  |           ✓             |      ✓       |
+  #      acc   |           ✓             |      ✓       |
+  #      prod  |           ✓             |      ✓       |        ✓
+  #
+  #    The evidence comes from .github/workflows/hello-world-qa.yml, which runs
+  #    on every hello-world change and nightly: unit-test results are pushed to
+  #    the rp-qa Pushgateway (deploy/instances/fictionally/qa) and read back
+  #    through grafana.workstation.co.uk; gosec / govulncheck / gitleaks SARIF
+  #    goes to POST /api/security/scans for the exact image tag it builds.
   - name: hello-world
     display_name: "Hello World"
     location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
-    links: [ { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/hello-world", kind: docs } ]
+    links:
+      - { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/hello-world", kind: docs }
+      - { label: "QA unit tests", url: "https://grafana.workstation.co.uk/d/rp-qa-unit-tests?var-app=hello-world", kind: dashboard }
+    promotion_policy:
+      # QA gate: the unit-test verdict CI pushed, read from the obs Prometheus
+      # behind grafana.workstation.co.uk (token: RP_GRAFANA_TOKEN, a Viewer
+      # service account "ring-promoter-training" on that Grafana). One red
+      # check blocks the promotion; a release engineer can overrule it from the
+      # ring's panel, with a recorded reason, when a red is a known flake.
+      grafana:
+        rings: [int, test, acc, prod]
+        url: https://grafana.workstation.co.uk
+        dashboard_uid: rp-qa-unit-tests
+        dashboard_name: "Ring Promoter — QA Unit Tests"
+        datasource_uid: prometheus
+        # Required for Prometheus: without it the query is sent as SQL.
+        datasource_type: prometheus
+        go_min: 2          # 2 = the latest run passed
+        no_go_max: 0       # 0 = a test failed or the suite did not build
+        # Range query with maxDataPoints=1: keep the window short so a fixed
+        # suite reads GO within minutes of the re-run.
+        lookback: 5m
+        max_age: 36h
+        # Staleness lives INSIDE each query: the Pushgateway is re-scraped every
+        # 30s, so the sample always looks fresh. Joining on the run timestamp
+        # makes a suite that stopped running (36h = 129600s, the nightly run plus
+        # slack) read "no data" instead of holding its last GO forever.
+        checks:
+          - name: "Unit tests"
+            query: |
+              rp_qa_unit_last_run_status{app="hello-world"}
+                and on(app)
+              (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-world"} < 129600)
+          - name: "Pass rate"
+            unit: "%"
+            go_min: 100
+            no_go_max: 95
+            query: |
+              rp_qa_unit_pass_rate_percent{app="hello-world"}
+                and on(app)
+              (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-world"} < 129600)
+          - name: "Coverage"
+            unit: "%"
+            go_min: 70
+            no_go_max: 50
+            query: |
+              rp_qa_unit_coverage_percent{app="hello-world"}
+                and on(app)
+              (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-world"} < 129600)
+      # Security gate (cannot be overridden): every version entering test, acc
+      # or prod needs a SAST, SCA and secrets scan with no critical or high
+      # finding left unwaived. Scans older than 30 days count as stale — the
+      # nightly run refreshes them for the version currently on main.
+      security:
+        rings: [test, acc, prod]
+        require: [sast, sca, secrets]
+        max: { critical: 0, high: 0 }
+        max_age: 720h
+      # Compliance: a named release engineer records GO for the exact version
+      # before it may enter prod (four-eyes, audited alongside the gate log).
+      qa_signoff:
+        rings: [prod]
     rings:
       int:  { namespace: hello-world-int,  deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-int.svc.cluster.local/healthz",  health_version_field: version }
       test: { namespace: hello-world-test, deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-test.svc.cluster.local/healthz", health_version_field: version }

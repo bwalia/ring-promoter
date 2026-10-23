@@ -48,6 +48,29 @@ The Ingress uses `ingressClassName: traefik` (k3s1) and annotates the host so
 **external-dns publishes a Cloudflare CNAME → `lon1.pop0.uk`** (the wslproxy
 POP). See [`architecture.md`](./architecture.md).
 
+## QA, security and compliance gates
+
+On the training instance hello-world is the worked example of all three gate
+families. [`hello-world-qa.yml`](../../../.github/workflows/hello-world-qa.yml)
+produces the evidence on every change and nightly:
+
+| Gate | Evidence | Rings | Blocks when |
+|------|----------|-------|-------------|
+| **QA (Grafana)** | `go test` results → rp-qa Pushgateway → [QA Unit Tests dashboard](https://grafana.workstation.co.uk/d/rp-qa-unit-tests?var-app=hello-world) | int, test, acc, prod | a test fails, pass rate ≤ 95%, coverage ≤ 50% |
+| **AppSec** | gosec (SAST), govulncheck (SCA), gitleaks (secrets) SARIF → `POST /api/security/scans` | test, acc, prod | a scan is missing or older than 30 days, or any critical/high finding is unwaived |
+| **Compliance** | release-engineer sign-off for the exact version | prod | no GO sign-off recorded |
+
+The QA gate can be overruled from a ring's panel with a recorded reason (for a
+known flake); the AppSec gate cannot — waive the individual finding instead,
+with a reason and an expiry. Run the unit tests locally:
+
+```bash
+go test ./... -race -cover
+```
+
+To see the gate go red, break a test on a branch, merge it, and watch the
+dashboard flip to NO-GO and Promote turn disabled on the training instance.
+
 ## How Ring Promoter manages it
 
 Registered in [`training/config/apps.training.yaml`](../../config/apps.training.yaml)
