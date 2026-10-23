@@ -5,7 +5,9 @@
 # --platform=$BUILDPLATFORM runs the Go toolchain NATIVELY on the builder (e.g.
 # arm64), then cross-compiles to the target arch below — so building linux/amd64
 # on an arm64 runner never emulates the Go toolchain under QEMU (which crashes).
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+# Pinned to the patch release hello-world-qa.yml scans with (GO_VERSION there):
+# the stdlib is compiled in, so the SCA verdict is only true for this exact Go.
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS build
 WORKDIR /src
 # Module files first for layer caching (no deps here, but keeps the pattern).
 COPY go.mod ./

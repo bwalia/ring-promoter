@@ -58,10 +58,13 @@ env:
   APP: hello-world
   APP_DIR: training/sample-apps/hello-world
   IMAGE: docker.io/bwalia/rp-training-hello-world
-  # Must match the Dockerfile's golang:1.26 base: govulncheck judges the
-  # standard library of the toolchain it runs on, so scanning with an older
-  # patch release than the image is built with reports CVEs the image lacks.
-  GO_VERSION: "1.26.x"
+  # Must equal the Dockerfile's golang:<version>-alpine base. govulncheck judges
+  # the standard library of the toolchain it runs on, and the self-hosted
+  # runner's cached "1.26.x" was 1.26.5 — 22 stdlib CVEs the image (built on a
+  # newer patch) did not have. Pinned in both places, the scan describes the
+  # binary that ships; when new stdlib CVEs land, the nightly scan turns the
+  # AppSec gate NO-GO until both pins are bumped together.
+  GO_VERSION: "1.26.10"
   GOSEC_VERSION: v2.22.4
   GOVULNCHECK_VERSION: v1.1.4
   GITLEAKS_VERSION: v8.30.1
