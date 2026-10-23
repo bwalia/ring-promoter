@@ -620,6 +620,59 @@ data:
           acc:  { target_env: acc,  health_url: "http://fishers-api.gullycricket-acc.svc.cluster.local:8080/health",  links: [ { label: "GullyCricket acc", url: "https://acc.gullycricket.app/" } ] }
           prod: { target_env: prod, health_url: "http://fishers-api.gullycricket-prod.svc.cluster.local:8080/health", links: [ { label: "GullyCricket", url: "https://www.gullycricket.app/" } ] }
 
+      # ── NebulaDB — edge registration + showcase deploy ─────────────────────
+      # Source of the blocks: bwalia/nebuladb deploy/edge/ring-promoter-app.yaml
+      # (kept in sync; edit there then copy here).
+      #
+      # nebuladb-edge first: DNS + wslproxy vhost must exist before a public
+      # /livez health check on the showcase can resolve. Same ordering idea as
+      # diytaxreturn-dns sitting above the app it fronts.
+      #
+      # Both use the github deployer (RP_GITHUB_TOKEN). deploy-k3s.yml builds
+      # and helm-upgrades server + showcase; register-edge-vhost.yml upserts
+      # Cloudflare CNAME + wslproxy server/rule. Health probes the public host
+      # (/livez is auth-exempt).
+      - name: nebuladb-edge
+        display_name: "NebulaDB edge (DNS + vhost)"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: nebuladb
+          workflow: register-edge-vhost.yml
+          ref: main
+          deploy_mode: full
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 15s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "https://int-nebuladb.nebuladb.net/livez" }
+          test: { target_env: test, health_url: "https://test-showcase.nebuladb.net/livez" }
+          acc:  { target_env: acc,  health_url: "https://acc-showcase.nebuladb.net/livez" }
+          prod: { target_env: prod, health_url: "https://showcase.nebuladb.net/livez" }
+
+      - name: nebuladb
+        display_name: "NebulaDB Showcase"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: nebuladb
+          workflow: deploy-k3s.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: build-and-deploy
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "https://int-nebuladb.nebuladb.net/livez",  links: [ { label: "Showcase int", url: "https://int-nebuladb.nebuladb.net/" } ] }
+          test: { target_env: test, health_url: "https://test-showcase.nebuladb.net/livez", links: [ { label: "Showcase test", url: "https://test-showcase.nebuladb.net/" } ] }
+          acc:  { target_env: acc,  health_url: "https://acc-showcase.nebuladb.net/livez",  links: [ { label: "Showcase acc", url: "https://acc-showcase.nebuladb.net/" } ] }
+          prod: { target_env: prod, health_url: "https://showcase.nebuladb.net/livez",      links: [ { label: "Showcase", url: "https://showcase.nebuladb.net/" } ] }
+
       # wslproxy-k3s1 moved to its own instance, https://rp.wslproxy.com,
       # owned by bwalia/wslproxy deploy/ring-promoter/ (2026-09-24).
 
