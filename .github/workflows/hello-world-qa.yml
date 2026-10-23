@@ -1,25 +1,35 @@
-name: hello-world QA & AppSec (training)
+name: hello-world QA, AppSec & compliance (training)
 
 # The evidence behind hello-world's promotion gates on the TRAINING instance
-# (https://ring-promoter.fictionally.org):
+# (https://ring-promoter.fictionally.org). Every result lands in two places:
 #
-#   1. QA        go vet + unit tests (race, coverage) -> Prometheus metrics,
-#                pushed to the rp-qa Pushgateway on k3s1 and shown on
-#                grafana.workstation.co.uk ("Ring Promoter — QA Unit Tests").
-#                Ring Promoter's Grafana gate reads the same series.
-#   2. AppSec    gosec (SAST), govulncheck (SCA), gitleaks (secrets) as SARIF,
-#                uploaded to POST /api/security/scans for the exact version.
-#   3. Release   build + push docker.io/bwalia/rp-training-hello-world:<version>
-#                and seed it into int — only after 1 and 2 have been recorded,
-#                so the gates judge this build, not the previous one.
+#   * Prometheus (rp-qa Pushgateway on k3s1 -> obs Prometheus), shown on
+#     grafana.workstation.co.uk and read by Ring Promoter's Grafana gate:
+#       "Ring Promoter — QA Unit Tests"           rp_qa_unit_*
+#       "Ring Promoter — Security & Compliance"   rp_sec_*
+#   * Ring Promoter itself, as SARIF per exact version (POST /api/security/
+#     scans), which its non-overridable AppSec gate judges.
+#
+# All open source:
+#
+#   job qa (source)        go vet + go test (race, coverage)      QA
+#                          gosec + Semgrep (p/golang, p/dockerfile)  SAST
+#                          govulncheck (reachability-aware)       SCA
+#                          gitleaks                               secrets
+#                          Checkov (CIS Docker + Kubernetes)      IaC / compliance
+#   job supply-chain       buildx with SLSA provenance + SBOM attestations
+#     (image)              Syft CycloneDX SBOM                    SBOM
+#                          Grype on that SBOM                     container CVEs
+#                          licence policy on that SBOM            licences
+#                          then seed int (push / dispatch only)
 #
 # The version is sha-<7> of the LAST COMMIT THAT TOUCHED THE APP, not of HEAD:
-# the nightly run then re-tests and re-scans the build that is actually
-# promotable instead of minting a new version for an unrelated commit.
+# the nightly run re-tests and re-scans the build that is actually promotable
+# (new CVEs published overnight turn its gate NO-GO) instead of minting a new
+# version for an unrelated commit.
 #
-# Pull requests run 1 and 2 as checks but publish nothing: metrics and scans
-# describe main. The nightly schedule keeps the QA signal inside the gate's 36h
-# freshness window and the scans inside the 30-day max_age.
+# Pull requests run the source job as a check and fail on any blocking finding
+# (shift left), but publish nothing: metrics and scans describe main.
 #
 # Repo secrets used (all already set for the other training workflows):
 #   KUBE_CONFIG_DATA_K3S1  push metrics (kubectl port-forward to the Pushgateway)
@@ -32,18 +42,20 @@ on:
     paths:
       - "training/sample-apps/hello-world/**"
       - "training/scripts/qa_unit_metrics.py"
+      - "training/scripts/sec_metrics.py"
       - ".github/workflows/hello-world-qa.yml"
   pull_request:
     paths:
       - "training/sample-apps/hello-world/**"
       - "training/scripts/qa_unit_metrics.py"
+      - "training/scripts/sec_metrics.py"
       - ".github/workflows/hello-world-qa.yml"
   schedule:
     - cron: "17 3 * * *"   # nightly, 03:17 UTC
   workflow_dispatch:
     inputs:
       seed:
-        description: "Build the image and seed it into int"
+        description: "Build the image (if missing) and seed it into int"
         type: boolean
         default: true
 
@@ -62,22 +74,27 @@ env:
   # the standard library of the toolchain it runs on, and the self-hosted
   # runner's cached "1.26.x" was 1.26.5 — 22 stdlib CVEs the image (built on a
   # newer patch) did not have. Pinned in both places, the scan describes the
-  # binary that ships; when new stdlib CVEs land, the nightly scan turns the
+  # binary that ships; when new stdlib CVEs land, the nightly scans turn the
   # AppSec gate NO-GO until both pins are bumped together.
   GO_VERSION: "1.26.10"
+  # Scanner versions are pinned so a verdict change always means the code or
+  # the vulnerability data changed, never the tool.
   GOSEC_VERSION: v2.22.4
   GOVULNCHECK_VERSION: v1.1.4
   GITLEAKS_VERSION: v8.30.1
+  SEMGREP_IMAGE: docker.io/semgrep/semgrep:1.181.1
+  CHECKOV_IMAGE: docker.io/bridgecrew/checkov:3.3.28
+  SYFT_IMAGE: docker.io/anchore/syft:v1.54.0
+  GRYPE_IMAGE: docker.io/anchore/grype:v0.120.0
   # Publish (metrics + scans) for main only — never for a PR.
   PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
 
 jobs:
   qa:
-    name: Unit tests + AppSec scans
+    name: Unit tests + source security
     runs-on: [self-hosted, mac-studio]
     outputs:
       version: ${{ steps.ver.outputs.version }}
-      tests_ok: ${{ steps.test.outputs.ok }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,13 +109,23 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          sha=$(git log -1 --format=%H -- "$APP_DIR" | cut -c1-7)
-          echo "version=sha-${sha}" >> "$GITHUB_OUTPUT"
-          echo "VERSION=sha-${sha}" >> "$GITHUB_ENV"
-          echo "APP_COMMIT=$(git log -1 --format=%H -- "$APP_DIR")" >> "$GITHUB_ENV"
-          echo "OUT=$RUNNER_TEMP/qa" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/qa"
-          echo "### hello-world \`sha-${sha}\`" >> "$GITHUB_STEP_SUMMARY"
+          commit=$(git log -1 --format=%H -- "$APP_DIR")
+          {
+            echo "VERSION=sha-${commit:0:7}"
+            echo "APP_COMMIT=${commit}"
+            echo "OUT=$RUNNER_TEMP/qa"
+            echo "RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "$GITHUB_ENV"
+          echo "version=sha-${commit:0:7}" >> "$GITHUB_OUTPUT"
+          rm -rf "$RUNNER_TEMP/qa" && mkdir -p "$RUNNER_TEMP/qa"
+          echo "### hello-world \`sha-${commit:0:7}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Kubeconfig (k3s1)
+        if: env.PUBLISH == 'true'
+        run: |
+          umask 077
+          echo "${{ secrets.KUBE_CONFIG_DATA_K3S1 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
 
       - name: go vet
         working-directory: ${{ env.APP_DIR }}
@@ -115,94 +142,117 @@ jobs:
           rc=$?
           python3 "$GITHUB_WORKSPACE/training/scripts/qa_unit_metrics.py" \
             --app "$APP" --json "$OUT/test.json" --cover "$OUT/cover.out" \
-            --version "$VERSION" --commit "$APP_COMMIT" \
-            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            > "$OUT/metrics.prom" 2> "$OUT/summary.txt"
-          cat "$OUT/summary.txt"
-          echo "- QA: $(cat "$OUT/summary.txt")" >> "$GITHUB_STEP_SUMMARY"
+            --version "$VERSION" --commit "$APP_COMMIT" --run-url "$RUN_URL" \
+            > "$OUT/qa.prom" 2> "$OUT/qa.txt"
+          cat "$OUT/qa.txt"
+          echo "- QA: $(cat "$OUT/qa.txt")" >> "$GITHUB_STEP_SUMMARY"
           if [ "$rc" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Publish QA metrics to the Pushgateway
-        if: env.PUBLISH == 'true'
-        run: |
-          set -euo pipefail
-          umask 077
-          echo "${{ secrets.KUBE_CONFIG_DATA_K3S1 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
-          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
-          kubectl -n rp-qa port-forward svc/rp-qa-pushgateway 19091:9091 >/dev/null 2>&1 &
-          PF_PID=$!; trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
-          for i in $(seq 1 10); do
-            curl -fsS -o /dev/null http://127.0.0.1:19091/-/ready 2>/dev/null && break
-            sleep 1
-          done
-          # PUT replaces the whole group, so a deleted test disappears.
-          curl -fsS -X PUT --data-binary "@$OUT/metrics.prom" \
-            "http://127.0.0.1:19091/metrics/job/rp-qa-unit/app/${APP}"
-          echo "pushed $(grep -c '^rp_qa_unit' "$OUT/metrics.prom") samples for ${APP} ${VERSION}"
-
-      - name: SAST (gosec)
+      - name: SAST — gosec
         working-directory: ${{ env.APP_DIR }}
         run: |
           go run "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}" \
-            -quiet -no-fail -fmt sarif -out "$OUT/sast.sarif" ./...
+            -quiet -no-fail -fmt sarif -out "$OUT/gosec.sarif" ./...
+          # gosec writes no file when it has nothing to report.
+          [ -s "$OUT/gosec.sarif" ] || echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"gosec"}},"results":[]}]}' > "$OUT/gosec.sarif"
 
-      - name: SCA (govulncheck)
+      # The Docker-based scanners get the source as a tar on stdin and hand
+      # results back the same way: no bind mounts, so it works whatever the
+      # runner's Docker file-sharing allows.
+      - name: SAST — Semgrep
+        run: |
+          set -euo pipefail
+          tar -C "$APP_DIR" -cf - . | docker run --rm -i --entrypoint sh "$SEMGREP_IMAGE" -c \
+            'mkdir -p /tmp/src && tar -xf - -C /tmp/src && cd /tmp/src &&
+             semgrep scan --config p/golang --config p/dockerfile --sarif --metrics=off --quiet .' \
+            > "$OUT/semgrep.sarif"
+
+      - name: SCA — govulncheck
         working-directory: ${{ env.APP_DIR }}
         run: |
           go version
           go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" \
-            -format sarif ./... > "$OUT/sca.sarif"
+            -format sarif ./... > "$OUT/govulncheck.sarif"
 
-      - name: Secrets (gitleaks)
+      - name: Secrets — gitleaks
         run: |
           go run "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}" dir "$APP_DIR" \
-            --no-banner --exit-code 0 --report-format sarif --report-path "$OUT/secrets.sarif"
+            --no-banner --exit-code 0 --report-format sarif --report-path "$OUT/gitleaks.sarif"
 
-      - name: Summarise scans
+      # CIS Docker + Kubernetes benchmarks over the Dockerfile and Helm chart.
+      # Exceptions live in the app's .checkov.yaml, each with its reason.
+      - name: IaC compliance — Checkov
         run: |
           set -euo pipefail
-          for kind in sast sca secrets; do
-            f="$OUT/$kind.sarif"
-            # gosec writes no file when it finds nothing to report.
-            [ -s "$f" ] || echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"gosec"}},"results":[]}]}' > "$f"
-            n=$(jq '[.runs[].results[]?] | length' "$f")
-            echo "- ${kind}: $(jq -r '.runs[0].tool.driver.name' "$f") — ${n} finding(s)" | tee -a "$GITHUB_STEP_SUMMARY"
-          done
+          mkdir -p "$OUT/checkov"
+          tar -C "$APP_DIR" -cf - . | docker run --rm -i --entrypoint sh "$CHECKOV_IMAGE" -c \
+            'mkdir -p /src /out && tar -xf - -C /src &&
+             checkov --config-file /src/.checkov.yaml -d /src --quiet \
+               -o json -o sarif --output-file-path /out >/dev/null 2>&1;
+             tar -C /out -cf - .' \
+            | tar -xf - -C "$OUT/checkov"
+          test -s "$OUT/checkov/results_sarif.sarif"
 
-      - name: Upload scans to Ring Promoter
+      - name: Security metrics (source)
+        id: sec
+        run: |
+          set -euo pipefail
+          python3 training/scripts/sec_metrics.py --app "$APP" --stage source \
+            --version "$VERSION" --commit "$APP_COMMIT" --run-url "$RUN_URL" \
+            --sarif "sast=$OUT/gosec.sarif" --sarif "sast=$OUT/semgrep.sarif" \
+            --sarif "sca=$OUT/govulncheck.sarif" --sarif "secrets=$OUT/gitleaks.sarif" \
+            --sarif "iac=$OUT/checkov/results_sarif.sarif" \
+            --checkov-json "$OUT/checkov/results_json.json" \
+            --checkov-config "$APP_DIR/.checkov.yaml" \
+            > "$OUT/sec-source.prom" 2> "$OUT/sec-source.txt"
+          sed 's/^/- /' "$OUT/sec-source.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+          score=$(awk '/^rp_sec_compliance_score_percent/ {print $2}' "$OUT/sec-source.prom")
+          echo "- CIS compliance: ${score}%" | tee -a "$GITHUB_STEP_SUMMARY"
+          if grep -q 'NO-GO' "$OUT/sec-source.txt"; then echo "blocking=true" >> "$GITHUB_OUTPUT"; else echo "blocking=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Publish metrics to the Pushgateway
+        if: env.PUBLISH == 'true'
+        run: |
+          set -euo pipefail
+          kubectl -n rp-qa port-forward svc/rp-qa-pushgateway 19091:9091 >/dev/null 2>&1 &
+          PF_PID=$!; trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 10); do
+            curl -fsS -o /dev/null http://127.0.0.1:19091/-/ready 2>/dev/null && break
+            sleep 1
+          done
+          # PUT replaces the whole group, so a deleted test or a fixed finding
+          # disappears instead of lingering.
+          gw=http://127.0.0.1:19091/metrics/job
+          curl -fsS -X PUT --data-binary "@$OUT/qa.prom" "$gw/rp-qa-unit/app/${APP}"
+          curl -fsS -X PUT --data-binary "@$OUT/sec-source.prom" "$gw/rp-sec/app/${APP}/stage/source"
+          echo "pushed QA + source-security metrics for ${APP} ${VERSION}"
+
+      - name: Upload source scans to Ring Promoter
         if: env.PUBLISH == 'true'
         env:
           RP_URL: ${{ secrets.RP_URL }}
           RP_TOKEN: ${{ secrets.RP_TOKEN }}
         run: |
           set -euo pipefail
-          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          for kind in sast sca secrets; do
-            jq -n --arg app "$APP" --arg version "$VERSION" --arg kind "$kind" --arg url "$run_url" \
-              --slurpfile sarif "$OUT/$kind.sarif" \
-              '{app:$app, version:$version, kind:$kind, url:$url, sarif:$sarif[0]}' > "$OUT/$kind.body.json"
-            curl -fsS -X POST "${RP_URL}/api/security/scans" \
-              -H "Authorization: Bearer ${RP_TOKEN}" -H "Content-Type: application/json" \
-              -H "X-Actor: github-actions" \
-              --data-binary "@$OUT/$kind.body.json" \
+          upload() {  # kind file
+            jq -n --arg app "$APP" --arg version "$VERSION" --arg kind "$1" --arg url "$RUN_URL" \
+              --slurpfile sarif "$2" '{app:$app, version:$version, kind:$kind, url:$url, sarif:$sarif[0]}' \
+              | curl -fsS -X POST "${RP_URL}/api/security/scans" \
+                  -H "Authorization: Bearer ${RP_TOKEN}" -H "Content-Type: application/json" \
+                  -H "X-Actor: github-actions" --data-binary @- \
               | jq -c '{kind, scanner, critical, high, medium, low}'
-          done
-          echo "- AppSec gate for ${VERSION}:" >> "$GITHUB_STEP_SUMMARY"
-          for ring in test acc prod; do
-            curl -fsS -H "Authorization: Bearer ${RP_TOKEN}" \
-              "${RP_URL}/api/apps/${APP}/security/evaluate?version=${VERSION}&ring=${ring}" \
-              | jq -r --arg r "$ring" '"  - \($r): \(.verdict) (\(.detail))"' | tee -a "$GITHUB_STEP_SUMMARY"
-          done
+          }
+          upload sast "$OUT/gosec.sarif"
+          upload sast "$OUT/semgrep.sarif"
+          upload sca "$OUT/govulncheck.sarif"
+          upload secrets "$OUT/gitleaks.sarif"
+          upload iac "$OUT/checkov/results_sarif.sarif"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: hello-world-qa-evidence
-          path: |
-            ${{ runner.temp }}/qa/*.sarif
-            ${{ runner.temp }}/qa/metrics.prom
-            ${{ runner.temp }}/qa/test.json
-            ${{ runner.temp }}/qa/cover.out
+          name: hello-world-source-evidence
+          path: ${{ runner.temp }}/qa
           retention-days: 30
 
       - name: Fail on red unit tests
@@ -211,17 +261,39 @@ jobs:
           echo "::error::hello-world unit tests failed — the QA gate now reads NO-GO."
           exit 1
 
-  release:
-    name: Build image + seed int
+      - name: Fail a PR on blocking findings
+        if: github.event_name == 'pull_request' && steps.sec.outputs.blocking == 'true'
+        run: |
+          echo "::error::critical/high security findings — fix or waive before merging (see the job summary)."
+          exit 1
+
+  supply-chain:
+    name: Image SBOM, CVEs, licences + seed
     needs: qa
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.seed))
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: [self-hosted, mac-studio]
     env:
       VERSION: ${{ needs.qa.outputs.version }}
+      # Build only when a merge or a human asked for a release; the nightly run
+      # re-scans an image that already exists and never builds one.
+      CAN_BUILD: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.seed) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare
+        run: |
+          set -euo pipefail
+          {
+            echo "OUT=$RUNNER_TEMP/sc"
+            echo "APP_COMMIT=$(git log -1 --format=%H -- "$APP_DIR")"
+            echo "RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig"
+          } >> "$GITHUB_ENV"
+          rm -rf "$RUNNER_TEMP/sc" && mkdir -p "$RUNNER_TEMP/sc"
+          umask 077
+          echo "${{ secrets.KUBE_CONFIG_DATA_K3S1 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
 
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -239,22 +311,122 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build & push
-        if: steps.image.outputs.exists != 'true'
+      # SLSA provenance (mode=max) and an SPDX SBOM are attached to the image
+      # as attestations, so anyone pulling it can verify how and from what it
+      # was built — not just read our CI logs.
+      - name: Build & push (with provenance + SBOM attestations)
+        if: steps.image.outputs.exists != 'true' && env.CAN_BUILD == 'true'
         uses: docker/build-push-action@v5
         with:
           context: ${{ env.APP_DIR }}
           file: ${{ env.APP_DIR }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
+          provenance: mode=max
+          sbom: true
           build-args: VERSION=${{ env.VERSION }}
           tags: ${{ env.IMAGE }}:${{ env.VERSION }}
+
+      - name: Resolve image
+        id: ref
+        run: |
+          if docker buildx imagetools inspect "${IMAGE}:${VERSION}" >/dev/null 2>&1; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::${IMAGE}:${VERSION} has not been built yet — nothing to scan (a merge or a dispatch builds it)."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: SBOM — Syft (CycloneDX)
+        if: steps.ref.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm "$SYFT_IMAGE" "registry:${IMAGE}:${VERSION}" --platform linux/amd64 \
+            -o cyclonedx-json -q > "$OUT/sbom.cdx.json"
+          echo "- SBOM: $(jq '.components | length' "$OUT/sbom.cdx.json") components" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Grype's vulnerability DB lives in a named volume so the nightly run
+      # only downloads updates.
+      - name: Container CVEs — Grype
+        if: steps.ref.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm -i -e GRYPE_DB_CACHE_DIR=/grype-db -v rp-grype-db:/grype-db \
+            "$GRYPE_IMAGE" -o sarif -q < "$OUT/sbom.cdx.json" > "$OUT/grype.sarif"
+
+      - name: Supply-chain controls
+        if: steps.ref.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          has() {  # field -> 1 when the image index carries that attestation
+            v=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format "{{json .$1}}" 2>/dev/null || true)
+            case "$v" in ""|null|"{}") echo 0 ;; *) echo 1 ;; esac
+          }
+          echo "PROVENANCE=$(has Provenance)" >> "$GITHUB_ENV"
+          echo "SBOM_ATTESTATION=$(has SBOM)" >> "$GITHUB_ENV"
+
+      - name: Security metrics (image) + licence policy
+        if: steps.ref.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          python3 training/scripts/sec_metrics.py --app "$APP" --stage image \
+            --version "$VERSION" --commit "$APP_COMMIT" --run-url "$RUN_URL" \
+            --sbom "$OUT/sbom.cdx.json" --license-sarif-out "$OUT/license.sarif" \
+            --sarif "container=$OUT/grype.sarif" \
+            --control "provenance=${PROVENANCE}" --control "sbom_attestation=${SBOM_ATTESTATION}" \
+            > "$OUT/sec-image.prom" 2> "$OUT/sec-image.txt"
+          sed 's/^/- /' "$OUT/sec-image.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "- provenance attestation: ${PROVENANCE}, SBOM attestation: ${SBOM_ATTESTATION}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish image metrics to the Pushgateway
+        if: steps.ref.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          kubectl -n rp-qa port-forward svc/rp-qa-pushgateway 19091:9091 >/dev/null 2>&1 &
+          PF_PID=$!; trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 10); do
+            curl -fsS -o /dev/null http://127.0.0.1:19091/-/ready 2>/dev/null && break
+            sleep 1
+          done
+          curl -fsS -X PUT --data-binary "@$OUT/sec-image.prom" \
+            "http://127.0.0.1:19091/metrics/job/rp-sec/app/${APP}/stage/image"
+
+      - name: Upload image scans to Ring Promoter
+        if: steps.ref.outputs.ok == 'true'
+        env:
+          RP_URL: ${{ secrets.RP_URL }}
+          RP_TOKEN: ${{ secrets.RP_TOKEN }}
+        run: |
+          set -euo pipefail
+          upload() {  # kind file
+            jq -n --arg app "$APP" --arg version "$VERSION" --arg kind "$1" --arg url "$RUN_URL" \
+              --slurpfile sarif "$2" '{app:$app, version:$version, kind:$kind, url:$url, sarif:$sarif[0]}' \
+              | curl -fsS -X POST "${RP_URL}/api/security/scans" \
+                  -H "Authorization: Bearer ${RP_TOKEN}" -H "Content-Type: application/json" \
+                  -H "X-Actor: github-actions" --data-binary @- \
+              | jq -c '{kind, scanner, critical, high, medium, low}'
+          }
+          upload container "$OUT/grype.sarif"
+          upload license "$OUT/license.sarif"
+          echo "- AppSec gate for ${VERSION}:" >> "$GITHUB_STEP_SUMMARY"
+          for ring in test acc prod; do
+            curl -fsS -H "Authorization: Bearer ${RP_TOKEN}" \
+              "${RP_URL}/api/apps/${APP}/security/evaluate?version=${VERSION}&ring=${ring}" \
+              | jq -r --arg r "$ring" '"  - \($r): \(.verdict) (\(.detail))"' | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hello-world-image-evidence
+          path: ${{ runner.temp }}/sc
+          retention-days: 90   # the SBOM is release evidence; keep it longer
 
       # The QA gate guards int too. Prometheus scrapes every 30s and the gate
       # reads a 5m window, so a just-fixed suite can still read the previous
       # NO-GO for a few minutes: retry a 409 (gate refusal) instead of failing.
       - name: Seed int via Ring Promoter
+        if: steps.ref.outputs.ok == 'true' && env.CAN_BUILD == 'true'
         env:
           RP_URL: ${{ secrets.RP_URL }}
           RP_TOKEN: ${{ secrets.RP_TOKEN }}
@@ -272,5 +444,5 @@ jobs:
               *) exit 1 ;;
             esac
           done
-          echo "::error::int stayed gated for ${VERSION} — check the QA gate on ${RP_URL}/?app=${APP}"
+          echo "::error::int stayed gated for ${VERSION} — check the gates on ${RP_URL}/?app=${APP}"
           exit 1

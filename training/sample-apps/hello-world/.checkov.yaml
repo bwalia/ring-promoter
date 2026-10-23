@@ -1,0 +1,20 @@
+# Checkov (CIS Docker + Kubernetes benchmarks) for hello-world, run by
+# .github/workflows/hello-world-qa.yml. Every skip below is a decision, not a
+# silenced finding — each says why the control does not apply to this app.
+# Anything NOT listed here fails the IaC scan and the AppSec gate.
+framework:
+  - dockerfile
+  - helm
+skip-check:
+  # HEALTHCHECK: the image is distroless (no shell, no curl) and runs only on
+  # Kubernetes, where the chart's liveness/readiness probes do this job.
+  - CKV_DOCKER_2
+  # Default namespace: Checkov renders the chart without a namespace; Ring
+  # Promoter always installs it into hello-world-<ring>.
+  - CKV_K8S_21
+  # Image digest: Ring Promoter promotes by immutable version tag
+  # (sha-<commit>), and health_version_field proves the running build.
+  - CKV_K8S_43
+  # imagePullPolicy Always: tags are immutable, so IfNotPresent pulls the
+  # same bytes without a registry round-trip on every restart.
+  - CKV_K8S_15

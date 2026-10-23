@@ -20,6 +20,12 @@
   "refresh": "1m",
   "links": [
     {
+      "title": "Security & compliance",
+      "type": "link",
+      "url": "/d/rp-security-compliance?${app:queryparam}",
+      "icon": "dashboard"
+    },
+    {
       "title": "Ring Promoter (training)",
       "type": "link",
       "url": "https://ring-promoter.fictionally.org/?app=hello-world",

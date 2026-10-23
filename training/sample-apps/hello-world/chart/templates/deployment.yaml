@@ -24,6 +24,9 @@ spec:
     spec:
       # Pod-level securityContext: distroless :nonroot images set USER to the
       # name "nonroot"; kubelet needs a NUMERIC uid to enforce runAsNonRoot.
+      # The app never talks to the Kubernetes API, so it gets no token (CIS
+      # 5.1.6 / Checkov CKV_K8S_38).
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

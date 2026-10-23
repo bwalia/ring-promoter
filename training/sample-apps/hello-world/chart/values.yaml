@@ -53,6 +53,13 @@ autoscaling:
   maxReplicas: 5
   targetCPUUtilizationPercentage: 80
 
+# Admit traffic to the pods on the HTTP port only (CIS 5.3.2 / Checkov
+# CKV2_K8S_6). Everything that reaches the app — the Service, the ingress,
+# Ring Promoter's health checks, the Prometheus scrape — uses that port, so
+# this changes nothing that works today and shuts every other port.
+networkPolicy:
+  enabled: true
+
 podDisruptionBudget:
   enabled: false
   minAvailable: 1
