@@ -1,6 +1,6 @@
 // Package pipeline runs multi-app release pipelines: a DAG of stages from
 // config (see config.PipelineConfig) that deploy several applications into one
-// ring, check QA go/no-go gates and hold for human approvals — the CircleCI
+// ring, check QA and security go/no-go gates and hold for human approvals — the CircleCI
 // workflow / GitHub Actions jobs model, across services. Each app deploy runs
 // as an ordinary job (so it keeps its own steps, stages and gate verdicts);
 // this package only sequences them. Runs live in memory, like jobs.
@@ -8,6 +8,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -29,13 +30,33 @@ const (
 	StatusReused    = "reused"
 )
 
-// QA gate verdicts on gate items.
+// Gate verdicts on gate items.
 const (
 	VerdictGo      = "go"
 	VerdictCheck   = "check"
 	VerdictNoGo    = "no_go"
 	VerdictUnknown = "unknown"
 )
+
+// Security evaluation verdicts a Runner returns (promoter.Security*).
+const (
+	SecurityGo      = "go"
+	SecurityNoGo    = "no_go"
+	SecurityPending = "pending"
+	SecurityNone    = "none"
+)
+
+// SecurityResult is one app's security evaluation for a security gate.
+type SecurityResult struct {
+	// Verdict is go, no_go, pending (a required scan has not reported) or
+	// none (no version to check).
+	Verdict string
+	// Version is the version that was checked.
+	Version string
+	Detail  string
+	// Checks is the per-scan-kind breakdown, already JSON-encoded.
+	Checks json.RawMessage
+}
 
 // Errors the API maps to status codes.
 var (
@@ -62,6 +83,10 @@ type Runner interface {
 	Deploy(ctx context.Context, app, ringName, version string) (Deployment, error)
 	// QAVerdict is the QA agent's current verdict for app on ring.
 	QAVerdict(ctx context.Context, app, ringName string) (verdict, detail string, err error)
+	// SecurityVerdict evaluates app's security scans for entering ring.
+	// version is the run's requested version ("" lets the runner resolve
+	// what the ring would receive).
+	SecurityVerdict(ctx context.Context, app, ringName, version string) (SecurityResult, error)
 	// Audit records a run lifecycle event.
 	Audit(ctx context.Context, ringName, action string, detail map[string]string)
 }
@@ -82,6 +107,8 @@ type Item struct {
 	Version string `json:"version,omitempty"`
 	Verdict string `json:"verdict,omitempty"`
 	Detail  string `json:"detail,omitempty"`
+	// Checks is a security gate item's per-scan-kind breakdown.
+	Checks json.RawMessage `json:"checks,omitempty"`
 }
 
 // Stage is one stage of a run.
@@ -89,6 +116,7 @@ type Stage struct {
 	Name        string     `json:"name"`
 	DisplayName string     `json:"display_name"`
 	Type        string     `json:"type"`
+	Gate        string     `json:"gate,omitempty"`
 	Needs       []string   `json:"needs"`
 	Status      string     `json:"status"`
 	Message     string     `json:"message,omitempty"`
@@ -200,6 +228,9 @@ func (m *Manager) Start(ctx context.Context, p config.PipelineConfig, req Reques
 		st := Stage{
 			Name: s.Name, DisplayName: s.Title(), Type: s.ResolvedType(),
 			Needs: append([]string{}, s.Needs...), Status: StatusQueued, Items: []Item{},
+		}
+		if st.Type == config.StageGate {
+			st.Gate = s.ResolvedGate()
 		}
 		for _, app := range stageApps(p, s) {
 			st.Items = append(st.Items, Item{App: app, Status: StatusQueued, Version: req.Versions[app]})
@@ -592,25 +623,85 @@ func (m *Manager) runDeploy(ctx context.Context, r *run, cs config.PipelineStage
 	m.finish(r, cs.Name, StatusSuccess, msg)
 }
 
-// runGate polls the QA verdict of every app until all are go (pass), any is
-// no_go (fail), the timeout passes (fail) or the run is cancelled.
+// gateCheck is one poll of one app for a gate: its verdict (go, no_go or
+// anything else for pending) and what to record on the item.
+type gateCheck struct {
+	verdict, detail, version string
+	checks                   json.RawMessage
+}
+
+// gateKind holds what differs between gate kinds.
+type gateKind struct {
+	check   func(ctx context.Context, app, version string) gateCheck
+	noGo    func(app string, c gateCheck) string
+	waiting string // "waiting for %d app(s)" format
+	timeout string // "NO-GO: ... within %s" format
+	pass    string
+}
+
+func (m *Manager) gateKind(r *run, cs config.PipelineStage) gateKind {
+	if cs.ResolvedGate() == config.GateSecurity {
+		return gateKind{
+			check: func(ctx context.Context, app, version string) gateCheck {
+				res, err := m.runner.SecurityVerdict(ctx, app, r.req.Ring, version)
+				if err != nil {
+					return gateCheck{verdict: VerdictUnknown, detail: err.Error(), version: version}
+				}
+				c := gateCheck{detail: res.Detail, version: res.Version, checks: res.Checks}
+				switch res.Verdict {
+				case SecurityGo:
+					c.verdict = VerdictGo
+				case SecurityNoGo:
+					c.verdict = VerdictNoGo
+				default:
+					c.verdict = VerdictUnknown
+				}
+				return c
+			},
+			noGo: func(app string, c gateCheck) string {
+				return fmt.Sprintf("NO-GO: security policy for %s %s: %s", app, c.version, c.detail)
+			},
+			waiting: "waiting for security scans on %d app(s)",
+			timeout: "NO-GO: security scans incomplete within %s",
+			pass:    "GO: security policy satisfied for every app",
+		}
+	}
+	return gateKind{
+		check: func(ctx context.Context, app, _ string) gateCheck {
+			v, detail, err := m.runner.QAVerdict(ctx, app, r.req.Ring)
+			if err != nil {
+				v, detail = VerdictUnknown, err.Error()
+			}
+			return gateCheck{verdict: v, detail: detail}
+		},
+		noGo:    func(app string, _ gateCheck) string { return fmt.Sprintf("NO-GO: QA verdict for %s is no_go", app) },
+		waiting: "waiting for a QA verdict on %d app(s)",
+		timeout: "NO-GO: no QA verdict within %s",
+		pass:    "GO: QA verdict is go for every app",
+	}
+}
+
+// runGate polls every app's verdict (QA or security, by gate kind) until all
+// are go (pass), any is no_go (fail), the timeout passes (fail) or the run is
+// cancelled.
 func (m *Manager) runGate(ctx context.Context, r *run, cs config.PipelineStage) {
 	apps := stageApps(r.cfg, cs)
 	if len(apps) == 0 {
 		m.finish(r, cs.Name, StatusSuccess, "no apps to check")
 		return
 	}
+	kind := m.gateKind(r, cs)
 	deadline := time.NewTimer(cs.ResolvedTimeout())
 	defer deadline.Stop()
 	for {
 		pending := 0
 		for _, app := range apps {
-			v, detail, err := m.runner.QAVerdict(ctx, app, r.req.Ring)
-			if err != nil {
-				v, detail = VerdictUnknown, err.Error()
-			}
+			r.mu.Lock()
+			version := r.req.Versions[app]
+			r.mu.Unlock()
+			c := kind.check(ctx, app, version)
 			status := StatusWaiting
-			switch v {
+			switch c.verdict {
 			case VerdictGo:
 				status = StatusSuccess
 			case VerdictNoGo:
@@ -618,26 +709,36 @@ func (m *Manager) runGate(ctx context.Context, r *run, cs config.PipelineStage) 
 			default:
 				pending++
 			}
-			setItem(r, cs.Name, app, func(it *Item) { it.Status = status; it.Verdict = v; it.Detail = detail })
-			if v == VerdictNoGo {
-				m.finish(r, cs.Name, StatusFailed, fmt.Sprintf("NO-GO: QA verdict for %s is no_go", app))
+			setItem(r, cs.Name, app, func(it *Item) {
+				it.Status = status
+				it.Verdict = c.verdict
+				it.Detail = c.detail
+				if c.version != "" {
+					it.Version = c.version
+				}
+				if c.checks != nil {
+					it.Checks = c.checks
+				}
+			})
+			if c.verdict == VerdictNoGo {
+				m.finish(r, cs.Name, StatusFailed, kind.noGo(app, c))
 				return
 			}
 		}
 		if pending == 0 {
-			m.finish(r, cs.Name, StatusSuccess, "GO: QA verdict is go for every app")
+			m.finish(r, cs.Name, StatusSuccess, kind.pass)
 			return
 		}
 		r.update(cs.Name, func(s *Stage) {
 			s.Status = StatusWaiting
-			s.Message = fmt.Sprintf("waiting for a QA verdict on %d app(s)", pending)
+			s.Message = fmt.Sprintf(kind.waiting, pending)
 		})
 		select {
 		case <-ctx.Done():
 			m.finish(r, cs.Name, StatusCancelled, "run cancelled")
 			return
 		case <-deadline.C:
-			m.finish(r, cs.Name, StatusFailed, fmt.Sprintf("NO-GO: no QA verdict within %s", cs.ResolvedTimeout()))
+			m.finish(r, cs.Name, StatusFailed, fmt.Sprintf(kind.timeout, cs.ResolvedTimeout()))
 			return
 		case <-time.After(m.Poll):
 		}

@@ -13,8 +13,8 @@ const (
 	StageApproval = "approval"
 )
 
-// GateQA is the only gate kind today: the external QA agent's go/no-go for
-// each app on the run's ring.
+// GateQA is the external QA agent's go/no-go for each app on the run's ring
+// (the default gate kind). GateSecurity (security.go) checks security scans.
 const GateQA = "qa"
 
 // Default waits for stages that wait on something outside Ring Promoter.
@@ -45,7 +45,8 @@ type PipelineStage struct {
 	Apps []string `yaml:"apps"`
 	// Needs names the stages that must succeed before this one starts.
 	Needs []string `yaml:"needs"`
-	// Gate is the gate kind for a gate stage; only "qa" (the default).
+	// Gate is the gate kind for a gate stage: "qa" (the default) or
+	// "security".
 	Gate string `yaml:"gate"`
 	// Timeout bounds a gate's wait for a verdict or an approval's wait for a
 	// decision. Defaults: gate 10m, approval 24h.
@@ -143,8 +144,8 @@ func (c *Config) validatePipelines() error {
 					return fmt.Errorf("%s: a deploy stage needs at least one app", where)
 				}
 			case StageGate:
-				if s.ResolvedGate() != GateQA {
-					return fmt.Errorf("%s: unknown gate %q (want %q)", where, s.Gate, GateQA)
+				if g := s.ResolvedGate(); g != GateQA && g != GateSecurity {
+					return fmt.Errorf("%s: unknown gate %q (want %q or %q)", where, s.Gate, GateQA, GateSecurity)
 				}
 			case StageApproval:
 				if len(s.Apps) > 0 {

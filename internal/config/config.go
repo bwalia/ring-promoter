@@ -79,6 +79,9 @@ type Config struct {
 	Apps    []AppConfig    `yaml:"apps"`
 	// Pipelines are multi-app release workflows (see PipelineConfig).
 	Pipelines []PipelineConfig `yaml:"pipelines"`
+	// SecurityPolicy is the default AppSec policy for every app without its
+	// own promotion_policy.security (see SecurityPolicy). Nil = none.
+	SecurityPolicy *SecurityPolicy `yaml:"security_policy"`
 }
 
 // OllamaConfig configures the optional AI failure-diagnosis feature: when a
@@ -811,6 +814,9 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("application %q depends on unknown application %q", a.Name, dependency)
 			}
 		}
+	}
+	if err := c.SecurityPolicy.validate("security_policy"); err != nil {
+		return err
 	}
 	return c.validatePipelines()
 }

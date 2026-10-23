@@ -13,6 +13,9 @@ import type {
   PipelineRun,
   QAStatus,
   RingView,
+  SecurityEvaluation,
+  SecurityView,
+  SecurityWaiver,
   Signoff,
   StartPipelineRequest,
   TopologyResponse,
@@ -365,4 +368,29 @@ export const api = {
         body: JSON.stringify(password ? { password } : {}),
       },
     ),
+
+  // ---- security & compliance ----
+
+  security: (name: string) => request<SecurityView>(`${app(name)}/security`),
+
+  evaluateSecurity: (name: string, version: string, ring?: string) =>
+    request<SecurityEvaluation>(
+      `${app(name)}/security/evaluate?version=${encodeURIComponent(version)}${
+        ring ? `&ring=${encodeURIComponent(ring)}` : ""
+      }`,
+    ),
+
+  createWaiver: (
+    name: string,
+    w: { finding: string; ring?: string; reason: string; days?: number },
+  ) =>
+    request<SecurityWaiver>(`${app(name)}/security/waivers`, {
+      method: "POST",
+      body: JSON.stringify(w),
+    }),
+
+  deleteWaiver: (name: string, id: string) =>
+    request<void>(`${app(name)}/security/waivers/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
 };

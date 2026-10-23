@@ -129,6 +129,8 @@ type GateVerdict struct {
 	Verdict string
 	Detail  string
 	Ring    string
+	// Version is the version the gate checked.
+	Version string
 }
 
 // GateSink is optionally implemented by a Reporter that records gate verdicts.

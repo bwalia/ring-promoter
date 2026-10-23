@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Circle,
   CircleSlash,
+  FlaskConical,
   Flag,
   GitCommitHorizontal,
   Hand,
@@ -15,6 +16,8 @@ import {
   Minus,
   Plus,
   Recycle,
+  Scale,
+  ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
   ShieldX,
@@ -29,6 +32,7 @@ import {
   type FlowNode,
   type FlowPlane,
   type FlowStatus,
+  type GateKind,
   type PositionedNode,
 } from "@/lib/flow-layout";
 import { duration } from "@/lib/time";
@@ -99,7 +103,7 @@ export function VerdictPill({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded border px-1.5 py-px font-mono text-[10px] font-semibold tracking-wide",
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded border px-1.5 py-px font-mono text-[10px] font-semibold tracking-wide",
         VERDICT_TONE[verdict],
         className,
       )}
@@ -116,6 +120,49 @@ export function gateVerdict(n: { verdict?: GateState; status: FlowStatus }): Gat
   if (n.status === "failed") return "no_go";
   if (n.status === "running" || n.status === "waiting") return "check";
   return "unknown";
+}
+
+export const GATE_KIND_LABEL: Record<GateKind, string> = {
+  policy: "Policy",
+  qa: "QA",
+  security: "AppSec",
+};
+
+/** The glyph inside a gate diamond: what it checks, tinted by its verdict. */
+export function GateGlyph({
+  gate,
+  verdict,
+  className,
+}: {
+  gate?: GateKind;
+  verdict: GateState;
+  className?: string;
+}) {
+  const Icon =
+    gate === "policy"
+      ? Scale
+      : gate === "qa"
+        ? FlaskConical
+        : verdict === "go"
+          ? ShieldCheck
+          : verdict === "no_go"
+            ? ShieldX
+            : gate === "security" && verdict === "check"
+              ? ShieldAlert
+              : ShieldQuestion;
+  return (
+    <Icon
+      aria-hidden
+      className={cn(
+        "size-5",
+        verdict === "go" && "text-status-good",
+        verdict === "no_go" && "text-status-critical",
+        verdict === "check" && "text-status-warning",
+        verdict === "unknown" && "text-muted-foreground",
+        className,
+      )}
+    />
+  );
 }
 
 const EDGE_COLOR: Record<EdgeState, string> = {
@@ -322,6 +369,14 @@ export function FlowGraph({
       <div className="pointer-events-none absolute bottom-2 left-3 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
         <LegendSwatch plane="data" label="Data plane · version/artifact" />
         <LegendSwatch plane="control" label="Control plane · Go/No-Go decision" />
+        {(["policy", "qa", "security"] as const)
+          .filter((k) => nodes.some((n) => n.gate === k))
+          .map((k) => (
+            <span key={k} className="flex items-center gap-1">
+              <GateGlyph gate={k} verdict="unknown" className="size-3" />
+              {k === "policy" ? "Policy gate" : k === "qa" ? "QA gate" : "AppSec gate"}
+            </span>
+          ))}
       </div>
       <div className="absolute bottom-2 right-2 flex gap-1">
         <Button
@@ -445,7 +500,6 @@ function NodeView({
   if (n.kind === "gate") {
     const v = gateVerdict(n);
     const kids = visibleChildrenOf(n, q);
-    const Icon = v === "go" ? ShieldCheck : v === "no_go" ? ShieldX : ShieldQuestion;
     return (
       <div
         className={cn("absolute flex flex-col items-center transition-opacity", dim && "opacity-35")}
@@ -460,29 +514,31 @@ function NodeView({
             v === "no_go" && "border-status-critical",
             v === "check" && "border-status-warning",
             v === "unknown" && "border-border",
+            // AppSec gates carry a second ring so they read apart from QA.
+            n.gate === "security" && "outline-2 outline-offset-2",
+            n.gate === "security" && v === "go" && "outline-status-good/40",
+            n.gate === "security" && v === "no_go" && "outline-status-critical/40",
+            n.gate === "security" && v === "check" && "outline-status-warning/40",
+            n.gate === "security" && v === "unknown" && "outline-border",
             live && "rp-node-waiting",
             isSel && "ring-2 ring-ring ring-offset-2 ring-offset-background",
           )}
           aria-label={`${n.label}: ${VERDICT_LABEL[v]}`}
         >
-          <Icon
-            aria-hidden
-            className={cn(
-              "size-5 -rotate-45",
-              v === "go" && "text-status-good",
-              v === "no_go" && "text-status-critical",
-              v === "check" && "text-status-warning",
-              v === "unknown" && "text-muted-foreground",
-            )}
-          />
+          <GateGlyph gate={n.gate} verdict={v} className="-rotate-45" />
         </button>
         <div className="mt-2 flex max-w-full items-center gap-1.5">
           <span className="truncate text-xs font-medium">{n.label}</span>
           <VerdictPill verdict={v} />
         </div>
-        {n.sublabel && (
-          <span className="max-w-full truncate text-[10px] text-muted-foreground">
-            {n.sublabel}
+        {(n.gate || n.sublabel) && (
+          <span className="flex max-w-full items-center gap-1 text-[10px] text-muted-foreground" title={n.sublabel}>
+            {n.gate && (
+              <span className="shrink-0 rounded-sm bg-muted px-1 font-mono text-[9px] uppercase tracking-wider">
+                {GATE_KIND_LABEL[n.gate]}
+              </span>
+            )}
+            <span className="truncate">{n.sublabel}</span>
           </span>
         )}
         {kids.slice(0, MAX_CHILDREN).map((c) => (
@@ -491,8 +547,12 @@ function NodeView({
             type="button"
             onClick={() => onSelect?.(n.id, c.id)}
             className="mt-0.5 flex w-full items-center justify-between gap-1 rounded px-1 text-[10px] hover:bg-muted"
+            title={c.sublabel}
           >
             <span className="truncate">{c.label}</span>
+            {c.meta && (
+              <span className="ml-auto shrink-0 font-mono text-[9px] text-muted-foreground">{c.meta}</span>
+            )}
             <VerdictPill verdict={gateVerdict(c)} className="text-[9px]" />
           </button>
         ))}

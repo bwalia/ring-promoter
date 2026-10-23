@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ type fakeRunner struct {
 	mu       sync.Mutex
 	fail     map[string]bool
 	verdicts map[string]string
+	security map[string]SecurityResult
 	release  map[string]chan struct{}
 	started  []string
 	running  int
@@ -27,7 +29,7 @@ type fakeRunner struct {
 }
 
 func newFake() *fakeRunner {
-	return &fakeRunner{fail: map[string]bool{}, verdicts: map[string]string{}, release: map[string]chan struct{}{}}
+	return &fakeRunner{fail: map[string]bool{}, verdicts: map[string]string{}, security: map[string]SecurityResult{}, release: map[string]chan struct{}{}}
 }
 
 func (f *fakeRunner) Deploy(_ context.Context, app, ringName, version string) (Deployment, error) {
@@ -64,6 +66,25 @@ func (f *fakeRunner) QAVerdict(_ context.Context, app, _ string) (string, string
 		v = VerdictUnknown
 	}
 	return v, "summary for " + app, nil
+}
+
+func (f *fakeRunner) SecurityVerdict(_ context.Context, app, _, version string) (SecurityResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	res, ok := f.security[app]
+	if !ok {
+		return SecurityResult{Verdict: SecurityPending, Version: version, Detail: "sast missing"}, nil
+	}
+	if res.Version == "" {
+		res.Version = version
+	}
+	return res, nil
+}
+
+func (f *fakeRunner) setSecurity(app string, res SecurityResult) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.security[app] = res
 }
 
 func (f *fakeRunner) Audit(_ context.Context, _, action string, _ map[string]string) {
@@ -391,5 +412,54 @@ func TestValidate(t *testing.T) {
 	}
 	if err := Validate(p, Request{Ring: "test"}, refs); err != nil {
 		t.Fatalf("promotions need no versions: %v", err)
+	}
+}
+
+func TestRun_SecurityGate(t *testing.T) {
+	cases := []struct {
+		name, verdict, want, item, itemVerdict string
+		timeout                                time.Duration
+	}{
+		{"go", SecurityGo, StatusSuccess, StatusSuccess, VerdictGo, time.Minute},
+		{"no_go", SecurityNoGo, StatusFailed, StatusFailed, VerdictNoGo, time.Minute},
+		{"pending times out", "", StatusFailed, StatusWaiting, VerdictUnknown, 20 * time.Millisecond},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFake()
+			if c.verdict != "" {
+				f.setSecurity("web", SecurityResult{Verdict: c.verdict, Detail: "sca 2 high > max 0",
+					Checks: []byte(`[{"kind":"sca","status":"fail"}]`)})
+			}
+			m := newTestManager(f)
+			p := pipe(
+				config.PipelineStage{Name: "appsec", Type: config.StageGate, Gate: config.GateSecurity, Apps: []string{"web"},
+					Timeout: config.Duration(c.timeout)},
+				config.PipelineStage{Name: "deploy", Apps: []string{"web"}, Needs: []string{"appsec"}},
+			)
+			rq := req()
+			rq.Versions = map[string]string{"web": "v7"}
+			run, _ := m.Start(context.Background(), p, rq, "")
+			if run.Stages[0].Gate != config.GateSecurity {
+				t.Fatalf("stage gate = %q", run.Stages[0].Gate)
+			}
+			r := waitFor(t, m, run.ID, finished)
+			if got := stageStatus(r, "appsec"); got != c.want {
+				t.Fatalf("gate = %s, want %s (%+v)", got, c.want, r.Stages[0])
+			}
+			it := r.Stages[0].Items[0]
+			if it.Status != c.item || it.Verdict != c.itemVerdict || it.Version != "v7" {
+				t.Fatalf("item = %+v", it)
+			}
+			if c.verdict != "" && string(it.Checks) == "" {
+				t.Fatal("checks not recorded")
+			}
+			if c.want == StatusFailed && stageStatus(r, "deploy") != StatusSkipped {
+				t.Fatal("deploy should be skipped behind a security NO-GO")
+			}
+			if c.verdict == SecurityNoGo && !strings.Contains(r.Stages[0].Message, "security policy for web v7") {
+				t.Fatalf("message = %q", r.Stages[0].Message)
+			}
+		})
 	}
 }

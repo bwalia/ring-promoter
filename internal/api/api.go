@@ -177,6 +177,12 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/qa/reports", s.handleCreateQAReport)
 	// Multi-app pipelines — config-defined stage DAGs (deploy, QA gate,
 	// approval) run across several apps, with rerun-from-failed.
+	api.HandleFunc("POST /api/security/scans", s.handleCreateSecurityScan)
+	api.HandleFunc("GET /api/apps/{app}/security", s.handleAppSecurity)
+	api.HandleFunc("GET /api/apps/{app}/security/evaluate", s.handleEvaluateSecurity)
+	api.HandleFunc("POST /api/apps/{app}/security/waivers", s.handleCreateSecurityWaiver)
+	api.HandleFunc("DELETE /api/apps/{app}/security/waivers/{id}", s.handleDeleteSecurityWaiver)
+
 	api.HandleFunc("GET /api/pipelines", s.handleListPipelines)
 	api.HandleFunc("POST /api/pipelines/{name}/runs", s.handleStartPipeline)
 	api.HandleFunc("GET /api/pipelines/{name}/runs", s.handleListPipelineRuns)
@@ -767,6 +773,7 @@ func statusForErr(err error) int {
 		errors.Is(err, promoter.ErrNothingToRestart), errors.Is(err, promoter.ErrRestartUnsupported),
 		errors.Is(err, promoter.ErrMaintenanceWindowClosed), errors.Is(err, promoter.ErrSignoffRequired),
 		errors.Is(err, promoter.ErrSignoffNoGo), errors.Is(err, promoter.ErrGrafanaNoGo),
+		errors.Is(err, promoter.ErrSecurityNoGo), errors.Is(err, promoter.ErrSecurityScanMissing),
 		errors.Is(err, promoter.ErrAutoPromoteConfigOwned), errors.Is(err, promoter.ErrNoVersion):
 		return http.StatusConflict
 	default:

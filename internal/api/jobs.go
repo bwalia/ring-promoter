@@ -57,6 +57,7 @@ type gateView struct {
 	Verdict string `json:"verdict"`
 	Detail  string `json:"detail"`
 	Ring    string `json:"ring,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // jobState is the JSON view of a job (no mutex, safe to marshal).
@@ -174,7 +175,7 @@ func (j *Job) SetStages(stages []progress.Stage) {
 func (j *Job) AddGate(g progress.GateVerdict) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	j.st.Gates = append(j.st.Gates, gateView{Gate: g.Gate, Verdict: g.Verdict, Detail: g.Detail, Ring: g.Ring})
+	j.st.Gates = append(j.st.Gates, gateView{Gate: g.Gate, Verdict: g.Verdict, Detail: g.Detail, Ring: g.Ring, Version: g.Version})
 }
 
 // setRing records the ring the operation deploys to.

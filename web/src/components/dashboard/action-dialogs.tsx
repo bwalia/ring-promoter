@@ -64,7 +64,7 @@ import {
 import { useUiStore } from "@/lib/ui-store";
 import type { AppVersion, RingView } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { GateChecklist, gatesActive } from "@/components/dashboard/gate-controls";
+import { GateChecklist, SecurityGateCheck, gatesActive } from "@/components/dashboard/gate-controls";
 import {
   GrafanaOverrideField,
   gateBlocks,
@@ -254,6 +254,10 @@ function SeedDialog({
               crCode={crCode}
               setCrCode={setCrCode}
             />
+          )}
+
+          {target && (
+            <SecurityGateCheck app={app} ring={target.ring.name} version={version.trim()} />
           )}
 
           {target && (
@@ -500,6 +504,8 @@ function PromoteDialog({
             setCrCode={setCrCode}
           />
         )}
+
+        {target && <SecurityGateCheck app={app} ring={target.ring.name} version={version} />}
 
         {target && (
           <GrafanaOverrideField

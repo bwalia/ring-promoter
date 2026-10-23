@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   Ban,
   Check,
+  FileDown,
   Loader2,
   Play,
   RotateCcw,
@@ -21,6 +22,7 @@ import {
 import { JobFlow } from "@/components/flow/job-flow";
 import { RunPipelineDialog } from "@/components/pipelines/run-pipeline-dialog";
 import { RelativeTime } from "@/components/relative-time";
+import { SecurityChecksList, countsMeta } from "@/components/security/security-checks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,6 +45,7 @@ import type {
   PipelineRunStage,
   PipelineStageDef,
 } from "@/lib/types";
+import { SEVERITIES } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const terminal = (s: string) => s === "success" || s === "failed" || s === "cancelled";
@@ -56,10 +59,81 @@ function blueprintStage(s: PipelineStageDef): PipelineRunStage {
     name: s.name,
     display_name: s.display_name,
     type: s.type,
+    gate: s.gate,
     needs: s.needs,
     status: "queued",
     items: (s.apps ?? []).map((app) => ({ app, status: "queued" as const })),
   };
+}
+
+/** "2C 1H" or "sca missing" — why a security gate item is where it is. */
+function securityMeta(i: PipelineRunItem): string | undefined {
+  const checks = i.checks ?? [];
+  if (!checks.length) return undefined;
+  const missing = checks.filter((c) => c.status === "missing").map((c) => c.kind);
+  if (missing.length) return `${missing.join(",")} missing`;
+  const total = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const c of checks) for (const k of SEVERITIES) total[k] += c[k] ?? 0;
+  return countsMeta(total) || "clean";
+}
+
+/**
+ * Save a run's compliance evidence: the controls it passed through (QA and
+ * AppSec gates with their per-service verdicts and scan checks, approvals and
+ * who gave them) as a JSON file an auditor can keep.
+ */
+function downloadEvidence(run: PipelineRun) {
+  const evidence = {
+    kind: "ring-promoter/pipeline-evidence@v1",
+    generated_at: new Date().toISOString(),
+    run: {
+      id: run.id,
+      pipeline: run.pipeline,
+      ring: run.ring,
+      status: run.status,
+      triggered_by: run.triggered_by,
+      rerun_of: run.rerun_of,
+      started_at: run.started_at,
+      finished_at: run.finished_at,
+    },
+    controls: run.stages
+      .filter((s) => s.type !== "deploy")
+      .map((s) => ({
+        stage: s.name,
+        type: s.type,
+        gate: s.gate,
+        status: s.status,
+        decision: s.message,
+        approved_by: s.approved_by,
+        decided_at: s.finished_at,
+        items: (s.items ?? []).map((i) => ({
+          app: i.app,
+          version: i.version,
+          verdict: i.verdict,
+          detail: i.detail,
+          checks: i.checks,
+        })),
+      })),
+    deployments: run.stages
+      .filter((s) => s.type === "deploy")
+      .flatMap((s) =>
+        (s.items ?? []).map((i) => ({
+          stage: s.name,
+          app: i.app,
+          version: i.version,
+          status: i.status,
+          job_id: i.job_id,
+        })),
+      ),
+  };
+  const url = URL.createObjectURL(
+    new Blob([JSON.stringify(evidence, null, 2)], { type: "application/json" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${run.pipeline}-${run.id}-evidence.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function runToNodes(
@@ -97,10 +171,12 @@ function runToNodes(
     };
     if (s.type === "gate") {
       const verdicts = items.map((i) => i.verdict ?? "unknown");
+      const security = s.gate === "security";
       nodes.push({
         ...base,
         kind: "gate",
-        sublabel: s.message ?? "QA Go / No-Go",
+        gate: security ? "security" : "qa",
+        sublabel: s.message ?? (security ? "AppSec scans Go / No-Go" : "QA Go / No-Go"),
         verdict: verdicts.includes("no_go")
           ? "no_go"
           : s.status === "success" || s.status === "reused"
@@ -109,6 +185,8 @@ function runToNodes(
         children: items.map((i) => ({
           id: i.app,
           label: title(i.app),
+          sublabel: i.detail,
+          meta: security ? securityMeta(i) : undefined,
           status: i.status,
           verdict: i.verdict ?? "unknown",
         })),
@@ -218,6 +296,15 @@ export function PipelineView({ pipeline }: { pipeline: PipelineDef }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {run && terminal(run.status) && (
+            <Button
+              variant="outline"
+              onClick={() => downloadEvidence(run)}
+              title="Who ran it, every gate verdict, scan check and approval — for audits"
+            >
+              <FileDown aria-hidden className="size-4" /> Evidence
+            </Button>
+          )}
           {run && !terminal(run.status) && (
             <Button
               variant="outline"
@@ -357,6 +444,33 @@ function SelectionDetail({
   if (item && stage.type === "deploy") {
     return <ItemJob item={item} onOpenApp={() => selectApp(item.app)} />;
   }
+  if (item && stage.type === "gate" && stage.gate === "security") {
+    return (
+      <div className="rounded-lg border bg-card">
+        <div className="flex items-center gap-2 border-b px-3 py-2">
+          <StatusIcon status={item.status} />
+          <span className="flex-1 text-sm font-medium">
+            {title(item.app)} · AppSec gate
+          </span>
+          {item.version && (
+            <span className="font-mono text-xs text-muted-foreground">{item.version}</span>
+          )}
+          <VerdictPill verdict={item.verdict ?? "unknown"} />
+          <Button variant="ghost" size="sm" className="h-7" onClick={() => selectApp(item.app)}>
+            Open app
+          </Button>
+        </div>
+        <div className="space-y-2 p-3">
+          {item.detail && <p className="text-sm">{item.detail}</p>}
+          <SecurityChecksList checks={item.checks} />
+          <p className="text-xs text-muted-foreground">
+            Fix the findings and re-scan, or record a time-boxed waiver on the app&apos;s Security
+            panel. The gate re-reads scans until it times out.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Stage overview: every member with a search — stages can hold dozens of
   // services, more than the graph box shows.
@@ -369,6 +483,11 @@ function SelectionDetail({
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <StatusIcon status={stage.status} />
         <span className="flex-1 text-sm font-medium">{stageLabel(stage)}</span>
+        {stage.type === "gate" && (
+          <span className="rounded-sm bg-muted px-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+            {stage.gate === "security" ? "AppSec" : "QA"}
+          </span>
+        )}
         {stage.type === "gate" && <VerdictPill verdict={gateVerdict({ status: stage.status })} />}
         <span className="text-xs text-muted-foreground">
           {STATUS_LABEL[stage.status]}

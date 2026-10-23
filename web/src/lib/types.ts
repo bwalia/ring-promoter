@@ -333,6 +333,8 @@ export interface JobGate {
   verdict: "pass" | "fail" | "overridden" | string;
   detail?: string;
   ring?: string;
+  /** The version the gate judged. */
+  version?: string;
 }
 
 export interface Job {
@@ -391,12 +393,16 @@ export interface PipelineRunItem {
   /** Gate stages only: the QA agent's verdict for this app on the run's ring. */
   verdict?: GateState;
   detail?: string;
+  /** Security gate items only: one check per scan kind. */
+  checks?: SecurityCheck[];
 }
 
 export interface PipelineRunStage {
   name: string;
   display_name?: string;
   type: PipelineStageType;
+  /** Gate stages: which gate ("qa" or "security"). */
+  gate?: string;
   needs?: string[];
   status: PipelineStatus;
   message?: string;
@@ -465,4 +471,90 @@ export interface BuildInfo {
    * deploy this is also when this build was rolled out.
    */
   started_at: string;
+}
+
+// ---- security & compliance gates ----
+
+export type Severity = "critical" | "high" | "medium" | "low";
+export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
+
+export type ScanKind =
+  | "sast"
+  | "sca"
+  | "secrets"
+  | "container"
+  | "iac"
+  | "dast"
+  | "license";
+
+export type SeverityCounts = Record<Severity, number>;
+
+export interface SecurityFinding {
+  id: string;
+  severity: Severity;
+  title?: string;
+  location?: string;
+  package?: string;
+  installed?: string;
+  fixed?: string;
+  waived?: boolean;
+}
+
+export interface SecurityScan extends SeverityCounts {
+  id: string;
+  app: string;
+  version: string;
+  kind: ScanKind;
+  scanner: string;
+  findings?: SecurityFinding[];
+  summary?: string;
+  url?: string;
+  scanned_at: string;
+  created_at: string;
+}
+
+export interface SecurityCheck extends Partial<SeverityCounts> {
+  kind: ScanKind;
+  status: "pass" | "fail" | "missing" | "stale";
+  scanners?: string[];
+  waived?: number;
+  scanned_at?: string;
+  detail?: string;
+}
+
+export interface SecurityEvaluation {
+  ring?: string;
+  version?: string;
+  guarded: boolean;
+  verdict: "go" | "no_go" | "pending" | "none";
+  detail?: string;
+  checks?: SecurityCheck[];
+  counts?: SeverityCounts;
+  waived?: number;
+}
+
+export interface SecurityPolicy {
+  rings: string[];
+  require: ScanKind[];
+  max: Partial<Record<Severity, number>>;
+  max_age_seconds?: number;
+  source: "app" | "default" | "builtin";
+}
+
+export interface SecurityWaiver {
+  id: string;
+  app: string;
+  finding: string;
+  ring?: string;
+  reason: string;
+  created_by?: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface SecurityView {
+  policy: SecurityPolicy | null;
+  posture: SecurityEvaluation[];
+  scans: SecurityScan[];
+  waivers: SecurityWaiver[];
 }
