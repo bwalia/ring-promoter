@@ -673,6 +673,38 @@ data:
           acc:  { target_env: acc,  health_url: "https://acc-showcase.nebuladb.net/livez",  links: [ { label: "Showcase acc", url: "https://acc-showcase.nebuladb.net/" } ] }
           prod: { target_env: prod, health_url: "https://showcase.nebuladb.net/livez",      links: [ { label: "Showcase", url: "https://showcase.nebuladb.net/" } ] }
 
+      # CloseKnitty — peer-to-peer chit funds (opsapi + Rust API + Next.js).
+      # GITHUB deployer, not k8sjob: bwalia/closeknitty is PRIVATE, so the
+      # unauthenticated clone a k8sjob does would 401. RP dispatches the repo's
+      # deploy-k3s.yml, which helm-upgrades deploy/helm/closeknitty into the
+      # ring's namespace from the repo's self-hosted runner. Pushes to main
+      # build the images and seed int here. Secrets come from WSL Vault
+      # (closeknitty/<ring>/*) via ESO. Only int is set up so far (it is
+      # VPN-only through the jobshout-preprod access profile); test/acc/prod
+      # fail fast until values-<ring>.yaml and their Vault paths exist.
+      # RP_GITHUB_TOKEN needs actions:write on bwalia/closeknitty.
+      - name: closeknitty
+        display_name: "CloseKnitty Chit Funds"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: closeknitty
+          workflow: deploy-k3s.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: deploy
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "http://closeknitty-api.int.svc.cluster.local:8080/api/v1/health",  links: [ { label: "CloseKnitty int (VPN)", url: "https://int.closeknitty.com/" } ] }
+          test: { target_env: test, health_url: "http://closeknitty-api.test.svc.cluster.local:8080/api/v1/health" }
+          acc:  { target_env: acc,  health_url: "http://closeknitty-api.acc.svc.cluster.local:8080/api/v1/health" }
+          prod: { target_env: prod, health_url: "http://closeknitty-api.prod.svc.cluster.local:8080/api/v1/health", links: [ { label: "CloseKnitty", url: "https://closeknitty.com/" } ] }
+
       # wslproxy-k3s1 moved to its own instance, https://rp.wslproxy.com,
       # owned by bwalia/wslproxy deploy/ring-promoter/ (2026-09-24).
 
