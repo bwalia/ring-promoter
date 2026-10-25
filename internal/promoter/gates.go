@@ -39,6 +39,9 @@ var (
 	// ErrGrafanaOverrideReason: an override was requested without a reason. The
 	// override is recorded in history, so it must say why.
 	ErrGrafanaOverrideReason = errors.New("grafana override needs a reason")
+	// ErrCustomGate: an operator-named extra gate (JIRA CAB, OPSAPI SR,
+	// traffic ceiling, replica floor) refused the hop.
+	ErrCustomGate = errors.New("custom promotion gate failed")
 )
 
 // demoCRCode is the universal change-request code accepted by every provider so
@@ -53,6 +56,10 @@ const demoCRCode = "test"
 // operation including any auto-promote hops it triggers.
 type GateInputs struct {
 	ChangeRequestCode string
+	// ServiceRequestCode is the OPSAPI (or similar) ticket the custom opsapi
+	// gate looks up. When empty, ChangeRequestCode is tried so one field in
+	// the promote dialog covers both.
+	ServiceRequestCode string
 	// OverrideGrafana lets a release engineer promote past a Grafana no-go. It
 	// applies ONLY to the Grafana gate — the maintenance window, sign-off and
 	// change-request gates have their own ways to be satisfied and are never

@@ -44,6 +44,27 @@ func (d *KubectlDeployer) Deploy(ctx context.Context, t Target, version string) 
 		"app", t.App, "ring", t.Ring, "namespace", t.Namespace,
 		"deployment", t.Deployment, "image", image)
 
+	if g, ok := GradualRolloutFrom(ctx); ok {
+		unavail, surge := g.MaxUnavailable, g.MaxSurge
+		if unavail == "" {
+			unavail = "0"
+		}
+		if surge == "" {
+			surge = "1"
+		}
+		patch := fmt.Sprintf(
+			`{"spec":{"strategy":{"type":"RollingUpdate","rollingUpdate":{"maxUnavailable":%q,"maxSurge":%q}}}}`,
+			unavail, surge)
+		d.log.Info("kubectl gradual rollout",
+			"deployment", t.Deployment, "maxUnavailable", unavail, "maxSurge", surge)
+		if _, err := d.run(ctx, 30*time.Second,
+			"-n", t.Namespace, "patch", "deployment", t.Deployment,
+			"--type=merge", "-p", patch,
+		); err != nil {
+			return fmt.Errorf("patch rollingUpdate: %w", err)
+		}
+	}
+
 	// Set the image tag on the target container.
 	if _, err := d.run(ctx, 30*time.Second,
 		"-n", t.Namespace, "set", "image",
@@ -149,6 +170,25 @@ func (d *KubectlDeployer) LiveVersion(ctx context.Context, t Target) (string, er
 		return image[i+1:], nil
 	}
 	return "", nil
+}
+
+// ReadyReplicas implements ReplicaReader.
+func (d *KubectlDeployer) ReadyReplicas(ctx context.Context, t Target) (int, error) {
+	out, err := d.run(ctx, 15*time.Second,
+		"-n", t.Namespace, "get", "deployment", t.Deployment,
+		"-o", "jsonpath={.status.readyReplicas}")
+	if err != nil {
+		return 0, err
+	}
+	s := strings.TrimSpace(out)
+	if s == "" {
+		return 0, nil
+	}
+	var n int
+	if _, err := fmt.Sscanf(s, "%d", &n); err != nil {
+		return 0, fmt.Errorf("parse readyReplicas %q: %w", s, err)
+	}
+	return n, nil
 }
 
 // run executes kubectl with the given args under a timeout, returning stdout.

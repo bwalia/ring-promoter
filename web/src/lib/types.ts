@@ -94,6 +94,14 @@ export interface RingGates {
   grafana: boolean;
   /** The live verdict, present only when `grafana` is true. */
   grafana_status?: GrafanaVerdict;
+  /** Operator-named extra gates (config only — tickets are not live-queried here). */
+  custom_gates?: CustomGateInfo[];
+}
+
+export interface CustomGateInfo {
+  name: string;
+  label: string;
+  kind: string;
 }
 
 /**
@@ -557,4 +565,36 @@ export interface SecurityView {
   posture: SecurityEvaluation[];
   scans: SecurityScan[];
   waivers: SecurityWaiver[];
+}
+
+/** GET /api/apps/{app}/controls — weighted hop scorecard. */
+export type ControlStatus = "pass" | "warn" | "block" | "skip";
+
+export interface ControlScore {
+  id: string;
+  label: string;
+  kind: string;
+  weight: number;
+  score: number;
+  status: ControlStatus;
+  detail: string;
+  next_action?: string;
+}
+
+export interface HopScore {
+  from: string;
+  to: string;
+  to_label: string;
+  version: string;
+  score: number;
+  ready: boolean;
+  blockers: string[];
+  controls: ControlScore[];
+  summary: string;
+}
+
+export interface ControlsView {
+  app: string;
+  ai_enabled: boolean;
+  hops: HopScore[];
 }

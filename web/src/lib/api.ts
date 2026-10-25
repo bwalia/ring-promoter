@@ -14,6 +14,7 @@ import type {
   QAStatus,
   RingView,
   SecurityEvaluation,
+  ControlsView,
   SecurityView,
   SecurityWaiver,
   Signoff,
@@ -30,6 +31,7 @@ import type {
 export interface GateOpts {
   password?: string;
   crCode?: string;
+  srCode?: string;
   overrideReason?: string;
 }
 
@@ -37,6 +39,7 @@ function gateBody(o: GateOpts): Record<string, unknown> {
   return {
     ...(o.password ? { password: o.password } : {}),
     ...(o.crCode ? { cr_code: o.crCode } : {}),
+    ...(o.srCode ? { sr_code: o.srCode } : {}),
     ...(o.overrideReason
       ? { override_grafana: true, override_reason: o.overrideReason }
       : {}),
@@ -367,6 +370,14 @@ export const api = {
         method: "POST",
         body: JSON.stringify(password ? { password } : {}),
       },
+    ),
+
+  controls: (name: string) => request<ControlsView>(`${app(name)}/controls`),
+
+  controlsBrief: (name: string, from: string, to: string) =>
+    request<{ briefing: string; source: string }>(
+      `${app(name)}/controls/brief`,
+      { method: "POST", body: JSON.stringify({ from, to }) },
     ),
 
   // ---- security & compliance ----

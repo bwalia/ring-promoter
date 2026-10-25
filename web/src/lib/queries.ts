@@ -243,6 +243,7 @@ export function useActiveJob(app: string | null) {
     }
     queryClient.invalidateQueries({ queryKey: ["rings", job.app] });
     queryClient.invalidateQueries({ queryKey: ["history", job.app] });
+    queryClient.invalidateQueries({ queryKey: ["controls", job.app] });
   }, [job, queryClient]);
 
   // A finished card is shown if this browser saw it run or it finished
@@ -858,6 +859,28 @@ export function useCreateWaiver(app: string | null) {
       toast.success("Waiver recorded", { description: `${w.finding} accepted until ${new Date(w.expires_at).toLocaleDateString()}` });
     },
     onError: (err: Error) => toast.error("Could not record waiver", { description: err.message }),
+  });
+}
+
+export function useAppControls(app: string | null) {
+  const token = useAuthStore((s) => s.token);
+  const autoRefresh = usePrefsStore((s) => s.autoRefresh);
+  return useQuery({
+    queryKey: ["controls", app],
+    queryFn: () => api.controls(app!),
+    enabled: !!token && !!app,
+    refetchInterval: autoRefresh ? GATES_INTERVAL : false,
+  });
+}
+
+export function useControlsBrief(app: string | null) {
+  return useMutation({
+    mutationFn: (hop: { from: string; to: string }) => {
+      if (!app) throw new Error("no application selected");
+      return api.controlsBrief(app, hop.from, hop.to);
+    },
+    onError: (err: Error) =>
+      toast.error("Could not brief this hop", { description: err.message }),
   });
 }
 

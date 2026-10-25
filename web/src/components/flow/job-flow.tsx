@@ -19,6 +19,7 @@ const GATE_TITLE: Record<string, string> = {
   maintenance_window: "Maintenance window",
   qa_signoff: "QA sign-off",
   change_request: "Change request",
+  custom: "Custom gate",
   grafana: "Grafana health",
   security: "AppSec scans",
 };

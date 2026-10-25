@@ -61,6 +61,7 @@ var promotionGates = []Gate{
 	changeRequestGate{},
 	grafanaGate{},
 	securityGate{},
+	customGatesGate{},
 }
 
 func pass(name, detail string) GateResult {

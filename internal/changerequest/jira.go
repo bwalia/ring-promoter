@@ -156,3 +156,110 @@ func apiSnippet(resp *http.Response) string {
 	}
 	return fmt.Sprintf("status %d: %s", resp.StatusCode, msg)
 }
+
+// Inspect implements Inspector: it reads the issue (status + optional version
+// field) and, when asked, the Jira Service Management approval count.
+func (j *JIRA) Inspect(ctx context.Context, code string, opts InspectOpts) (Ticket, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return Ticket{}, ErrCodeRequired
+	}
+	if len(j.projectKeys) > 0 && !projectAllowed(code, j.projectKeys) {
+		return Ticket{}, fmt.Errorf("%w: %q is not in an allowed JIRA project (%s)",
+			ErrInvalidCode, code, strings.Join(j.projectKeys, ", "))
+	}
+
+	fields := "status"
+	vf := strings.TrimSpace(opts.VersionField)
+	if vf != "" {
+		fields += "," + vf
+	}
+	endpoint := fmt.Sprintf("%s/rest/api/3/issue/%s?fields=%s", j.baseURL, url.PathEscape(code), url.QueryEscape(fields))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return Ticket{}, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", j.authHeader)
+
+	resp, err := j.http.Do(req)
+	if err != nil {
+		return Ticket{}, fmt.Errorf("reach JIRA: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch {
+	case resp.StatusCode == http.StatusOK:
+	case resp.StatusCode == http.StatusNotFound:
+		return Ticket{}, fmt.Errorf("%w: JIRA issue %q does not exist", ErrInvalidCode, code)
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return Ticket{}, fmt.Errorf("JIRA rejected the request (status %d): check RP_JIRA_TOKEN / email", resp.StatusCode)
+	default:
+		return Ticket{}, fmt.Errorf("JIRA lookup of %q failed: %s", code, apiSnippet(resp))
+	}
+
+	var raw struct {
+		Fields map[string]any `json:"fields"`
+	}
+	dec := json.NewDecoder(resp.Body)
+	dec.UseNumber()
+	if err := dec.Decode(&raw); err != nil {
+		return Ticket{}, fmt.Errorf("decode JIRA response for %q: %w", code, err)
+	}
+	tkt := Ticket{Code: code, Fields: map[string]string{}}
+	if raw.Fields != nil {
+		if st, ok := raw.Fields["status"]; ok {
+			tkt.Status = jsonText(st)
+		}
+		if vf != "" {
+			tkt.Version = jsonText(raw.Fields[vf])
+			tkt.Fields[vf] = tkt.Version
+		}
+	}
+	if opts.Approvals {
+		n, err := j.countApprovals(ctx, code)
+		if err != nil {
+			j.log.Warn("JIRA approvals lookup failed", "issue", code, "err", err)
+			return tkt, fmt.Errorf("JIRA approvals for %q: %w", code, err)
+		}
+		tkt.Approvals = n
+	}
+	return tkt, nil
+}
+
+func (j *JIRA) countApprovals(ctx context.Context, code string) (int, error) {
+	endpoint := fmt.Sprintf("%s/rest/servicedeskapi/request/%s/approval", j.baseURL, url.PathEscape(code))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", j.authHeader)
+	resp, err := j.http.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return 0, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("%s", apiSnippet(resp))
+	}
+	var body struct {
+		Values []map[string]any `json:"values"`
+	}
+	dec := json.NewDecoder(resp.Body)
+	dec.UseNumber()
+	if err := dec.Decode(&body); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, v := range body.Values {
+		dec := strings.ToLower(jsonText(v["finalDecision"]))
+		if dec == "approved" {
+			n++
+		}
+	}
+	return n, nil
+}
