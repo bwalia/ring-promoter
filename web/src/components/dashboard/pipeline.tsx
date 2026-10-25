@@ -542,6 +542,12 @@ function RingDetailsSheet({
                       : ""}
                   </li>
                 )}
+                {(view.gates.custom_gates ?? []).map((cg) => (
+                  <li key={cg.name}>
+                    {cg.label}
+                    <span className="text-xs text-muted-foreground"> ({cg.kind})</span>
+                  </li>
+                ))}
               </ul>
               <p className="mt-2 text-xs text-muted-foreground">
                 Satisfy these in the Promote dialog.

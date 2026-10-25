@@ -215,3 +215,63 @@ apps:
 		t.Fatal("expected error for invalid window time")
 	}
 }
+
+func TestPromotionPolicy_CustomGates(t *testing.T) {
+	t.Setenv("RP_API_TOKEN", "tok")
+	body := `
+apps:
+  - name: web
+    promotion_policy:
+      change_request:
+        provider: jira
+        jira:
+          base_url: https://acme.atlassian.net
+          email: rel@acme.com
+      custom_gates:
+        - name: cab
+          kind: jira
+          rings: [acc]
+          min_approvals: 3
+          version_field: customfield_10001
+        - name: sr
+          kind: opsapi
+          rings: [prod]
+          opsapi:
+            base_url: https://opsapi.example
+        - name: traffic
+          kind: metric
+          rings: [prod]
+          metric:
+            query: 'sum(rate(http_requests_total[1m]))'
+            op: lt
+            threshold: 100
+            unit: rps
+            demo_value: 12
+        - name: ha
+          kind: replicas
+          rings: [prod]
+          replicas:
+            min_ready: 2
+            gradual:
+              max_unavailable: "0"
+              max_surge: "1"
+    rings:
+      int: { namespace: ring0, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
+      acc: { namespace: acc, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
+      prod: { namespace: prod, deployment: web, container: web, image: repo/web, health_url: "http://x/health" }
+`
+	cfg, err := Load(writeConfig(t, body))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	app, _ := cfg.App("web")
+	if len(app.PromotionPolicy.CustomGates) != 4 {
+		t.Fatalf("custom gates = %d, want 4", len(app.PromotionPolicy.CustomGates))
+	}
+	if !app.PromotionPolicy.CustomGates[0].Guards("acc") {
+		t.Fatal("cab should guard acc")
+	}
+	if app.PromotionPolicy.CustomGates[3].Replicas.MinReadyOr() != 2 {
+		t.Fatal("ha min_ready")
+	}
+}

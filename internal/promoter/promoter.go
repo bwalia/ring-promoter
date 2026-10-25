@@ -127,6 +127,17 @@ type RingGates struct {
 	Grafana bool `json:"grafana"`
 	// GrafanaStatus is the live verdict, present only when Grafana is true.
 	GrafanaStatus *grafana.Result `json:"grafana_status,omitempty"`
+	// Custom is config-only: names of extra gates guarding this ring. Ticket
+	// backends are NOT queried here — Rings() polls often and must not live-call
+	// JIRA/OPSAPI.
+	Custom []CustomGateInfo `json:"custom_gates,omitempty"`
+}
+
+// CustomGateInfo is the UI-facing identity of one operator-named extra gate.
+type CustomGateInfo struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Kind  string `json:"kind"`
 }
 
 // ringGates computes the gate requirements/status for one ring of an app.
@@ -152,6 +163,13 @@ func (p *Promoter) ringGates(ctx context.Context, app, ringName string) RingGate
 	if g.Grafana {
 		res := p.grafanaVerdict(ctx, app, ringName)
 		g.GrafanaStatus = &res
+	}
+	for _, cg := range pol.CustomGates {
+		if cg.Guards(ringName) {
+			g.Custom = append(g.Custom, CustomGateInfo{
+				Name: cg.Name, Label: cg.LabelOr(), Kind: cg.KindOr(),
+			})
+		}
 	}
 	return g
 }
@@ -182,6 +200,11 @@ type Promoter struct {
 	// grafanaGateState caches Grafana go/no-go verdicts and the per-app clients
 	// that fetch them (see grafana_gate.go).
 	grafanaGateState
+	// customInspectors are optional test/live ticket lookups keyed app/gate.
+	customMu         sync.Mutex
+	customInspectors map[string]changerequest.Inspector
+	rolloutMu        sync.Mutex
+	pendingRollout   map[string]*config.GradualRollout
 }
 
 // New constructs a Promoter. deployers maps an application name to its deployer;
@@ -442,6 +465,7 @@ func (p *Promoter) Seed(ctx context.Context, app, ringName, version string) (out
 	if err := p.evaluateGates(ctx, app, ringName, version, gateInputsFrom(ctx)); err != nil {
 		return Result{}, err
 	}
+	ctx = p.withPendingRollout(ctx, app, ringName)
 
 	unlock, err := p.store.Lock(ctx, "app:"+app)
 	if err != nil {
@@ -689,6 +713,7 @@ func (p *Promoter) promoteHop(ctx context.Context, app, fromRing string) (Result
 	if err := p.evaluateGates(ctx, app, nextRing.Name, version, gateInputsFrom(ctx)); err != nil {
 		return Result{}, err
 	}
+	ctx = p.withPendingRollout(ctx, app, nextRing.Name)
 
 	// Rule: source ring must be healthy before promoting (live check). When the
 	// source ring configures a version source, this also verifies it actually

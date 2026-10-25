@@ -35,7 +35,10 @@ type fakeDeployer struct {
 	validateErr error
 	// onDeploy, when set, runs inside every Deploy call (with the deploy's
 	// context) before the outcome is decided — e.g. to emit progress output.
-	onDeploy func(ctx context.Context, t deployer.Target, version string)
+	onDeploy    func(ctx context.Context, t deployer.Target, version string)
+	ready       map[string]int
+	lastGradual deployer.GradualRollout
+	sawGradual  bool
 }
 
 func newFakeDeployer() *fakeDeployer {
@@ -50,6 +53,10 @@ func (f *fakeDeployer) Deploy(ctx context.Context, t deployer.Target, version st
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if g, ok := deployer.GradualRolloutFrom(ctx); ok {
+		f.lastGradual = g
+		f.sawGradual = true
+	}
 	f.deploys = append(f.deploys, fmt.Sprintf("%s=%s", key(t.App, t.Ring), version))
 	if f.failVer[version] {
 		return fmt.Errorf("deploy failed for version %s", version)
@@ -81,6 +88,15 @@ func (f *fakeDeployer) restartCalls() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.restarts...)
+}
+
+func (f *fakeDeployer) ReadyReplicas(_ context.Context, t deployer.Target) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ready == nil {
+		return 0, nil
+	}
+	return f.ready[key(t.App, t.Ring)], nil
 }
 
 func (f *fakeDeployer) LiveVersion(_ context.Context, t deployer.Target) (string, error) {

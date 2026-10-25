@@ -64,6 +64,70 @@ type PromotionPolicy struct {
 	// Security requires the version's security scans to satisfy an AppSec
 	// policy; it overrides the top-level security_policy for this app.
 	Security *SecurityPolicy `yaml:"security"`
+	// Score weights the daily Deployment Controls scorecard (health, QA,
+	// AppSec, Grafana, windows, change-request, recent ops friction). Omitted
+	// weights fall back to the built-in defaults.
+	Score *ScoreWeights `yaml:"score"`
+	// CustomGates are operator-named extra checks on top of QA, AppSec and
+	// code-quality gates: JIRA CAB, an OPSAPI service request for this
+	// version, a traffic (RPS) ceiling, a minimum replica count, and so on.
+	CustomGates []CustomGate `yaml:"custom_gates"`
+}
+
+// ScoreWeights are relative weights for one promotion hop's scorecard.
+// Zero means "use the default for this control".
+type ScoreWeights struct {
+	Health        int `yaml:"health"`
+	QAAgent       int `yaml:"qa_agent"`
+	QASignoff     int `yaml:"qa_signoff"`
+	Security      int `yaml:"security"`
+	Grafana       int `yaml:"grafana"`
+	Window        int `yaml:"window"`
+	ChangeRequest int `yaml:"change_request"`
+	Ops           int `yaml:"ops"`
+	Custom        int `yaml:"custom"`
+}
+
+// DefaultScoreWeights is the built-in mix for everyday promote-or-not calls:
+// health and AppSec carry the most weight, then live QA, then policy paper.
+func DefaultScoreWeights() ScoreWeights {
+	return ScoreWeights{
+		Health:        22,
+		QAAgent:       16,
+		QASignoff:     12,
+		Security:      22,
+		Grafana:       14,
+		Window:        8,
+		ChangeRequest: 6,
+		Ops:           8,
+		Custom:        10,
+	}
+}
+
+func pickWeight(v, def int) int {
+	if v > 0 {
+		return v
+	}
+	return def
+}
+
+// OrDefault fills any zero field from DefaultScoreWeights.
+func (w *ScoreWeights) OrDefault() ScoreWeights {
+	d := DefaultScoreWeights()
+	if w == nil {
+		return d
+	}
+	return ScoreWeights{
+		Health:        pickWeight(w.Health, d.Health),
+		QAAgent:       pickWeight(w.QAAgent, d.QAAgent),
+		QASignoff:     pickWeight(w.QASignoff, d.QASignoff),
+		Security:      pickWeight(w.Security, d.Security),
+		Grafana:       pickWeight(w.Grafana, d.Grafana),
+		Window:        pickWeight(w.Window, d.Window),
+		ChangeRequest: pickWeight(w.ChangeRequest, d.ChangeRequest),
+		Ops:           pickWeight(w.Ops, d.Ops),
+		Custom:        pickWeight(w.Custom, d.Custom),
+	}
 }
 
 // GatePolicy is a gate that applies to a set of target rings and needs no
@@ -648,5 +712,16 @@ func validatePromotionPolicy(a AppConfig) error {
 			}
 		}
 	}
-	return nil
+	if s := p.Score; s != nil {
+		for name, v := range map[string]int{
+			"health": s.Health, "qa_agent": s.QAAgent, "qa_signoff": s.QASignoff,
+			"security": s.Security, "grafana": s.Grafana, "window": s.Window,
+			"change_request": s.ChangeRequest, "ops": s.Ops, "custom": s.Custom,
+		} {
+			if v < 0 {
+				return fmt.Errorf("application %q promotion_policy.score.%s is negative", a.Name, name)
+			}
+		}
+	}
+	return validateCustomGates(a)
 }

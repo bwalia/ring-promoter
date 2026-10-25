@@ -158,6 +158,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("DELETE /api/apps/{app}/maintenance-windows/{id}", s.handleDeleteWindow)
 	api.HandleFunc("GET /api/apps/{app}/signoffs", s.handleListSignoffs)
 	api.HandleFunc("POST /api/apps/{app}/signoffs", s.handleCreateSignoff)
+	api.HandleFunc("GET /api/apps/{app}/controls", s.handleAppControls)
+	api.HandleFunc("POST /api/apps/{app}/controls/brief", s.handleControlsBrief)
 	// Application groups — stored server-side, shared by all users.
 	api.HandleFunc("GET /api/groups", s.handleListGroups)
 	api.HandleFunc("POST /api/groups", s.handleCreateGroup)
@@ -339,6 +341,7 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 		// CRCode is the change-request code for a change-request-gated ring; the
 		// universal demo code "test" is always accepted.
 		CRCode string `json:"cr_code,omitempty"`
+		SRCode string `json:"sr_code,omitempty"`
 		// OverrideGrafana promotes past a Grafana no-go; OverrideReason says why
 		// and is required with it.
 		OverrideGrafana bool   `json:"override_grafana,omitempty"`
@@ -355,9 +358,10 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 	// Promotion-policy gate inputs (change-request code, Grafana override) ride
 	// the operation context so Seed and its pre-validation see the same values.
 	gates := promoter.GateInputs{
-		ChangeRequestCode: body.CRCode,
-		OverrideGrafana:   body.OverrideGrafana,
-		OverrideReason:    body.OverrideReason,
+		ChangeRequestCode:  body.CRCode,
+		ServiceRequestCode: body.SRCode,
+		OverrideGrafana:    body.OverrideGrafana,
+		OverrideReason:     body.OverrideReason,
 	}
 	gateCtx := promoter.WithGateInputs(r.Context(), gates)
 	if wantsAsync(r) {
@@ -388,6 +392,7 @@ func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
 		// CRCode is the change-request code for a change-request-gated target
 		// ring; the universal demo code "test" is always accepted.
 		CRCode string `json:"cr_code,omitempty"`
+		SRCode string `json:"sr_code,omitempty"`
 		// OverrideGrafana promotes past a Grafana no-go on the TARGET ring;
 		// OverrideReason says why and is required with it.
 		OverrideGrafana bool   `json:"override_grafana,omitempty"`
@@ -403,9 +408,10 @@ func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gates := promoter.GateInputs{
-		ChangeRequestCode: body.CRCode,
-		OverrideGrafana:   body.OverrideGrafana,
-		OverrideReason:    body.OverrideReason,
+		ChangeRequestCode:  body.CRCode,
+		ServiceRequestCode: body.SRCode,
+		OverrideGrafana:    body.OverrideGrafana,
+		OverrideReason:     body.OverrideReason,
 	}
 	gateCtx := promoter.WithGateInputs(r.Context(), gates)
 	if wantsAsync(r) {
@@ -774,6 +780,7 @@ func statusForErr(err error) int {
 		errors.Is(err, promoter.ErrMaintenanceWindowClosed), errors.Is(err, promoter.ErrSignoffRequired),
 		errors.Is(err, promoter.ErrSignoffNoGo), errors.Is(err, promoter.ErrGrafanaNoGo),
 		errors.Is(err, promoter.ErrSecurityNoGo), errors.Is(err, promoter.ErrSecurityScanMissing),
+		errors.Is(err, promoter.ErrCustomGate),
 		errors.Is(err, promoter.ErrAutoPromoteConfigOwned), errors.Is(err, promoter.ErrNoVersion):
 		return http.StatusConflict
 	default:

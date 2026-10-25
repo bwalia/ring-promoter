@@ -37,7 +37,13 @@ import type { RingView } from "@/lib/types";
 
 export function gatesActive(target: RingView | undefined): boolean {
   const g = target?.gates;
-  return !!g && (g.maintenance_window || g.qa_signoff || g.change_request);
+  return (
+    !!g &&
+    (g.maintenance_window ||
+      g.qa_signoff ||
+      g.change_request ||
+      (g.custom_gates?.length ?? 0) > 0)
+  );
 }
 
 export function GateChecklist({
@@ -46,12 +52,16 @@ export function GateChecklist({
   version,
   crCode,
   setCrCode,
+  srCode,
+  setSrCode,
 }: {
   app: string;
   target: RingView;
   version: string;
   crCode: string;
   setCrCode: (v: string) => void;
+  srCode?: string;
+  setSrCode?: (v: string) => void;
 }) {
   const g = target.gates;
   if (!gatesActive(target)) return null;
@@ -73,6 +83,41 @@ export function GateChecklist({
           onChange={setCrCode}
         />
       )}
+      {(g.custom_gates ?? []).map((cg) => {
+        if (cg.kind === "opsapi" && setSrCode) {
+          return (
+            <ChangeRequestGate
+              key={cg.name}
+              provider={cg.label}
+              value={srCode ?? ""}
+              onChange={setSrCode}
+            />
+          );
+        }
+        if (cg.kind === "jira" || cg.kind === "test") {
+          if (g.change_request) {
+            return (
+              <p key={cg.name} className="text-xs text-muted-foreground">
+                {cg.label}: uses the change-request code above (demo code
+                “test”).
+              </p>
+            );
+          }
+          return (
+            <ChangeRequestGate
+              key={cg.name}
+              provider={cg.label}
+              value={crCode}
+              onChange={setCrCode}
+            />
+          );
+        }
+        return (
+          <p key={cg.name} className="text-xs text-muted-foreground">
+            {cg.label} ({cg.kind}) — checked live at promote time.
+          </p>
+        );
+      })}
     </div>
   );
 }
@@ -381,11 +426,11 @@ function ChangeRequestGate({
     <div className="space-y-1.5">
       <GateRow
         ok={ok}
-        label="Change-request code"
+        label={provider && provider !== "jira" && provider !== "test" ? provider : "Change-request code"}
         detail={
           provider === "jira"
             ? "Validated against JIRA — or use “test” for a demo"
-            : "Enter the approved change code (or “test” for a demo)"
+            : "Enter the approved ticket (or “test” for a demo)"
         }
       />
       <Input

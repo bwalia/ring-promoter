@@ -144,6 +144,7 @@ function SeedDialog({
   const [version, setVersion] = useState("");
   const [password, setPassword] = useState("");
   const [crCode, setCrCode] = useState("");
+  const [srCode, setSrCode] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const seed = useSeedMutation(app);
@@ -166,7 +167,8 @@ function SeedDialog({
         ring,
         version: version.trim(),
         password: needsPassword ? password : undefined,
-        crCode: needsCrCode ? crCode.trim() : undefined,
+        crCode: crCode.trim() || undefined,
+        srCode: srCode.trim() || undefined,
         overrideReason: needsOverride ? overrideReason.trim() : undefined,
       },
       {
@@ -253,6 +255,8 @@ function SeedDialog({
               version={version.trim()}
               crCode={crCode}
               setCrCode={setCrCode}
+              srCode={srCode}
+              setSrCode={setSrCode}
             />
           )}
 
@@ -426,6 +430,7 @@ function PromoteDialog({
   const { prodProtected, prodRing } = useProdProtection();
   const [password, setPassword] = useState("");
   const [crCode, setCrCode] = useState("");
+  const [srCode, setSrCode] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const i = rings.findIndex((r) => r.ring.name === fromRing);
@@ -450,7 +455,8 @@ function PromoteDialog({
       {
         fromRing,
         password: needsPassword ? password : undefined,
-        crCode: needsCrCode ? crCode.trim() : undefined,
+        crCode: crCode.trim() || undefined,
+        srCode: srCode.trim() || undefined,
         overrideReason: needsOverride ? overrideReason.trim() : undefined,
       },
       {
@@ -502,6 +508,8 @@ function PromoteDialog({
             version={version}
             crCode={crCode}
             setCrCode={setCrCode}
+            srCode={srCode}
+            setSrCode={setSrCode}
           />
         )}
 
