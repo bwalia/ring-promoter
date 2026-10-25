@@ -679,9 +679,9 @@ data:
       # deploy-k3s.yml, which helm-upgrades deploy/helm/closeknitty into the
       # ring's namespace from the repo's self-hosted runner. Pushes to main
       # build the images and seed int here. Secrets come from WSL Vault
-      # (closeknitty/<ring>/*) via ESO. Only int is set up so far (it is
-      # VPN-only through the jobshout-preprod access profile); test/acc/prod
-      # fail fast until values-<ring>.yaml and their Vault paths exist.
+      # (closeknitty/<ring>/*) via ESO. int and test are VPN-only (the
+      # jobshout-preprod access profile), acc is public; prod fails fast until
+      # values-prod.yaml and its Vault paths exist.
       # RP_GITHUB_TOKEN needs actions:write on bwalia/closeknitty.
       - name: closeknitty
         display_name: "CloseKnitty Chit Funds"
@@ -701,8 +701,8 @@ data:
           run_lookup_timeout: 90s
         rings:
           int:  { target_env: int,  health_url: "http://closeknitty-api.int.svc.cluster.local:8080/api/v1/health",  links: [ { label: "CloseKnitty int (VPN)", url: "https://int.closeknitty.com/" } ] }
-          test: { target_env: test, health_url: "http://closeknitty-api.test.svc.cluster.local:8080/api/v1/health" }
-          acc:  { target_env: acc,  health_url: "http://closeknitty-api.acc.svc.cluster.local:8080/api/v1/health" }
+          test: { target_env: test, health_url: "http://closeknitty-api.test.svc.cluster.local:8080/api/v1/health", links: [ { label: "CloseKnitty test (VPN)", url: "https://test.closeknitty.com/" } ] }
+          acc:  { target_env: acc,  health_url: "http://closeknitty-api.acc.svc.cluster.local:8080/api/v1/health",  links: [ { label: "CloseKnitty acc", url: "https://acc.closeknitty.com/" } ] }
           prod: { target_env: prod, health_url: "http://closeknitty-api.prod.svc.cluster.local:8080/api/v1/health", links: [ { label: "CloseKnitty", url: "https://closeknitty.com/" } ] }
 
       # wslproxy-k3s1 moved to its own instance, https://rp.wslproxy.com,
