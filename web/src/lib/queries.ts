@@ -489,6 +489,7 @@ export function useSeedMutation(app: string | null) {
       version: string;
       password?: string;
       crCode?: string;
+      srCode?: string;
       overrideReason?: string;
     }) => {
       if (!app) throw new Error("no application selected");
@@ -516,6 +517,7 @@ export function usePromoteMutation(app: string | null) {
       fromRing: string;
       password?: string;
       crCode?: string;
+      srCode?: string;
       overrideReason?: string;
     }) => {
       if (!app) throw new Error("no application selected");
