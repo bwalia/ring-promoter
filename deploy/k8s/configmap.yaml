@@ -725,8 +725,39 @@ data:
           acc:  { target_env: acc,  health_url: "http://closeknitty-api.acc.svc.cluster.local:8080/api/v1/health",  links: [ { label: "CloseKnitty acc", url: "https://acc.closeknitty.com/" } ] }
           prod: { target_env: prod, health_url: "http://closeknitty-api.prod.svc.cluster.local:8080/api/v1/health", links: [ { label: "CloseKnitty", url: "https://closeknitty.com/" } ] }
 
-      # wslproxy-k3s1 moved to its own instance, https://rp.wslproxy.com,
-      # owned by bwalia/wslproxy deploy/ring-promoter/ (2026-09-24).
+      # wslproxy edge / VM CI — github deployer on THIS instance
+      # (rp.workstation.co.uk). Dispatches bwalia/wslproxy
+      # deploy-single-environment.yml (int|test|acc|prod=lon1+lon2).
+      # Control-plane helm (wslproxy-k3s1 / cp.pop0.uk) stays on the
+      # dedicated instance https://rp.wslproxy.com — do not re-add that
+      # k8sjob here (it drifted and timed out every seed Sep 18–24).
+      #
+      # RP_GITHUB_TOKEN is on secret/ring-promoter (same PAT fishers /
+      # gullycricket use). Earlier registration (#99) crash-looped because
+      # the token was missing; that is no longer true.
+      - name: wslproxy
+        display_name: "WSL Proxy (edge)"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: wslproxy
+          workflow: deploy-single-environment.yml
+          # Deployer default ref is "build"; this repo only has main.
+          ref: main
+          # Prefer code for Lua/API; operators can re-seed with a fuller
+          # mode from the UI by overriding — deploy_mode is the default
+          # input the github deployer sends as DEPLOY_MODE.
+          deploy_mode: code
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  links: [ { label: "Int health", url: "http://192.168.1.193:8099/health", kind: docs } ] }
+          test: { target_env: test, links: [ { label: "Test health", url: "http://192.168.1.140:8099/health", kind: docs } ] }
+          acc:  { target_env: acc }
+          # Public edge health (lon1). prod ENV deploys lon1+lon2 together.
+          prod: { target_env: prod, health_url: "https://lon1.pop0.uk/health", links: [ { label: "lon1", url: "https://lon1.pop0.uk/" }, { label: "pop0", url: "https://pop0.wslproxy.com/" } ] }
 
       # ── academy (Workstation Academy) — REGISTERED BUT DISABLED ──────────────
       # Uncomment the block below to enable. It is commented out for one reason
