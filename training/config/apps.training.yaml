@@ -1,7 +1,8 @@
 # Ring Promoter — training academy instance configuration.
 #
 # This is the FULL config for the training instance served at
-# https://ring-promoter.fictionally.org. It registers all seven sample apps so
+# https://ring-promoter.fictionally.org. It registers the seven sample apps (plus
+# the hello-java / hello-php opsapi.org demo clients) so
 # that, between them, EVERY Ring Promoter capability can be demonstrated live.
 #
 # Secrets come from the environment (never this file):
@@ -70,6 +71,7 @@ apps:
       - { label: "Sample app guide", url: "https://github.com/bwalia/ring-promoter/tree/main/training/sample-apps/hello-world", kind: docs }
       - { label: "QA unit tests", url: "https://grafana.workstation.co.uk/d/rp-qa-unit-tests?var-app=hello-world", kind: dashboard }
       - { label: "Security & compliance", url: "https://grafana.workstation.co.uk/d/rp-security-compliance?var-app=hello-world", kind: dashboard }
+      - { label: "CVE scans (SpectonCR + Grype)", url: "https://grafana.workstation.co.uk/d/rp-cve-scans?var-app=hello-world", kind: dashboard }
     promotion_policy:
       # QA + security posture gate: the verdicts CI pushed, read from the obs Prometheus
       # behind grafana.workstation.co.uk (token: RP_GRAFANA_TOKEN, a Viewer
@@ -134,6 +136,13 @@ apps:
             query: |
               min(rp_sec_scan_status{app="hello-world",kind="container"}
                 and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="container"} < 129600))
+          # Image CVEs against the CVE policy (the "Ring Promoter — CVE Scans"
+          # dashboard): 2 = critical 0, high 0 and at most 20 medium + low;
+          # 0 = blocked. SpectonCR scans the image pushed to its registry.
+          - name: "Image CVEs (SpectonCR)"
+            query: |
+              min(rp_cve_gate_status{app="hello-world",scanner="spectoncr"}
+                and on(app,scanner) (time() - rp_cve_scan_timestamp_seconds{app="hello-world",scanner="spectoncr"} < 129600))
           - name: "Licences"
             query: |
               min(rp_sec_scan_status{app="hello-world",kind="license"}
@@ -162,14 +171,15 @@ apps:
               min(rp_sec_supply_chain_control{app="hello-world",control="provenance"}
                 and on(app) (time() - rp_sec_scan_timestamp_seconds{app="hello-world",kind="container"} < 129600))
       # Security gate (cannot be overridden): every version entering test, acc
-      # or prod needs all six scan kinds — SAST, SCA, secrets, image CVEs,
-      # IaC/CIS and licences — with no critical or high finding left unwaived.
-      # Scans older than 30 days count as stale — the nightly run refreshes
-      # them for the version currently on main.
+      # or prod needs all six scan kinds — SAST, SCA, secrets, image CVEs
+      # (Grype + SpectonCR), IaC/CIS and licences — with no critical or high
+      # finding and at most 20 minor (medium + low) left unwaived. Scans older
+      # than 30 days count as stale — the nightly run refreshes them for the
+      # version currently on main.
       security:
         rings: [test, acc, prod]
         require: [sast, sca, secrets, container, iac, license]
-        max: { critical: 0, high: 0 }
+        max: { critical: 0, high: 0, minor: 20 }
         max_age: 720h
       # Compliance: a named release engineer records GO for the exact version
       # before it may enter prod (four-eyes, audited alongside the gate log).
@@ -180,6 +190,176 @@ apps:
       test: { namespace: hello-world-test, deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-test.svc.cluster.local/healthz", health_version_field: version }
       acc:  { namespace: hello-world-acc,  deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-acc.svc.cluster.local/healthz",  health_version_field: version }
       prod: { namespace: hello-world-prod, deployment: hello-world, container: hello-world, image: docker.io/bwalia/rp-training-hello-world, health_url: "http://hello-world.hello-world-prod.svc.cluster.local/healthz", health_version_field: version }
+
+  # 1b) hello-java and 1c) hello-php — the opsapi.org demo clients
+  #     (https://hello-java.demo.opsapi.org, https://hello-php.demo.opsapi.org),
+  #     built in bwalia/workflow-examples and promoted here with the same QA +
+  #     AppSec gates as hello-world, centred on image CVEs:
+  #
+  #       ring  | Grafana: QA + SAST + secrets + CVEs | AppSec (per version) | sign-off
+  #       int   |                                     |                      |
+  #       test  |                 ✓                   |          ✓           |
+  #       acc   |                 ✓                   |          ✓           |
+  #       prod  |                 ✓                   |          ✓           |    ✓
+  #
+  #     prod IS the public demo (namespace `demo`); int/test/acc run in
+  #     <app>-<ring>. The evidence comes from .github/workflows/polyglot-qa.yml:
+  #     Maven/JaCoCo or PHPUnit/Clover unit tests, Semgrep, gitleaks, and the
+  #     image CVE scan by SpectonCR (acc-spectoncr.diytaxreturn.co.uk, OSV) with
+  #     Grype as a cross-check — SpectonCR does not yet see fat-jar JARs, PHP
+  #     built from source or Alpine packages, so alone it would pass images
+  #     Grype finds a dozen criticals in. Every version deployed in any ring is
+  #     re-scanned nightly and uploaded per version.
+  #
+  #     CVE policy (both the Grafana checks and the non-overridable security
+  #     gate): NO promotion with any critical, any high, or more than 20 minor
+  #     (medium + low) image CVEs left unwaived.
+  #
+  #     hello-java reports no version on /actuator/health, so its health check
+  #     is status-only (like kuard); hello-php's /health carries the version.
+  - name: hello-java
+    display_name: "Hello Java"
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+    links:
+      - { label: "Source (workflow-examples)", url: "https://github.com/bwalia/workflow-examples/tree/main/hello-java", kind: docs }
+      - { label: "CVE scans (SpectonCR + Grype)", url: "https://grafana.workstation.co.uk/d/rp-cve-scans?var-app=hello-java", kind: dashboard }
+      - { label: "QA unit tests", url: "https://grafana.workstation.co.uk/d/rp-qa-unit-tests?var-app=hello-java", kind: dashboard }
+      - { label: "Security & compliance", url: "https://grafana.workstation.co.uk/d/rp-security-compliance?var-app=hello-java", kind: dashboard }
+      - { label: "Evidence workflow", url: "https://github.com/bwalia/ring-promoter/actions/workflows/polyglot-qa.yml", kind: ci }
+    promotion_policy:
+      grafana:
+        rings: [test, acc, prod]
+        url: https://grafana.workstation.co.uk
+        dashboard_uid: rp-cve-scans
+        dashboard_name: "Ring Promoter — CVE Scans"
+        datasource_uid: prometheus
+        datasource_type: prometheus
+        go_min: 2
+        no_go_max: 0
+        lookback: 5m
+        max_age: 36h
+        checks:
+          - name: "Unit tests"
+            query: |
+              rp_qa_unit_last_run_status{app="hello-java"}
+                and on(app)
+              (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-java"} < 129600)
+          - name: "Pass rate"
+            unit: "%"
+            go_min: 100
+            no_go_max: 95
+            query: |
+              rp_qa_unit_pass_rate_percent{app="hello-java"}
+                and on(app)
+              (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-java"} < 129600)
+          - name: "Coverage"
+            unit: "%"
+            go_min: 70
+            no_go_max: 50
+            query: |
+              rp_qa_unit_coverage_percent{app="hello-java"}
+                and on(app)
+              (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-java"} < 129600)
+          - name: "SAST (Semgrep)"
+            query: |
+              min(rp_sec_scan_status{app="hello-java",kind="sast"}
+                and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-java",kind="sast"} < 129600))
+          - name: "Secrets (gitleaks)"
+            query: |
+              min(rp_sec_scan_status{app="hello-java",kind="secrets"}
+                and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-java",kind="secrets"} < 129600))
+          - name: "Image CVEs (SpectonCR)"
+            query: |
+              min(rp_cve_gate_status{app="hello-java",scanner="spectoncr"}
+                and on(app,scanner) (time() - rp_cve_scan_timestamp_seconds{app="hello-java",scanner="spectoncr"} < 129600))
+          - name: "Image CVEs (Grype)"
+            query: |
+              min(rp_cve_gate_status{app="hello-java",scanner="grype"}
+                and on(app,scanner) (time() - rp_cve_scan_timestamp_seconds{app="hello-java",scanner="grype"} < 129600))
+      security:
+        rings: [test, acc, prod]
+        require: [sast, secrets, container]
+        max: { critical: 0, high: 0, minor: 20 }
+        max_age: 720h
+      qa_signoff:
+        rings: [prod]
+    rings:
+      int:  { namespace: hello-java-int, deployment: hello-java, container: hello-java, image: docker.io/bwalia/hello-java, health_url: "http://hello-java.hello-java-int.svc.cluster.local:8080/actuator/health" }
+      test: { namespace: hello-java-test, deployment: hello-java, container: hello-java, image: docker.io/bwalia/hello-java, health_url: "http://hello-java.hello-java-test.svc.cluster.local:8080/actuator/health" }
+      acc:  { namespace: hello-java-acc, deployment: hello-java, container: hello-java, image: docker.io/bwalia/hello-java, health_url: "http://hello-java.hello-java-acc.svc.cluster.local:8080/actuator/health" }
+      prod: { namespace: demo,           deployment: hello-java, container: hello-java, image: docker.io/bwalia/hello-java, health_url: "http://hello-java.demo.svc.cluster.local:8080/actuator/health", links: [ { label: "Hello Java (public)", url: "https://hello-java.demo.opsapi.org/" } ] }
+
+  - name: hello-php
+    display_name: "Hello PHP"
+    location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+    links:
+      - { label: "Source (workflow-examples)", url: "https://github.com/bwalia/workflow-examples/tree/main/php-ringpromoter-cve-patching", kind: docs }
+      - { label: "CVE scans (SpectonCR + Grype)", url: "https://grafana.workstation.co.uk/d/rp-cve-scans?var-app=hello-php", kind: dashboard }
+      - { label: "QA unit tests", url: "https://grafana.workstation.co.uk/d/rp-qa-unit-tests?var-app=hello-php", kind: dashboard }
+      - { label: "Security & compliance", url: "https://grafana.workstation.co.uk/d/rp-security-compliance?var-app=hello-php", kind: dashboard }
+      - { label: "Evidence workflow", url: "https://github.com/bwalia/ring-promoter/actions/workflows/polyglot-qa.yml", kind: ci }
+    promotion_policy:
+      grafana:
+        rings: [test, acc, prod]
+        url: https://grafana.workstation.co.uk
+        dashboard_uid: rp-cve-scans
+        dashboard_name: "Ring Promoter — CVE Scans"
+        datasource_uid: prometheus
+        datasource_type: prometheus
+        go_min: 2
+        no_go_max: 0
+        lookback: 5m
+        max_age: 36h
+        checks:
+          - name: "Unit tests"
+            query: |
+              rp_qa_unit_last_run_status{app="hello-php"}
+                and on(app)
+              (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-php"} < 129600)
+          - name: "Pass rate"
+            unit: "%"
+            go_min: 100
+            no_go_max: 95
+            query: |
+              rp_qa_unit_pass_rate_percent{app="hello-php"}
+                and on(app)
+              (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-php"} < 129600)
+          - name: "Coverage"
+            unit: "%"
+            go_min: 70
+            no_go_max: 50
+            query: |
+              rp_qa_unit_coverage_percent{app="hello-php"}
+                and on(app)
+              (time() - rp_qa_unit_last_run_timestamp_seconds{app="hello-php"} < 129600)
+          - name: "SAST (Semgrep)"
+            query: |
+              min(rp_sec_scan_status{app="hello-php",kind="sast"}
+                and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-php",kind="sast"} < 129600))
+          - name: "Secrets (gitleaks)"
+            query: |
+              min(rp_sec_scan_status{app="hello-php",kind="secrets"}
+                and on(app,kind) (time() - rp_sec_scan_timestamp_seconds{app="hello-php",kind="secrets"} < 129600))
+          - name: "Image CVEs (SpectonCR)"
+            query: |
+              min(rp_cve_gate_status{app="hello-php",scanner="spectoncr"}
+                and on(app,scanner) (time() - rp_cve_scan_timestamp_seconds{app="hello-php",scanner="spectoncr"} < 129600))
+          - name: "Image CVEs (Grype)"
+            query: |
+              min(rp_cve_gate_status{app="hello-php",scanner="grype"}
+                and on(app,scanner) (time() - rp_cve_scan_timestamp_seconds{app="hello-php",scanner="grype"} < 129600))
+      security:
+        rings: [test, acc, prod]
+        require: [sast, secrets, container]
+        max: { critical: 0, high: 0, minor: 20 }
+        max_age: 720h
+      qa_signoff:
+        rings: [prod]
+    rings:
+      int:  { namespace: hello-php-int,  deployment: hello-php, container: hello-php, image: docker.io/bwalia/hello-php, health_url: "http://hello-php.hello-php-int.svc.cluster.local:8080/health", health_version_field: version }
+      test: { namespace: hello-php-test, deployment: hello-php, container: hello-php, image: docker.io/bwalia/hello-php, health_url: "http://hello-php.hello-php-test.svc.cluster.local:8080/health", health_version_field: version }
+      acc:  { namespace: hello-php-acc,  deployment: hello-php, container: hello-php, image: docker.io/bwalia/hello-php, health_url: "http://hello-php.hello-php-acc.svc.cluster.local:8080/health", health_version_field: version }
+      prod: { namespace: demo,           deployment: hello-php, container: hello-php, image: docker.io/bwalia/hello-php, health_url: "http://hello-php.demo.svc.cluster.local:8080/health", health_version_field: version, links: [ { label: "Hello PHP (public)", url: "https://hello-php.demo.opsapi.org/" } ] }
 
   # 2) kuard — canonical demo on a THIRD-PARTY image, STATUS-ONLY health check
   #    (kuard's /healthy returns 200 but reports no version). Blue/green via the

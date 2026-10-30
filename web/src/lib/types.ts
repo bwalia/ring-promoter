@@ -544,7 +544,8 @@ export interface SecurityEvaluation {
 export interface SecurityPolicy {
   rings: string[];
   require: ScanKind[];
-  max: Partial<Record<Severity, number>>;
+  /** Per-severity limits; "minor" caps medium + low together. */
+  max: Partial<Record<Severity | "minor", number>>;
   max_age_seconds?: number;
   source: "app" | "default" | "builtin";
 }

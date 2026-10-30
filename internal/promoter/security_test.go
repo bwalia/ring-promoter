@@ -3,6 +3,8 @@ package promoter
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,5 +201,45 @@ func TestRecordSecurityScan_Validation(t *testing.T) {
 	s, err := p.RecordSecurityScan(ctx, SecurityScanInput{App: testApp, Version: "v", Kind: "SCA", SARIF: []byte(trivySARIF)})
 	if err != nil || s.Scanner != "Trivy" || s.Critical != 2 || s.High != 1 || s.Medium != 1 || len(s.Findings) != 4 {
 		t.Fatalf("sarif scan = %+v %v", s, err)
+	}
+}
+
+// "minor" caps medium + low together: 20 pass, 21 block, and a waiver brings
+// the count back under the limit. Critical and high stay at zero.
+func TestSecurityGate_MinorLimit(t *testing.T) {
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	pol := &config.SecurityPolicy{Rings: []string{"test"}, Require: []string{"container"},
+		Max: map[string]int{"critical": 0, "high": 0, "minor": 20}}
+	p, _ := securityHarness(t, now, pol, true)
+	ctx := context.Background()
+	minor := func(n int) []store.SecurityFinding {
+		var out []store.SecurityFinding
+		for i := 0; i < n; i++ {
+			sev := "medium"
+			if i%2 == 1 {
+				sev = "low"
+			}
+			out = append(out, store.SecurityFinding{ID: fmt.Sprintf("CVE-2026-%04d", i), Severity: sev})
+		}
+		return out
+	}
+	scan(t, p, "v1", "container", minor(20)...)
+	if ev, _ := p.EvaluateSecurity(ctx, testApp, "test", "v1"); ev.Verdict != SecurityGo {
+		t.Fatalf("20 minor should pass: %+v", ev)
+	}
+	scan(t, p, "v2", "container", minor(21)...)
+	ev, _ := p.EvaluateSecurity(ctx, testApp, "test", "v2")
+	if ev.Verdict != SecurityNoGo || !strings.Contains(ev.Detail, "21 minor > max 20") {
+		t.Fatalf("21 minor should block: %+v", ev)
+	}
+	if _, err := p.CreateSecurityWaiver(ctx, testApp, "CVE-2026-0000", "", "not reachable", "sec", time.Time{}, 7); err != nil {
+		t.Fatal(err)
+	}
+	if ev, _ := p.EvaluateSecurity(ctx, testApp, "test", "v2"); ev.Verdict != SecurityGo {
+		t.Fatalf("waiver should bring minor to 20: %+v", ev)
+	}
+	scan(t, p, "v3", "container", store.SecurityFinding{ID: "CVE-H", Severity: "high"})
+	if ev, _ := p.EvaluateSecurity(ctx, testApp, "test", "v3"); ev.Verdict != SecurityNoGo {
+		t.Fatalf("one high should block: %+v", ev)
 	}
 }

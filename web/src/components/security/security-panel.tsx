@@ -80,8 +80,9 @@ export function SecurityPanel({ app }: { app: string }) {
 }
 
 function PolicySummary({ policy }: { policy: SecurityPolicy }) {
-  const max = SEVERITIES.filter((s) => policy.max[s] !== undefined)
-    .map((s) => `${s} ≤ ${policy.max[s]}`)
+  const max = [...SEVERITIES, "minor" as const]
+    .filter((s) => policy.max[s] !== undefined)
+    .map((s) => (s === "minor" ? `medium+low ≤ ${policy.max[s]}` : `${s} ≤ ${policy.max[s]}`))
     .join(", ");
   const source =
     policy.source === "app"
