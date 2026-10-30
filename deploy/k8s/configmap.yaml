@@ -725,6 +725,42 @@ data:
           acc:  { target_env: acc,  health_url: "http://closeknitty-api.acc.svc.cluster.local:8080/api/v1/health",  links: [ { label: "CloseKnitty acc", url: "https://acc.closeknitty.com/" } ] }
           prod: { target_env: prod, health_url: "http://closeknitty-api.prod.svc.cluster.local:8080/api/v1/health", links: [ { label: "CloseKnitty", url: "https://closeknitty.com/" } ] }
 
+      # ── workerra — UK recruitment platform (Next.js) ──
+      #
+      # PUBLIC repo bwalia/workerra. GITHUB deployer, like closeknitty and
+      # workstation-opsapi: deploy-k3s.yml keeps the Cloudflare CNAME and the
+      # VPN-only wslproxy vhost in place before it helm-upgrades the `workerra`
+      # release, so a bare k8sjob helm run would not be the whole deploy.
+      #
+      # A push to main builds bwalia/workerra:<short sha> and seeds int here;
+      # the dispatch sends that sha as IMAGE_TAG with DEPLOYMENT_TYPE=deploy, so
+      # every ring runs the exact image int ran. /api/health reports the tag at
+      # data.version, checked after every deploy.
+      #
+      # Only int is registered: test/acc/prod have no values file or edge spec
+      # in the repo yet. When they are added, acc gets auto_promote: false and
+      # acc (unlike jobshout-com) stays VPN-only.
+      #
+      # Needs RP_GITHUB_TOKEN to be allowed to dispatch workflows in bwalia/workerra.
+      - name: workerra
+        display_name: "Workerra Recruitment"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: workerra
+          workflow: deploy-k3s.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: deploy
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int: { target_env: int, health_url: "http://workerra.int.svc.cluster.local/api/health", health_version_field: data.version, links: [ { label: "Workerra int (VPN)", url: "https://int.workerra.uk/" } ] }
+
       # wslproxy edge / VM CI — github deployer on THIS instance
       # (rp.workstation.co.uk). Dispatches bwalia/wslproxy
       # deploy-single-environment.yml (int|test|acc|prod=lon1+lon2).
@@ -758,6 +794,9 @@ data:
           acc:  { target_env: acc }
           # Public edge health (lon1). prod ENV deploys lon1+lon2 together.
           prod: { target_env: prod, health_url: "https://lon1.pop0.uk/health", links: [ { label: "lon1", url: "https://lon1.pop0.uk/" }, { label: "pop0", url: "https://pop0.wslproxy.com/" } ] }
+
+      # wslproxy-k3s1 moved to its own instance, https://rp.wslproxy.com,
+      # owned by bwalia/wslproxy deploy/ring-promoter/ (2026-09-24).
 
       # ── academy (Workstation Academy) — REGISTERED BUT DISABLED ──────────────
       # Uncomment the block below to enable. It is commented out for one reason
