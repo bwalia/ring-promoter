@@ -1,0 +1,334 @@
+name: hello-java & hello-php QA, AppSec & CVE gates (training)
+
+# The evidence behind the promotion gates of hello-java and hello-php on the
+# TRAINING instance (https://ring-promoter.fictionally.org) — the opsapi.org
+# demo clients whose prod ring is https://hello-{java,php}.demo.opsapi.org.
+# Their source and images live in bwalia/workflow-examples; this workflow
+# tests and scans what is actually deployed, exactly like hello-world-qa.yml:
+#
+#   unit tests     Maven + JaCoCo (java) / PHPUnit + Clover (php)   QA
+#   SAST           Semgrep (p/java or p/php + p/dockerfile)
+#   secrets        gitleaks
+#   image CVEs     SpectonCR (acc registry, OSV) + Grype cross-check
+#
+# Every result lands in two places:
+#   * Prometheus (rp-qa Pushgateway -> obs Prometheus) for the newest version:
+#       "Ring Promoter — CVE Scans"             rp_cve_*
+#       "Ring Promoter — QA Unit Tests"         rp_qa_unit_*
+#       "Ring Promoter — Security & Compliance" rp_sec_*
+#     read by each app's Grafana gate (posture of the latest build);
+#   * Ring Promoter, per exact version (POST /api/security/scans), which the
+#     non-overridable security gate judges. EVERY version deployed in any ring
+#     is re-scanned, so the version a promotion would ship always has fresh
+#     evidence — and a CVE published overnight blocks it.
+#
+# CVE policy (Grafana checks + security gate): no critical, no high, at most 20
+# minor (medium + low). Why Grype as well: SpectonCR does not yet match JARs in
+# a Spring Boot fat jar, PHP built from source, or Alpine packages (it queries
+# OSV by bare apk purl), so on its own it reads images with 10+ criticals as
+# clean. Both are reported separately, so the dashboard shows the gap.
+#
+# Versions are image tags <semver>-<sha7>; the source scans check out that sha.
+#
+# Repo secrets:
+#   KUBE_CONFIG_DATA_K3S1          read ring versions, push metrics
+#   RP_URL / RP_TOKEN              training instance + API token
+#   SPECTONCR_USER / SPECTONCR_PASSWORD   acc SpectonCR push+pull (scan skipped
+#                                  with a warning when unset)
+#   WORKFLOW_EXAMPLES_TOKEN        contents:read on bwalia/workflow-examples
+#                                  (falls back to DIYTAX_DISPATCH_PAT)
+
+on:
+  schedule:
+    - cron: "37 3 * * *"   # nightly, 03:37 UTC (after hello-world's 03:17)
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/polyglot-qa.yml"
+      - "training/scripts/cve_metrics.py"
+      - "training/scripts/spectoncr_scan.sh"
+      - "training/scripts/qa_unit_metrics.py"
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App to test and scan"
+        type: choice
+        default: all
+        options: [all, hello-java, hello-php]
+      version:
+        description: "Also scan this image tag (e.g. a new build before it is promoted)"
+        type: string
+        default: ""
+
+concurrency:
+  group: polyglot-qa
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SEMGREP_IMAGE: docker.io/semgrep/semgrep:1.181.1
+  GITLEAKS_IMAGE: docker.io/zricethezav/gitleaks:v8.30.1
+  GRYPE_IMAGE: docker.io/anchore/grype:v0.120.0
+  MAVEN_IMAGE: docker.io/library/maven:3.9-eclipse-temurin-21
+  PHP_IMAGE: docker.io/library/php:8.3-cli-alpine
+  JACOCO: "0.8.12"
+  COMPOSER: "2.8.12"
+  SPECTONCR_REGISTRY: acc-spectoncr.diytaxreturn.co.uk
+  # Must match promotion_policy.security.max in training/config/apps.training.yaml.
+  MAX_CRITICAL: "0"
+  MAX_HIGH: "0"
+  MAX_MINOR: "20"
+
+jobs:
+  # Which versions are deployed where: the deployments are the truth (prod is
+  # the public demo namespace). The int version is the newest — its results
+  # are the ones published to Grafana.
+  plan:
+    name: Plan versions
+    runs-on: [self-hosted, mac-studio]
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Kubeconfig (k3s1)
+        run: |
+          umask 077
+          echo "${{ secrets.KUBE_CONFIG_DATA_K3S1 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+      - id: plan
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+          ONLY: ${{ inputs.app || 'all' }}
+          EXTRA: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          rows=()
+          for app in hello-java hello-php; do
+            [ "$ONLY" = all ] || [ "$ONLY" = "$app" ] || continue
+            latest="" seen=" "
+            for ns in "${app}-int" "${app}-test" "${app}-acc" demo; do
+              img=$(kubectl -n "$ns" get deploy "$app" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
+              [ -n "$img" ] || { echo "::warning::${app} not deployed in ${ns}"; continue; }
+              v="${img##*:}"
+              [ -n "$latest" ] || latest="$v"
+              echo "${app} ${ns}: ${v}"
+              case "$seen" in *" $v "*) continue ;; esac
+              seen="$seen$v "
+            done
+            [ -z "$EXTRA" ] || case "$seen" in *" $EXTRA "*) ;; *) seen="$seen$EXTRA " ;; esac
+            for v in $seen; do
+              rows+=("$(jq -nc --arg a "$app" --arg v "$v" --argjson l "$([ "$v" = "${EXTRA:-$latest}" ] && echo true || echo false)" \
+                '{app:$a, version:$v, latest:$l}')")
+            done
+          done
+          matrix=$(printf '%s\n' "${rows[@]}" | jq -sc '{include: .}')
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          echo "$matrix" | jq -r '.include[] | "- \(.app) `\(.version)`\(if .latest then " (published to Grafana)" else "" end)"' >> "$GITHUB_STEP_SUMMARY"
+
+  evidence:
+    name: ${{ matrix.app }} ${{ matrix.version }}
+    needs: plan
+    runs-on: [self-hosted, mac-studio]
+    strategy:
+      fail-fast: false
+      # The self-hosted runner is shared; one at a time keeps Maven and Grype
+      # caches warm and the Docker daemon unloaded.
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      APP: ${{ matrix.app }}
+      VERSION: ${{ matrix.version }}
+      LATEST: ${{ matrix.latest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve app
+        run: |
+          set -euo pipefail
+          case "$APP" in
+            hello-java) dir=hello-java;                    sast=p/java ;;
+            hello-php)  dir=php-ringpromoter-cve-patching; sast=p/php ;;
+          esac
+          sha="${VERSION##*-}"
+          if ! [[ "$sha" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::notice::${VERSION} carries no commit — source scans use main."
+            sha=main
+          fi
+          {
+            echo "SRC_DIR=src/${dir}"
+            echo "SAST_CONFIG=${sast}"
+            echo "SRC_REF=${sha}"
+            echo "IMAGE=docker.io/bwalia/${APP}:${VERSION}"
+            echo "OUT=$RUNNER_TEMP/ev"
+            echo "RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig"
+          } >> "$GITHUB_ENV"
+          rm -rf "$RUNNER_TEMP/ev" && mkdir -p "$RUNNER_TEMP/ev/rp"
+          umask 077
+          echo "${{ secrets.KUBE_CONFIG_DATA_K3S1 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          echo "### ${APP} \`${VERSION}\` (source @ ${sha})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: bwalia/workflow-examples
+          token: ${{ secrets.WORKFLOW_EXAMPLES_TOKEN || secrets.DIYTAX_DISPATCH_PAT }}
+          path: src
+          fetch-depth: 0
+
+      - name: Check out the version's commit
+        working-directory: src
+        run: git checkout -q "$SRC_REF" && git log -1 --format='%h %s'
+
+      # Never fails the step: the result is recorded first (a red run must
+      # reach Grafana so the gate turns NO-GO), and the job fails at the end.
+      # Source goes in and reports come out as tar streams — no bind mounts.
+      - name: Unit tests (Maven + JaCoCo)
+        if: env.LATEST == 'true' && env.APP == 'hello-java'
+        run: |
+          set -uo pipefail
+          mkdir -p "$OUT/qa"
+          tar -C "$SRC_DIR" --exclude=./target -cf - . | docker run --rm -i -v rp-m2:/root/.m2 --entrypoint sh "$MAVEN_IMAGE" -c \
+            "mkdir -p /src /out/junit && tar -xf - -C /src && cd /src &&
+             mvn -B -q org.jacoco:jacoco-maven-plugin:${JACOCO}:prepare-agent test org.jacoco:jacoco-maven-plugin:${JACOCO}:report \
+               -Dmaven.test.failure.ignore=true >&2;
+             cp target/surefire-reports/*.xml /out/junit/ 2>/dev/null; cp target/site/jacoco/jacoco.xml /out/ 2>/dev/null;
+             tar -C /out -cf - ." | tar -xf - -C "$OUT/qa"
+          python3 training/scripts/qa_unit_metrics.py --app "$APP" --junit "$OUT/qa/junit" --jacoco "$OUT/qa/jacoco.xml" \
+            --version "$VERSION" --commit "$(git -C src rev-parse HEAD)" --run-url "$RUN_URL" \
+            > "$OUT/qa.prom" 2> "$OUT/qa.txt"
+          echo "- QA: $(cat "$OUT/qa.txt")" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Unit tests (PHPUnit + Clover)
+        if: env.LATEST == 'true' && env.APP == 'hello-php'
+        run: |
+          set -uo pipefail
+          mkdir -p "$OUT/qa"
+          tar -C "$SRC_DIR" --exclude=./vendor -cf - . | docker run --rm -i --entrypoint sh "$PHP_IMAGE" -c \
+            "apk add --no-cache \$PHPIZE_DEPS >/dev/null 2>&1 && pecl install pcov >/dev/null 2>&1 && docker-php-ext-enable pcov >/dev/null &&
+             curl -fsSL https://getcomposer.org/download/${COMPOSER}/composer.phar -o /usr/local/bin/composer && chmod +x /usr/local/bin/composer &&
+             mkdir -p /src /out && tar -xf - -C /src && cd /src && composer install -q --no-interaction --no-progress >&2 &&
+             vendor/bin/phpunit --log-junit /out/junit.xml --coverage-clover /out/clover.xml --coverage-filter src >&2;
+             tar -C /out -cf - ." | tar -xf - -C "$OUT/qa"
+          python3 training/scripts/qa_unit_metrics.py --app "$APP" --junit "$OUT/qa/junit.xml" --clover "$OUT/qa/clover.xml" \
+            --version "$VERSION" --commit "$(git -C src rev-parse HEAD)" --run-url "$RUN_URL" \
+            > "$OUT/qa.prom" 2> "$OUT/qa.txt"
+          echo "- QA: $(cat "$OUT/qa.txt")" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: SAST — Semgrep
+        run: |
+          set -euo pipefail
+          tar -C "$SRC_DIR" --exclude=./target --exclude=./vendor -cf - . | docker run --rm -i --entrypoint sh "$SEMGREP_IMAGE" -c \
+            "mkdir -p /tmp/src && tar -xf - -C /tmp/src && cd /tmp/src &&
+             semgrep scan --config ${SAST_CONFIG} --config p/dockerfile --sarif --metrics=off --quiet ." \
+            > "$OUT/semgrep.sarif"
+
+      - name: Secrets — gitleaks
+        run: |
+          set -euo pipefail
+          tar -C "$SRC_DIR" --exclude=./target --exclude=./vendor -cf - . | docker run --rm -i --entrypoint sh "$GITLEAKS_IMAGE" -c \
+            'mkdir -p /tmp/src && tar -xf - -C /tmp/src &&
+             gitleaks dir /tmp/src --no-banner --exit-code 0 --report-format sarif --report-path /tmp/gitleaks.sarif >/dev/null 2>&1;
+             cat /tmp/gitleaks.sarif' > "$OUT/gitleaks.sarif"
+          test -s "$OUT/gitleaks.sarif"
+
+      - name: Security metrics (source)
+        run: |
+          set -euo pipefail
+          python3 training/scripts/sec_metrics.py --app "$APP" --stage source \
+            --version "$VERSION" --commit "$(git -C src rev-parse HEAD)" --run-url "$RUN_URL" \
+            --sarif "sast=$OUT/semgrep.sarif" --sarif "secrets=$OUT/gitleaks.sarif" \
+            > "$OUT/sec-source.prom" 2> "$OUT/sec-source.txt"
+          sed 's/^/- /' "$OUT/sec-source.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Image CVEs — SpectonCR
+        id: spectoncr
+        env:
+          SPECTONCR_USER: ${{ secrets.SPECTONCR_USER }}
+          SPECTONCR_PASSWORD: ${{ secrets.SPECTONCR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SPECTONCR_USER}" ] || [ -z "${SPECTONCR_PASSWORD}" ]; then
+            echo "::warning::SPECTONCR_USER / SPECTONCR_PASSWORD not set — SpectonCR scan skipped (Grype still gates)."
+            echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          training/scripts/spectoncr_scan.sh "$IMAGE" "$APP" "$VERSION" "$OUT/spectoncr.json" >> "$GITHUB_OUTPUT"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      # Grype's vulnerability DB lives in a named volume so the nightly run
+      # only downloads updates.
+      - name: Image CVEs — Grype
+        run: |
+          set -euo pipefail
+          docker run --rm -e GRYPE_DB_CACHE_DIR=/grype-db -v rp-grype-db:/grype-db \
+            "$GRYPE_IMAGE" "registry:${IMAGE}" --platform linux/amd64 -o json -q > "$OUT/grype.json"
+
+      - name: CVE metrics + policy verdict
+        env:
+          REPORT_URL: ${{ steps.spectoncr.outputs.report_url }}
+          HAVE_SPECTONCR: ${{ steps.spectoncr.outputs.ok }}
+        run: |
+          set -euo pipefail
+          args=(--grype "$OUT/grype.json")
+          [ "$HAVE_SPECTONCR" != true ] || args+=(--spectoncr "$OUT/spectoncr.json")
+          python3 training/scripts/cve_metrics.py --app "$APP" --version "$VERSION" --image "$IMAGE" \
+            "${args[@]}" --report-url "${REPORT_URL}" --run-url "$RUN_URL" --rp-dir "$OUT/rp" \
+            --max-critical "$MAX_CRITICAL" --max-high "$MAX_HIGH" --max-minor "$MAX_MINOR" \
+            > "$OUT/cve.prom" 2> "$OUT/cve.txt"
+          sed 's/^/- /' "$OUT/cve.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish metrics to the Pushgateway
+        if: env.LATEST == 'true'
+        run: |
+          set -euo pipefail
+          kubectl -n rp-qa port-forward svc/rp-qa-pushgateway 19091:9091 >/dev/null 2>&1 &
+          PF_PID=$!; trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 10); do
+            curl -fsS -o /dev/null http://127.0.0.1:19091/-/ready 2>/dev/null && break
+            sleep 1
+          done
+          # PUT replaces the whole group, so a fixed CVE disappears instead of lingering.
+          gw=http://127.0.0.1:19091/metrics/job
+          [ ! -s "$OUT/qa.prom" ] || curl -fsS -X PUT --data-binary "@$OUT/qa.prom" "$gw/rp-qa-unit/app/${APP}"
+          curl -fsS -X PUT --data-binary "@$OUT/sec-source.prom" "$gw/rp-sec/app/${APP}/stage/source"
+          curl -fsS -X PUT --data-binary "@$OUT/cve.prom" "$gw/rp-cve/app/${APP}"
+          echo "pushed QA, source-security and CVE metrics for ${APP} ${VERSION}"
+
+      - name: Upload scans to Ring Promoter
+        env:
+          RP_URL: ${{ secrets.RP_URL }}
+          RP_TOKEN: ${{ secrets.RP_TOKEN }}
+        run: |
+          set -euo pipefail
+          post() {
+            curl -fsS -X POST "${RP_URL}/api/security/scans" \
+              -H "Authorization: Bearer ${RP_TOKEN}" -H "Content-Type: application/json" \
+              -H "X-Actor: github-actions" --data-binary @- \
+              | jq -c '{kind, scanner, critical, high, medium, low}'
+          }
+          sarif() {  # kind file
+            jq -n --arg app "$APP" --arg version "$VERSION" --arg kind "$1" --arg url "$RUN_URL" \
+              --slurpfile sarif "$2" '{app:$app, version:$version, kind:$kind, url:$url, sarif:$sarif[0]}' | post
+          }
+          sarif sast "$OUT/semgrep.sarif"
+          sarif secrets "$OUT/gitleaks.sarif"
+          for f in "$OUT"/rp/*.json; do post < "$f"; done
+          echo "- AppSec gate for ${VERSION}:" >> "$GITHUB_STEP_SUMMARY"
+          for ring in test acc prod; do
+            curl -fsS -H "Authorization: Bearer ${RP_TOKEN}" \
+              "${RP_URL}/api/apps/${APP}/security/evaluate?version=${VERSION}&ring=${ring}" \
+              | jq -r --arg r "$ring" '"  - \($r): \(.verdict) (\(.detail))"' | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.app }}-${{ matrix.version }}-evidence
+          path: ${{ runner.temp }}/ev
+          retention-days: 30
+
+      - name: Fail on red unit tests
+        if: env.LATEST == 'true'
+        run: |
+          if grep -q '^rp_qa_unit_last_run_status{[^}]*} 2$' "$OUT/qa.prom" 2>/dev/null; then exit 0; fi
+          echo "::error::${APP} unit tests failed — the QA gate now reads NO-GO."
+          exit 1

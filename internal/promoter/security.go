@@ -96,14 +96,23 @@ func (c *SeverityCounts) plus(o SeverityCounts) {
 	c.Low += o.Low
 }
 
-// breaches renders the severities over their limit ("2 high > max 0"), most
-// severe first; empty when within policy.
+// limited returns the count a policy limit key applies to: one severity, or
+// medium + low for "minor".
+func (c SeverityCounts) limited(key string) int {
+	if key == config.LimitMinor {
+		return c.Medium + c.Low
+	}
+	return c.get(key)
+}
+
+// breaches renders the limits exceeded ("2 high > max 0", "23 minor > max
+// 20"), most severe first; empty when within policy.
 func (c SeverityCounts) breaches(limits map[string]int) []string {
 	var out []string
-	for _, sev := range config.Severities {
-		max, ok := limits[sev]
-		if ok && c.get(sev) > max {
-			out = append(out, fmt.Sprintf("%d %s > max %d", c.get(sev), sev, max))
+	for _, key := range config.LimitKeys {
+		max, ok := limits[key]
+		if ok && c.limited(key) > max {
+			out = append(out, fmt.Sprintf("%d %s > max %d", c.limited(key), key, max))
 		}
 	}
 	return out
