@@ -57,6 +57,7 @@ func TestSecurityPolicy_Invalid(t *testing.T) {
 		{"dup kind", `security_policy: { require: [sast, sast] }`, "twice"},
 		{"severity", `security_policy: { max: { severe: 1 } }`, "unknown severity"},
 		{"negative", `security_policy: { max: { high: -1 } }`, "must not be negative"},
+		{"negative minor", `security_policy: { max: { minor: -1 } }`, "must not be negative"},
 		{"ring", `security_policy: { rings: [moon] }`, "unknown ring"},
 	}
 	for _, tc := range cases {

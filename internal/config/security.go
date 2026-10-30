@@ -32,6 +32,14 @@ const (
 // Severities lists every severity, most severe first.
 var Severities = []string{SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow}
 
+// LimitMinor is a limit-only key: the combined count of medium and low
+// findings ("minor" vulnerabilities). It caps the long tail a per-severity
+// limit misses, e.g. max: { critical: 0, high: 0, minor: 20 }.
+const LimitMinor = "minor"
+
+// LimitKeys lists every key a policy's max may use, most severe first.
+var LimitKeys = []string{SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow, LimitMinor}
+
 // GateSecurity is the pipeline gate kind that checks each app's security
 // scans against its security policy.
 const GateSecurity = "security"
@@ -63,8 +71,9 @@ type SecurityPolicy struct {
 	// requires none.
 	Require []string `yaml:"require"`
 	// Max is the most un-waived findings allowed per severity, summed across
-	// every scan of the version. Severities left out are unlimited. Nil means
-	// the default (no critical, no high).
+	// every scan of the version. Severities left out are unlimited. The extra
+	// key "minor" caps medium + low together. Nil means the default (no
+	// critical, no high).
 	Max map[string]int `yaml:"max"`
 	// MaxAge, when set, fails a required scan older than this.
 	MaxAge Duration `yaml:"max_age"`
@@ -140,8 +149,8 @@ func (s *SecurityPolicy) validate(where string) error {
 		seen[k] = true
 	}
 	for sev, n := range s.Max {
-		if !IsSeverity(sev) {
-			return fmt.Errorf("%s max has unknown severity %q (want one of %v)", where, sev, Severities)
+		if !inList(sev, LimitKeys) {
+			return fmt.Errorf("%s max has unknown severity %q (want one of %v)", where, sev, LimitKeys)
 		}
 		if n < 0 {
 			return fmt.Errorf("%s max.%s must not be negative", where, sev)

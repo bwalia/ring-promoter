@@ -20,6 +20,7 @@ name: hello-world QA, AppSec & compliance (training)
 #   job supply-chain       buildx with SLSA provenance + SBOM attestations
 #     (image)              Syft CycloneDX SBOM                    SBOM
 #                          Grype on that SBOM                     container CVEs
+#                          SpectonCR (acc registry, OSV)          container CVEs
 #                          licence policy on that SBOM            licences
 #                          then seed int (push / dispatch only)
 #
@@ -35,6 +36,8 @@ name: hello-world QA, AppSec & compliance (training)
 #   KUBE_CONFIG_DATA_K3S1  push metrics (kubectl port-forward to the Pushgateway)
 #   RP_URL / RP_TOKEN      training instance base URL + API token
 #   DOCKER_USER / DOCKER_PASSWD   Docker Hub push
+#   SPECTONCR_USER / SPECTONCR_PASSWORD  acc SpectonCR push+pull (CVE scan;
+#                                 skipped with a warning when unset)
 
 on:
   push:
@@ -43,6 +46,8 @@ on:
       - "training/sample-apps/hello-world/**"
       - "training/scripts/qa_unit_metrics.py"
       - "training/scripts/sec_metrics.py"
+      - "training/scripts/cve_metrics.py"
+      - "training/scripts/spectoncr_scan.sh"
       - ".github/workflows/hello-world-qa.yml"
   pull_request:
     paths:
@@ -86,6 +91,7 @@ env:
   CHECKOV_IMAGE: docker.io/bridgecrew/checkov:3.3.28
   SYFT_IMAGE: docker.io/anchore/syft:v1.54.0
   GRYPE_IMAGE: docker.io/anchore/grype:v0.120.0
+  SPECTONCR_REGISTRY: acc-spectoncr.diytaxreturn.co.uk
   # Publish (metrics + scans) for main only — never for a PR.
   PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
 
@@ -353,6 +359,34 @@ jobs:
           set -euo pipefail
           docker run --rm -i -e GRYPE_DB_CACHE_DIR=/grype-db -v rp-grype-db:/grype-db \
             "$GRYPE_IMAGE" -o sarif -q < "$OUT/sbom.cdx.json" > "$OUT/grype.sarif"
+          docker run --rm -i -e GRYPE_DB_CACHE_DIR=/grype-db -v rp-grype-db:/grype-db \
+            "$GRYPE_IMAGE" -o json -q < "$OUT/sbom.cdx.json" > "$OUT/grype.json"
+
+      # The CVE policy view ("Ring Promoter — CVE Scans"): SpectonCR scans the
+      # image pushed to its registry, Grype is shown beside it. Only the
+      # SpectonCR result is uploaded to Ring Promoter here — Grype's already
+      # is, as SARIF, above.
+      - name: Container CVEs — SpectonCR + CVE metrics
+        id: spectoncr
+        if: steps.ref.outputs.ok == 'true'
+        env:
+          SPECTONCR_USER: ${{ secrets.SPECTONCR_USER }}
+          SPECTONCR_PASSWORD: ${{ secrets.SPECTONCR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          args=(--grype "$OUT/grype.json")
+          report=""
+          if [ -n "${SPECTONCR_USER}" ] && [ -n "${SPECTONCR_PASSWORD}" ]; then
+            training/scripts/spectoncr_scan.sh "${IMAGE}:${VERSION}" "$APP" "$VERSION" "$OUT/spectoncr.json" > "$OUT/spectoncr.meta"
+            report=$(sed -n 's/^report_url=//p' "$OUT/spectoncr.meta")
+            args+=(--spectoncr "$OUT/spectoncr.json")
+          else
+            echo "::warning::SPECTONCR_USER / SPECTONCR_PASSWORD not set — SpectonCR scan skipped."
+          fi
+          python3 training/scripts/cve_metrics.py --app "$APP" --version "$VERSION" --image "${IMAGE}:${VERSION}" \
+            "${args[@]}" --report-url "$report" --run-url "$RUN_URL" --rp-dir "$OUT/rp" \
+            > "$OUT/cve.prom" 2> "$OUT/cve.txt"
+          sed 's/^/- /' "$OUT/cve.txt" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Supply-chain controls
         if: steps.ref.outputs.ok == 'true'
@@ -390,6 +424,8 @@ jobs:
           done
           curl -fsS -X PUT --data-binary "@$OUT/sec-image.prom" \
             "http://127.0.0.1:19091/metrics/job/rp-sec/app/${APP}/stage/image"
+          curl -fsS -X PUT --data-binary "@$OUT/cve.prom" \
+            "http://127.0.0.1:19091/metrics/job/rp-cve/app/${APP}"
 
       - name: Upload image scans to Ring Promoter
         if: steps.ref.outputs.ok == 'true'
@@ -408,6 +444,12 @@ jobs:
           }
           upload container "$OUT/grype.sarif"
           upload license "$OUT/license.sarif"
+          if [ -s "$OUT/rp/spectoncr.json" ]; then
+            curl -fsS -X POST "${RP_URL}/api/security/scans" \
+              -H "Authorization: Bearer ${RP_TOKEN}" -H "Content-Type: application/json" \
+              -H "X-Actor: github-actions" --data-binary "@$OUT/rp/spectoncr.json" \
+              | jq -c '{kind, scanner, critical, high, medium, low}'
+          fi
           echo "- AppSec gate for ${VERSION}:" >> "$GITHUB_STEP_SUMMARY"
           for ring in test acc prod; do
             curl -fsS -H "Authorization: Bearer ${RP_TOKEN}" \

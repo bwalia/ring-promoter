@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn `go test -json` output into Prometheus metrics for the QA gate.
+"""Turn unit-test results into Prometheus metrics for the QA gate.
 
 Ring Promoter's Grafana gate reads these from grafana.workstation.co.uk (the
 obs Prometheus scrapes them off the rp-qa Pushgateway). One run replaces the
@@ -9,6 +9,14 @@ keeping its last result forever.
     go test -json -coverprofile=cover.out ./... > test.json
     python3 qa_unit_metrics.py --app hello-world --json test.json \
         --cover cover.out --version v1.4.0 --commit "$GITHUB_SHA" > metrics.prom
+
+Any other stack reports JUnit XML (Maven Surefire, PHPUnit --log-junit, pytest
+--junitxml, ...) with line coverage from JaCoCo or Clover XML:
+
+    python3 qa_unit_metrics.py --app hello-java --junit target/surefire-reports \
+        --jacoco target/site/jacoco/jacoco.xml > metrics.prom
+    python3 qa_unit_metrics.py --app hello-php --junit junit.xml \
+        --clover clover.xml > metrics.prom
 
 Metrics (all labelled app="<app>"):
     rp_qa_unit_last_run_status            2 = every test passed, 0 = a failure
@@ -26,8 +34,10 @@ Only the standard library is used: the runner needs nothing installed.
 
 import argparse
 import json
+import os
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 RESULT_VALUE = {"pass": 2, "skip": 1, "fail": 0}
 
@@ -92,17 +102,71 @@ def parse_coverage(path):
     return 100.0 * covered / total if total else None
 
 
+def parse_junit(paths):
+    """JUnit XML files (or directories of TEST-*.xml / *.xml) ->
+    ({(suite, test): action}, build_failed, elapsed)."""
+    files = []
+    for p in paths:
+        if os.path.isdir(p):
+            files += sorted(os.path.join(p, f) for f in os.listdir(p) if f.endswith(".xml"))
+        else:
+            files.append(p)
+    results, elapsed = {}, 0.0
+    for path in files:
+        root = ET.parse(path).getroot()
+        # <testsuites> may carry a summary time; the leaf suites hold the cases.
+        for case in root.iter("testcase"):
+            suite = case.get("classname") or case.get("class") or os.path.basename(path)
+            name = case.get("name", "?")
+            if case.find("failure") is not None or case.find("error") is not None:
+                action = "fail"
+            elif case.find("skipped") is not None:
+                action = "skip"
+            else:
+                action = "pass"
+            results[(suite, name)] = action
+            elapsed += float(case.get("time") or 0)
+    # No report at all means the suite never ran (did not compile).
+    return results, not files, elapsed
+
+
+def parse_jacoco(path):
+    """Line coverage from a JaCoCo XML report (report-level LINE counter)."""
+    root = ET.parse(path).getroot()
+    for c in root.findall("counter"):
+        if c.get("type") == "LINE":
+            missed, covered = int(c.get("missed")), int(c.get("covered"))
+            return 100.0 * covered / (missed + covered) if missed + covered else None
+    return None
+
+
+def parse_clover(path):
+    """Statement coverage from a Clover XML report (PHPUnit --coverage-clover)."""
+    m = ET.parse(path).getroot().find("./project/metrics")
+    if m is None:
+        return None
+    total, covered = int(m.get("statements", 0)), int(m.get("coveredstatements", 0))
+    return 100.0 * covered / total if total else None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--app", required=True)
-    ap.add_argument("--json", required=True, help="go test -json output")
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--json", help="go test -json output")
+    src.add_argument("--junit", action="append", help="JUnit XML file or directory (repeatable)")
     ap.add_argument("--cover", help="coverprofile from -coverprofile")
+    ap.add_argument("--jacoco", help="JaCoCo XML coverage report")
+    ap.add_argument("--clover", help="Clover XML coverage report")
     ap.add_argument("--version", default="")
     ap.add_argument("--commit", default="")
     ap.add_argument("--run-url", default="")
     args = ap.parse_args()
 
-    results, build_failed, elapsed = parse_tests(args.json)
+    if args.json:
+        results, build_failed, elapsed = parse_tests(args.json)
+    else:
+        results, build_failed, elapsed = parse_junit([p for p in args.junit if os.path.exists(p)])
     passed = sum(1 for a in results.values() if a == "pass")
     failed = sum(1 for a in results.values() if a == "fail")
     skipped = sum(1 for a in results.values() if a == "skip")
@@ -111,6 +175,10 @@ def main():
     # GO because the suite was accidentally deleted or stopped compiling.
     ok = not build_failed and failed == 0 and passed > 0
     cover = parse_coverage(args.cover)
+    if args.jacoco and os.path.exists(args.jacoco):
+        cover = parse_jacoco(args.jacoco)
+    if args.clover and os.path.exists(args.clover):
+        cover = parse_clover(args.clover)
     app = args.app
 
     out = []

@@ -234,6 +234,8 @@ jobs:
             deploy/instances/fictionally/qa/qa-unit-tests-dashboard.json
           dashboard rp-security-compliance-dashboard rp-security-compliance.json \
             deploy/instances/fictionally/qa/security-compliance-dashboard.json
+          dashboard rp-cve-scans-dashboard rp-cve-scans.json \
+            deploy/instances/fictionally/qa/cve-scans-dashboard.json
           kubectl -n rp-qa rollout status deploy/rp-qa-pushgateway --timeout=120s
           if ! kubectl -n "${NAMESPACE}" get secret ring-promoter -o jsonpath='{.data.RP_GRAFANA_TOKEN}' | grep -q .; then
             echo "::warning::secret/ring-promoter has no RP_GRAFANA_TOKEN — hello-world's QA gate will read 'unknown' (advisory) until a grafana.workstation.co.uk Viewer token is added."
