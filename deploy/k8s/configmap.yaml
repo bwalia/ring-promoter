@@ -693,6 +693,34 @@ data:
         rings:
           prod: { target_env: prod, health_url: "https://nebuladb.net/", links: [ { label: "nebuladb.net", url: "https://nebuladb.net/" }, { label: "www", url: "https://www.nebuladb.net/" } ] }
 
+      # Portfolio Lab website — test ring only (testportfoliolab.fictionally.org).
+      # Static site served by nginx on k3s1 (bwalia/ashley-websites,
+      # deploy/helm/portfoliolab, namespace portfoliolab-test). Production stays
+      # on Cloudflare Pages and is not managed here.
+      # GITHUB deployer: the repo is PRIVATE, so a k8sjob clone would 401.
+      # Dispatches portfoliolab-deploy.yaml with TARGET_ENV=<ring> and
+      # IMAGE_TAG=<version> (the 7-char git SHA the push built), which helm-
+      # upgrades and smoke-tests. A merge to main seeds test here.
+      # Health is version-verified: /healthz reports the image tag.
+      # RP_GITHUB_TOKEN needs actions:write on bwalia/ashley-websites.
+      - name: portfoliolab
+        display_name: "Portfolio Lab website (test)"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: ashley-websites
+          workflow: portfoliolab-deploy.yaml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: "-"
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 15s
+          run_lookup_timeout: 90s
+        rings:
+          test: { target_env: test, health_url: "https://testportfoliolab.fictionally.org/healthz", health_version_field: version, links: [ { label: "Test site", url: "https://testportfoliolab.fictionally.org/" }, { label: "Live site", url: "https://portfoliolab.co.uk/" } ] }
+
       # CloseKnitty — peer-to-peer chit funds (opsapi + Rust API + Next.js).
       # GITHUB deployer, not k8sjob: bwalia/closeknitty is PRIVATE, so the
       # unauthenticated clone a k8sjob does would 401. RP dispatches the repo's
