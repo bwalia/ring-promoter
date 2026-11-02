@@ -789,6 +789,41 @@ data:
         rings:
           int: { target_env: int, health_url: "http://workerra.int.svc.cluster.local/api/health", health_version_field: data.version, links: [ { label: "Workerra int (VPN)", url: "https://int.workerra.uk/" } ] }
 
+      # ── pintopets — pet care platform (Next.js + Postgres/pgvector) ──
+      #
+      # PUBLIC repo bwalia/pintopets. GITHUB deployer, like workerra and
+      # closeknitty: deploy-k3s.yml creates the Cloudflare CNAME (if missing; the
+      # nebula-dns-failover Cloudflare writer owns its lon1/lon2 target) and the
+      # VPN-only wslproxy vhost before it helm-upgrades the `pintopets` release.
+      #
+      # A push to main builds harneetk78/pintopets:<short sha> and seeds int here;
+      # the dispatch sends that sha as IMAGE_TAG with DEPLOYMENT_TYPE=deploy, so
+      # every ring runs the exact image int ran. /api/v1/health reports the tag at
+      # `version` (top level), checked after every deploy.
+      #
+      # Only int is registered: test/acc/prod have no values file or edge spec
+      # in the repo yet.
+      #
+      # Needs RP_GITHUB_TOKEN to be allowed to dispatch workflows in bwalia/pintopets.
+      - name: pintopets
+        display_name: "PintoPets"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: pintopets
+          workflow: deploy-k3s.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: deploy
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int: { target_env: int, health_url: "http://pintopets.int.svc.cluster.local/api/v1/health", health_version_field: version, links: [ { label: "PintoPets int (VPN)", url: "https://int.pintopets.app/" } ] }
+
       # wslproxy edge / VM CI — github deployer on THIS instance
       # (rp.workstation.co.uk). Dispatches bwalia/wslproxy
       # deploy-single-environment.yml (int|test|acc|prod=lon1+lon2).
