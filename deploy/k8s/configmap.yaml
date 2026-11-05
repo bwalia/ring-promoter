@@ -437,6 +437,37 @@ data:
           acc:  { target_env: acc,  health_url: "http://workstation-opsapi-dashboard.acc.svc.cluster.local:8039/login", links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
           prod: { target_env: prod, health_url: "https://opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api } ] }
 
+      # ── joyai-opsapi — Joy AI's own OpsAPI (Portfolio Lab) ──
+      #
+      # Release `joyai-opsapi` in namespace joyai-<ring>: the stock bwalia/opsapi
+      # image + the portfoliolab plugin overlay, values in the private
+      # bwalia/joyai repo. acc also serves the customer preview
+      # joyai.fictionally.org (its dashboard calls this API).
+      #
+      # GITHUB deployer: bwalia/opsapi deploy-joyai.yml helm-upgrades the
+      # existing release to IMAGE_TAG=<version> (chart at that tag,
+      # --reset-then-reuse-values, so only the image changes) and checks /ready.
+      # Joy's int is the shared workstation int (int-opsapi), already tracked by
+      # workstation-opsapi, so only acc is a ring here: SEED acc with the version
+      # workstation-opsapi's int/acc runs to bring Joy level with it.
+      - name: joyai-opsapi
+        display_name: "Joy AI OpsAPI"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: opsapi
+          workflow: deploy-joyai.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: "-"
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          acc: { target_env: acc, health_url: "https://acc-joyai.workstation.co.uk/ready", health_version_field: version, links: [ { label: "Joy AI (customer preview)", url: "https://joyai.fictionally.org/" }, { label: "Joy AI UI", url: "https://acc-joyai-ui.workstation.co.uk/" }, { label: "Joy AI API", url: "https://acc-joyai.workstation.co.uk/", kind: api } ] }
+
       # ── workstation-shop — shop.workstation.co.uk (Workstation AI Shop) ──
       #
       # GITHUB deployer: the shop's own pipeline (bwalia/workstation-website,
