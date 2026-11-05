@@ -760,7 +760,7 @@ data:
       # VPN-only wslproxy vhost in place before it helm-upgrades the `workerra`
       # release, so a bare k8sjob helm run would not be the whole deploy.
       #
-      # A push to main builds bwalia/workerra:<short sha> and seeds int here;
+      # A push to main builds harneetk78/workerra:<short sha> and seeds int here;
       # the dispatch sends that sha as IMAGE_TAG with DEPLOYMENT_TYPE=deploy, so
       # every ring runs the exact image int ran. /api/health reports the tag at
       # data.version, checked after every deploy.
