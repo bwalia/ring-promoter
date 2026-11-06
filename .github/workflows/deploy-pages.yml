@@ -92,6 +92,18 @@ jobs:
           fi
           # Standalone comparison page (web/public/compare) at /compare/.
           cp -R web/out/compare site/compare
+          # Legal and support pages. Apple opens the privacy policy and support
+          # URLs during App Store review and rejects a listing whose links
+          # 404, so a missing page here blocks an iOS release — hence the
+          # explicit loop that fails the build rather than a silent `|| true`.
+          for page in privacy terms support; do
+            if [ ! -f "web/out/$page.html" ]; then
+              echo "::error::web/out/$page.html missing — the iOS listing links to /$page" >&2
+              exit 1
+            fi
+            mkdir -p "site/$page"
+            cp "web/out/$page.html" "site/$page/index.html"
+          done
           # PWA files referenced by every page's <head> (manifest link,
           # apple-touch-icon) and the service worker registration.
           cp web/out/manifest.webmanifest web/out/sw.js web/out/apple-icon.png site/

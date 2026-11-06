@@ -10,5 +10,27 @@
 	<array>
 		<string>group.org.fictionally.ringpromoter</string>
 	</array>
+
+	<!--
+	  APNs. Driven by the APS_ENVIRONMENT build setting — development in Debug,
+	  production in Release — rather than hard-coded, because the value has to
+	  match the provisioning profile that signs the build. Hard-coding
+	  "production" makes every on-device Debug run fail to install ("profile
+	  doesn't include the aps-environment entitlement"); hard-coding
+	  "development" makes the App Store export fail the same way.
+
+	  Without this entitlement, registerForRemoteNotifications() returns the
+	  error "no valid aps-environment entitlement string found" and Settings
+	  shows it verbatim — a feature a reviewer can tap into a visibly broken
+	  state, which is a Guideline 2.1 rejection. The Developer Portal side is
+	  enforced by ensure_push! in fastlane/Fastfile.
+
+	  Note what this does and does not buy: registration now succeeds and the
+	  device token is captured, but no notification can arrive until the control
+	  plane grows a sender. Settings says so, and docs/API-GAPS.md specifies the
+	  Go-side endpoint.
+	-->
+	<key>aps-environment</key>
+	<string>$(APS_ENVIRONMENT)</string>
 </dict>
 </plist>

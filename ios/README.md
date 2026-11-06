@@ -77,17 +77,21 @@ xcodebuild -project RingPromoter.xcodeproj -scheme RingPromoter \
 
 ### Bundle identifiers
 
-The project ships with placeholder identifiers. Change these three together
-before running on a device:
+These are the real identifiers the project builds and signs with — not
+placeholders. To fork the app under your own team, change all four together:
 
 | Setting | Value | Where |
 |---|---|---|
-| App bundle id | `com.example.RingPromoter` | target build settings |
-| Widget bundle id | `com.example.RingPromoter.widget` | target build settings |
-| App Group | `group.com.example.RingPromoter` | `Config/*.entitlements` **and** `SharedWidget/WidgetSnapshot.swift` |
+| App bundle id | `org.fictionally.ringpromoter` | target build settings |
+| Widget bundle id | `org.fictionally.ringpromoter.widget` | target build settings |
+| App Group | `group.org.fictionally.ringpromoter` | `Config/*.entitlements` **and** `SharedWidget/WidgetSnapshot.swift` |
+| Keychain access group | `$(AppIdentifierPrefix)org.fictionally.ringpromoter` | `SharedWidget/WidgetSnapshot.swift` |
 
 The App Group is what lets the widget read its cached snapshot. If it does not
 match in all three places the widget silently shows its empty state.
+
+`fastlane/Fastfile` also names the first three, and enables the App Groups and
+Push Notifications capabilities on both App IDs on the Developer Portal.
 
 ---
 
@@ -364,9 +368,9 @@ device-to-device migration. The trade-off is deliberate: an operator re-pastes a
 token after restoring a device, which is a much better outcome than a
 control-plane token travelling inside a backup.
 
-Deleting a saved instance deletes its token. **Settings → Forget every control
-plane** wipes every record, every token and the widget snapshot in one action,
-for handing a device on.
+Deleting a saved instance deletes its token. **Settings → Forget every cluster**
+wipes every record, every token and the widget snapshot in one action, for
+handing a device on.
 
 ### What leaves the device
 
@@ -435,6 +439,26 @@ one destructive shortcut, "Prepare a rollback", opens the rollback sheet rather
 than firing it. A voice command that could promote to production — no gate
 sheet, no password field, no confirmation — is exactly the affordance this app
 exists to avoid.
+
+---
+
+## App Store release
+
+`docs/APP-STORE-RELEASE.md` is the runbook: what Apple checks, what is already
+handled in the repository, and the App Store Connect fields that still have to
+be set by hand. The automated half is:
+
+```bash
+./scripts/verify-app-store-readiness.sh            # offline checks
+./scripts/verify-app-store-readiness.sh --online   # also fetch the public URLs
+./scripts/capture-app-store-screenshots.sh         # 6.9" iPhone + 13" iPad
+```
+
+`fastlane ios release` runs the verifier first and refuses to upload if it
+fails, so a placeholder in the privacy policy or a wrongly-sized screenshot
+cannot reach App Review. Store metadata and screenshots are committed under
+`fastlane/metadata/` and `fastlane/screenshots/`, so the listing is reviewable
+in a pull request rather than retyped into App Store Connect.
 
 ---
 

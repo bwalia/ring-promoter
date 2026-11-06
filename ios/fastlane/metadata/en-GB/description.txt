@@ -1,0 +1,34 @@
+Ring Promoter is a control room for release promotion, built for the engineers who own the deploy.
+
+It connects to a Ring Promoter control plane you run yourself and shows every application, every ring and every version in one place — then lets you move a release forward one ring at a time, from the phone in your pocket.
+
+PROMOTION, WITH THE RULES ENFORCED
+• See which version is in int, test, acc and prod, and exactly where the drift is
+• Promote one ring at a time — never skip a ring, never promote from an unhealthy one
+• Gates are shown before you commit: QA sign-off, change-request code, maintenance window
+• Production asks for a password and a typed confirmation, and optionally Face ID
+• Roll back with no gate at all, because incident response is never the thing to slow down
+
+WATCH THE JOB, NOT A SPINNER
+• Steps appear as they run, each with its own duration
+• A live log console rather than a progress bar
+• A failed health check rolls the ring back, and the app says so plainly
+
+BUILT FOR 2AM
+• Trouble is pinned above healthy apps on the Overview
+• Which cluster you are on is named and colour-coded on every screen that can change something
+• Face ID can lock the app the moment it leaves the foreground, and guard every production action
+• A Home Screen widget shows the pipeline without opening anything
+• Siri and Shortcuts are read-only on purpose — no voice command can promote to production
+
+SEVERAL CLUSTERS, NOTHING BLEEDING BETWEEN THEM
+Save as many control planes as you like, each with its own token and colour tag. Switching rebuilds every screen and drops any response still in flight, so nothing from the previous server survives on screen.
+
+TRY IT WITHOUT A SERVER
+Demo mode runs the whole app — promotions, rollbacks, live jobs, failures and every gate that says no — from data bundled inside the app, with no network connection at all.
+
+WHAT YOU NEED
+Ring Promoter is a client, not a service. To use it against real systems you need your own Ring Promoter control plane and its API token. There is no account to create, nothing to subscribe to, and no backend of ours involved.
+
+PRIVACY
+No analytics, no crash reporting, no telemetry, and no third-party SDKs that could add any. Your API token is kept in the iOS Keychain, excluded from backups and device transfers. The app talks only to the server address you type in yourself.
