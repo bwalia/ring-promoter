@@ -543,6 +543,47 @@ data:
           acc:  { deployer: k8sjob, target_env: acc,  health_url: "https://acc-shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop acc", url: "https://acc-shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://acc-opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
           prod: { target_env: prod, health_url: "https://shop.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Shop", url: "https://shop.workstation.co.uk/" }, { label: "Shop admin", url: "https://opsapi-ui.workstation.co.uk/dashboard/shop" } ] }
 
+      # ── workstation-website — www.workstation.co.uk (bwalia/workstation-website) ──
+      #
+      # GITHUB deployer: the website's build-and-deploy.yaml does more than
+      # helm (DNS + wslproxy upserts, the vault ExternalSecret, a smoke test).
+      # Dispatched with TARGET_ENV=<ring>, IMAGE_TAG=<version> and
+      # DEPLOYMENT_TYPE=deploy. The version is the image tag: the git SHA (7)
+      # a merge built and pushed (bwalia/wsw-frontend:<sha7>), so every ring
+      # runs the exact same artefact.
+      #
+      # A merge to main SEEDS int (build-and-deploy's seed-ring-promoter job);
+      # promote int -> test -> acc -> prod from here (prod needs the prod
+      # password). The run lookup only matches workflow_dispatch runs, so the
+      # push run of the same workflow is never mistaken for the deploy.
+      #
+      # Health is the public *-www host (int.workstation.co.uk itself is behind
+      # the preprod VPN) and is version-verified: /api/health reports
+      # APP_VERSION, which the chart sets from image.tag. www reaches k3s1
+      # through wslproxy rule wsw-k3s1-s3-failover; the S3 failover copy has no
+      # /api, so a k3s1 outage fails prod's health instead of passing it.
+      - name: workstation-website
+        display_name: "Workstation Website"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: workstation-website
+          workflow: build-and-deploy.yaml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: deploy
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "https://int-www.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Website int", url: "https://int-www.workstation.co.uk/en" } ] }
+          test: { target_env: test, health_url: "https://test-www.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Website test", url: "https://test-www.workstation.co.uk/en" } ] }
+          acc:  { target_env: acc,  health_url: "https://acc-www.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Website acc", url: "https://acc-www.workstation.co.uk/en" } ] }
+          prod: { target_env: prod, health_url: "https://www.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Website", url: "https://www.workstation.co.uk/en" } ] }
+
       # ── fishers + gullycricket — the club-sports app, one stack per brand ──
       #
       # One repo (PUBLIC bwalia/fishers), one pipeline, two registered apps. A
