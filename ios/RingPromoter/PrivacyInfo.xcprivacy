@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Privacy manifest for the Ring Promoter app target.
+
+  Apple's static scanner reads this out of the built bundle. Without it, an
+  upload that calls a "required reason" API is answered with an
+  ITMS-91053 "Missing API declaration" mail and the build is not reviewable.
+
+  This file lives in the target's file-system-synchronized group root
+  (objectVersion 77), so Xcode copies it to the bundle root with no project
+  edit. `scripts/verify-app-store-readiness.sh` asserts it is actually there,
+  because a manifest that fails to get copied is indistinguishable from one
+  that was never written.
+
+  The widget extension deliberately has no manifest of its own: it reads one
+  JSON file out of the App Group container and calls no required-reason API.
+  Add one there the moment the widget touches UserDefaults — @AppStorage counts.
+-->
+<plist version="1.0">
+<dict>
+	<!-- No tracking, and nothing to correlate with third-party data. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!--
+	  Empty on purpose, and it matches "Data Not Collected" in App Store
+	  Connect. Everything the operator types stays on the device (server URL
+	  and display name in UserDefaults, API token in the Keychain) or goes to
+	  the control plane they entered themselves. There is no analytics SDK, no
+	  crash reporter and no telemetry — see the Security section of README.md.
+	-->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<!--
+			  Stores/InstanceStore.swift and Stores/AppSession.swift keep the
+			  saved control planes and the display settings in UserDefaults.
+			  CA92.1 is the app-only reason: this data is read and written by
+			  this app and is not shared with other apps or an app group. The
+			  widget's shared snapshot is a file in the App Group container,
+			  not a UserDefaults suite, so no app-group reason is needed.
+			-->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

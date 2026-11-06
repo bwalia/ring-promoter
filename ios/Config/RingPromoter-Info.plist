@@ -4,6 +4,14 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!--
+	  The name iOS shows the user, which CFBundleName ("RingPromoter", from
+	  PRODUCT_NAME) is not. Without this the Home Screen label and every system
+	  permission prompt read "RingPromoter" while the App Store listing says
+	  "Ring Promoter". The widget's Info.plist already sets it.
+	-->
+	<key>CFBundleDisplayName</key>
+	<string>Ring Promoter</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -70,6 +78,20 @@
 			</array>
 		</dict>
 	</array>
+
+	<!--
+	  Export compliance, answered here so App Store Connect stops asking on every
+	  upload (an unanswered questionnaire leaves the build stuck at "Missing
+	  Compliance" and un-submittable).
+
+	  false is the accurate answer, not a convenience: the only cryptography in
+	  this app is what iOS itself provides — TLS via URLSession for calls to the
+	  control plane, and the Keychain for the API token. There is no bundled
+	  crypto implementation and nothing proprietary, which is exempt under
+	  category 5D992.c. Revisit this the day the app does its own encryption.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 
 	<!--
 	  No App Transport Security exceptions. Every control plane the app talks to
