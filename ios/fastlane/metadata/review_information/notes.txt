@@ -1,0 +1,59 @@
+Ring Promoter is a client for a self-hosted deployment control plane. It has no
+accounts, no sign-up and no backend of ours, so there is no login we can give
+you — and nothing to sign in to. Everything below works with no server.
+
+HOW TO REVIEW IT WITHOUT A SERVER
+The app ships a complete offline demo mode. On the first screen, tap
+"Explore in demo mode". No server, no network and no credentials are needed:
+the whole app runs from data bundled inside it.
+
+If the app opens straight onto a pipeline, demo mode is already on. To return
+to the first screen: Settings tab -> Forget every cluster.
+
+WHAT TO TRY
+1. Overview — applications in trouble are pinned above healthy ones.
+2. Tap any application for the per-ring detail: versions, drift and gates.
+3. Tap Promote on the int or test ring to see the gate sheet. Where a
+   change-request code is demanded, enter:  test
+4. Promote to the production ring. It additionally requires a password and a
+   typed confirmation. Password:  demo
+5. Seed or promote a version whose name contains "bad" — the health check
+   fails and the ring is rolled back automatically, so the failure path and
+   the auto-rollback are both reachable.
+6. Roll back. It is offered with no gate at all, deliberately: incident
+   response is never the thing to slow down.
+7. The Rings, Activity and Settings tabs all work in demo mode too.
+
+DEMO CREDENTIALS (demo mode only)
+   Production password:   demo
+   Change-request code:   test
+
+NOTIFICATIONS
+Settings offers notification permission. Permission and APNs registration both
+succeed, but no notification can arrive yet because the control plane has no
+push sender. The app says exactly that on the same screen rather than implying
+otherwise.
+
+FACE ID
+Optional and off by default (Settings -> Security). Both biometric options fall
+back to the device passcode, so a failed scan never locks anyone out.
+
+ENCRYPTION
+Only iOS-provided cryptography is used — TLS via URLSession, and the Keychain
+for the API token. There is no bundled or proprietary crypto, so
+ITSAppUsesNonExemptEncryption is declared false in Info.plist.
+
+PRIVACY
+The app collects nothing and contains no third-party SDK — no analytics, no
+crash reporting, no telemetry. Everything is stored on the device only: the API
+token in the Keychain, server addresses in app preferences. This matches the
+"Data Not Collected" declaration and the bundled PrivacyInfo.xcprivacy.
+Privacy policy: https://ring-promoter-pages.fictionally.org/privacy
+
+IPAD
+The app is universal and the same screens are used on iPad; the iPad
+screenshots in this submission were taken on an iPad Pro 13-inch.
+
+CONTACT
+If anything is unclear or you cannot reach a screen, please write to the
+address in the contact fields above and we will answer the same day.

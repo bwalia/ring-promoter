@@ -1,0 +1,1 @@
+devops,kubernetes,deploy,release,promote,rings,ci cd,cluster,helm,ops,sre,pipeline,rollback

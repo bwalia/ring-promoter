@@ -83,6 +83,14 @@ jobs:
       - name: Install Ruby dependencies
         run: bundle install
 
+      # Before the 15-minute build, not after it: every check here fails for a
+      # reason that would otherwise be found by App Review (or by `deliver` at
+      # upload time) once the archive already exists. Only gated on the App
+      # Store path — a TestFlight build needs no store metadata or screenshots.
+      - name: Verify App Store readiness
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'app_store'
+        run: ./scripts/verify-app-store-readiness.sh --online
+
       - name: Resolve marketing version
         env:
           INPUT_VERSION: ${{ inputs.version }}
