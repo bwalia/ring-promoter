@@ -584,6 +584,42 @@ data:
           acc:  { target_env: acc,  health_url: "https://acc-www.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Website acc", url: "https://acc-www.workstation.co.uk/en" } ] }
           prod: { target_env: prod, health_url: "https://www.workstation.co.uk/api/health", health_version_field: version, links: [ { label: "Website", url: "https://www.workstation.co.uk/en" } ] }
 
+      # ── workstation-website-s3 — the S3 static copy behind www (failover) ──
+      #
+      # wslproxy serves this copy only when k3s1 answers 5xx, so it must hold
+      # the release prod runs. GITHUB deployer: bwalia/workstation-website
+      # deploy-s3.yaml builds the static export of the given commit, syncs it
+      # to s3://workstation-website (changed files only) and, with archive=true,
+      # copies it to workstation_website_<tag>/. Dispatched with sha=<version>
+      # (the website's image tag = git SHA7) and archive=true; the workflow has
+      # no env or mode input.
+      #
+      # Only prod is a ring (there is one bucket). It is ALSO refreshed without
+      # Ring Promoter: a successful workstation-website prod promotion starts
+      # deploy-s3.yaml for the same tag (build-and-deploy.yaml export-s3 job).
+      # The ring's live version comes from the version.json each export writes,
+      # so the dashboard shows what S3 serves even when that path ran. Seed
+      # prod here (prod password) to re-export or roll the copy back on demand.
+      # An export takes 10-30 min, inside operation_timeout.
+      - name: workstation-website-s3
+        display_name: "Workstation Website · S3 failover"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: workstation-website
+          workflow: deploy-s3.yaml
+          ref: main
+          env_input: "-"
+          version_input: sha
+          mode_input: "-"
+          extra_inputs: { archive: "true" }
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 30s
+          run_lookup_timeout: 90s
+        rings:
+          prod: { target_env: prod, health_url: "https://workstation-website.s3.eu-west-2.amazonaws.com/version.json", health_version_field: version, links: [ { label: "S3 copy", url: "http://workstation-website.s3-website.eu-west-2.amazonaws.com/en/" }, { label: "Export runs", url: "https://github.com/bwalia/workstation-website/actions/workflows/deploy-s3.yaml" } ] }
+
       # ── fishers + gullycricket — the club-sports app, one stack per brand ──
       #
       # One repo (PUBLIC bwalia/fishers), one pipeline, two registered apps. A
