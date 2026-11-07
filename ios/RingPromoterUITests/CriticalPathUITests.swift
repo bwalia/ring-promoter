@@ -34,7 +34,22 @@ final class CriticalPathUITests: XCTestCase {
         )
         // The demo world has one genuinely unhealthy application, and it must be
         // pinned above the healthy ones.
-        XCTAssertTrue(app.staticTexts["NEEDS ATTENTION"].exists)
+        //
+        // Matched case-insensitively on purpose. The header is
+        // Label("Needs attention", …) and the list style uppercases it for
+        // display only, so the accessibility label keeps the original case —
+        // and which of the two XCUITest reports has changed between iOS
+        // releases. Asserting either spelling literally passes on one runtime
+        // and fails on the other; with continueAfterFailure = false that also
+        // aborted the test before it could take the 01-overview screenshot the
+        // App Store listing leads with.
+        XCTAssertTrue(
+            app.staticTexts
+                .matching(NSPredicate(format: "label ==[c] %@", "Needs attention"))
+                .firstMatch
+                .exists,
+            "the unhealthy application should sit under a Needs attention header"
+        )
         XCTAssertTrue(app.staticTexts["Payments API"].exists)
         attachScreenshot(named: "01-overview")
     }
@@ -222,11 +237,11 @@ final class CriticalPathUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["Applications"].waitForExistence(timeout: 10))
 
-        app.tabBars.buttons["Activity"].tap()
+        tapTab("Activity")
         XCTAssertTrue(app.navigationBars["Activity"].waitForExistence(timeout: 5))
         attachScreenshot(named: "08-activity")
 
-        app.tabBars.buttons["Settings"].tap()
+        tapTab("Settings")
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         // Section headers were uppercased before iOS 26 and are not since, so
         // match either.
@@ -240,7 +255,7 @@ final class CriticalPathUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["Applications"].waitForExistence(timeout: 10))
 
-        app.tabBars.buttons["Rings"].tap()
+        tapTab("Rings")
         XCTAssertTrue(
             app.navigationBars["Rings of Applications"].waitForExistence(timeout: 5)
         )
@@ -336,6 +351,23 @@ final class CriticalPathUITests: XCTestCase {
             app.navigationBars[title].waitForExistence(timeout: 10),
             "the \(title) detail screen should open"
         )
+    }
+
+    /// Tap a tab by name, whichever way the platform presents the TabView.
+    ///
+    /// iPhone exposes a tab bar, so `app.tabBars.buttons[name]` works there.
+    /// iPadOS 26 exposes no tab bar at all — `app.tabBars.count` is 0 — and
+    /// surfaces the tabs as ordinary buttons instead. Querying only
+    /// `app.tabBars` therefore passes on iPhone and fails on iPad, which is
+    /// what stopped the iPad App Store screenshots being captured.
+    private func tapTab(_ name: String) {
+        let inTabBar = app.tabBars.buttons[name]
+        let button = inTabBar.exists ? inTabBar : app.buttons[name].firstMatch
+        XCTAssertTrue(
+            button.waitForExistence(timeout: 10),
+            "no \(name) tab in either presentation"
+        )
+        button.tap()
     }
 
     /// Attach for the test report, and — when `SCREENSHOT_DIR` is set — write a

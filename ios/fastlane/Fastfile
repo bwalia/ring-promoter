@@ -27,33 +27,45 @@ def asc_api_key
   )
 end
 
-# Enable the App Groups capability on both App IDs via the ASC API key session
-# that `app_store_connect_api_key` already configured. Specific group assignment
-# still has to exist on the Developer Portal (create
-# `group.org.fictionally.ringpromoter` and tick it on both identifiers once);
-# enabling the capability here is what lets `sigh` regenerate profiles that
-# actually carry `com.apple.security.application-groups`.
+# Enable a capability on an App ID via the ASC API key session that
+# `app_store_connect_api_key` already configured. Enabling the capability here
+# is what lets `sigh` regenerate profiles that actually carry the matching
+# entitlement; without it the IPA signs against a profile that lacks it and
+# fails to install, or installs and then misbehaves at runtime.
+def enable_capability!(identifier, capability, label)
+  require "spaceship"
+
+  bundle = Spaceship::ConnectAPI::BundleId.find(
+    identifier, includes: "bundleIdCapabilities"
+  )
+  UI.user_error!(
+    "Bundle ID '#{identifier}' not found on the Developer Portal — create it first"
+  ) unless bundle
+
+  caps = bundle.bundle_id_capabilities || bundle.get_capabilities || []
+  if caps.any? { |c| c.is_type?(capability) }
+    UI.message("#{label} already enabled for #{identifier}")
+    return
+  end
+
+  UI.message("Enabling #{label} for #{identifier}")
+  bundle.update_capability(capability, enabled: true)
+  UI.success("#{label} enabled for #{identifier}")
+end
+
+# App Groups on both App IDs — the app writes the widget snapshot, the widget
+# reads it. Specific group assignment still has to exist on the Developer Portal
+# (create `group.org.fictionally.ringpromoter` and tick it on both identifiers
+# once); this only enables the capability.
 def ensure_app_groups!
   require "spaceship"
 
-  capability = Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS
   [APP_ID, WIDGET_APP_ID].each do |identifier|
-    bundle = Spaceship::ConnectAPI::BundleId.find(
-      identifier, includes: "bundleIdCapabilities"
+    enable_capability!(
+      identifier,
+      Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS,
+      "App Groups"
     )
-    UI.user_error!(
-      "Bundle ID '#{identifier}' not found on the Developer Portal — create it first"
-    ) unless bundle
-
-    caps = bundle.bundle_id_capabilities || bundle.get_capabilities || []
-    if caps.any? { |c| c.is_type?(capability) }
-      UI.message("App Groups already enabled for #{identifier}")
-      next
-    end
-
-    UI.message("Enabling App Groups capability for #{identifier}")
-    bundle.update_capability(capability, enabled: true)
-    UI.success("App Groups enabled for #{identifier}")
   end
 
   UI.message(
@@ -63,10 +75,28 @@ def ensure_app_groups!
   )
 end
 
+# Push Notifications on the app App ID only — the widget does not register for
+# APNs and must not claim an entitlement it never uses.
+#
+# Config/RingPromoter.entitlements declares aps-environment, so the App Store
+# profile has to carry it or `codesign` rejects the export. Enabling the
+# capability is also what stops registerForRemoteNotifications() failing with
+# "no valid aps-environment entitlement string found" on a real device — the
+# failure a reviewer would otherwise see printed in Settings.
+def ensure_push!
+  require "spaceship"
+
+  enable_capability!(
+    APP_ID,
+    Spaceship::ConnectAPI::BundleIdCapability::Type::PUSH_NOTIFICATIONS,
+    "Push Notifications"
+  )
+end
+
 # Fail fast when a freshly downloaded profile is missing the App Group the
 # entitlements files claim — otherwise the IPA uploads and then crashes or
 # fails install on device.
-def assert_profile_has_app_group!(profile_path, label)
+def assert_profile_entitlements!(profile_path, label, require_push: false)
   require "shellwords"
   UI.user_error!("Missing provisioning profile path for #{label}") if profile_path.to_s.empty?
   xml = `security cms -D -i #{Shellwords.escape(profile_path)} 2>/dev/null`
@@ -79,6 +109,19 @@ def assert_profile_has_app_group!(profile_path, label)
     )
   end
   UI.success("#{label} profile includes #{APP_GROUP_ID}")
+
+  # Only the app declares aps-environment; the widget never registers for APNs.
+  if require_push
+    unless xml.include?("aps-environment")
+      UI.user_error!(
+        "#{label} profile at #{profile_path} carries no aps-environment " \
+        "entitlement, but Config/RingPromoter.entitlements declares one. " \
+        "Enable Push Notifications on #{APP_ID} in the Developer Portal, " \
+        "then re-run prepare_signing."
+      )
+    end
+    UI.success("#{label} profile includes aps-environment")
+  end
 end
 
 def emit_github(file_env_var, line)
@@ -192,20 +235,22 @@ platform :ios do
       output_path: tmp_dir
     )
 
-    # Capability first, then force-regenerate profiles so they pick up the group.
+    # Capabilities first, then force-regenerate profiles so they pick up both
+    # the app group and aps-environment.
     ensure_app_groups!
+    ensure_push!
 
     # `force` regenerates profiles; it conflicts with `readonly` — use force alone.
     get_provisioning_profile(api_key: api_key, app_identifier: APP_ID, force: true)
     app_profile_name = lane_context[SharedValues::SIGH_NAME]
     app_profile_path = lane_context[SharedValues::SIGH_PROFILE_PATH]
-    assert_profile_has_app_group!(app_profile_path, "App")
+    assert_profile_entitlements!(app_profile_path, "App", require_push: true)
     emit_github("GITHUB_ENV", "INSTALLED_PROFILE_PATH=#{app_profile_path}") if app_profile_path
 
     get_provisioning_profile(api_key: api_key, app_identifier: WIDGET_APP_ID, force: true)
     widget_profile_name = lane_context[SharedValues::SIGH_NAME]
     widget_profile_path = lane_context[SharedValues::SIGH_PROFILE_PATH]
-    assert_profile_has_app_group!(widget_profile_path, "Widget")
+    assert_profile_entitlements!(widget_profile_path, "Widget")
     emit_github("GITHUB_ENV", "INSTALLED_WIDGET_PROFILE_PATH=#{widget_profile_path}") if widget_profile_path
 
     [
@@ -266,8 +311,19 @@ platform :ios do
     )
   end
 
+  desc "Check everything App Review will look at, without building"
+  lane :verify do
+    # Scripted rather than listed in a checklist: the failure modes it catches
+    # (a missing privacy manifest, an unaccepted screenshot size, a placeholder
+    # left in the privacy policy) all cost a round trip with App Review.
+    sh("./scripts/verify-app-store-readiness.sh")
+  end
+
   desc "Submit the latest build for App Store review (manual release gate)"
   lane :release do
+    # Fail before anything is uploaded, not after a reviewer finds it.
+    verify
+
     key = asc_api_key
     ipa = Actions.lane_context[SharedValues::IPA_OUTPUT_PATH] || ipa_output_path
 
@@ -278,17 +334,32 @@ platform :ios do
       distribute_external: false
     )
 
+    # Metadata and screenshots now come from this repo (fastlane/metadata and
+    # fastlane/screenshots), so the listing is reviewable in a pull request
+    # instead of being retyped into App Store Connect each release. That is
+    # also why skip_* flipped to false: whatever is committed here wins.
+    #
+    # METADATA_LOCALE must match the App Store Connect primary language. If
+    # ASC says English (U.S.), rename fastlane/metadata/en-GB and
+    # fastlane/screenshots/en-GB to en-US and set this to match, or deliver
+    # fails with "locale not available".
     deliver(
       api_key: key,
       submit_for_review: true,
       automatic_release: false,
       force: true,
       skip_binary_upload: true,
-      skip_screenshots: true,
-      skip_metadata: true,
+      skip_screenshots: false,
+      skip_metadata: false,
+      overwrite_screenshots: true,
       precheck_include_in_app_purchases: false,
+      # No export_compliance_* keys here on purpose: ITSAppUsesNonExemptEncryption
+      # in Config/RingPromoter-Info.plist already answers that question, App
+      # Store Connect then stops asking it, and setting it again through the API
+      # is at best redundant.
       submission_information: {
-        add_id_info_uses_idfa: false
+        add_id_info_uses_idfa: false,
+        content_rights_contains_third_party_content: false
       }
     )
   end

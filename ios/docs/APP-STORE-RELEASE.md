@@ -1,0 +1,239 @@
+# App Store release runbook
+
+Everything App Review looks at for Ring Promoter iOS: what the repository
+already handles, what still needs a human, and the specific rejection risks
+that remain. Written for whoever submits the build.
+
+Run the automated half first — it checks most of this page:
+
+```bash
+cd ios
+./scripts/verify-app-store-readiness.sh --online
+```
+
+`fastlane ios release` runs the same script and refuses to upload if it fails.
+
+---
+
+## 1. Before anything else: three things only you can supply
+
+The verifier fails until these are replaced. They are placeholders on purpose —
+a privacy policy that still reads `FILL_IN_PUBLISHER_NAME` is worse than no
+policy at all, because Apple opens the URL during review.
+
+| Where | What |
+|---|---|
+| `web/src/lib/legal.ts` | `PUBLISHER`, `CONTACT_EMAIL`, `JURISDICTION`, `POSTAL_ADDRESS` |
+| `ios/fastlane/metadata/copyright.txt` | publisher name in the copyright line |
+| `ios/fastlane/metadata/review_information/` | `first_name`, `last_name`, `phone_number`, `email_address` |
+
+Two constraints on those values:
+
+- **The support mailbox must actually receive mail.** App Review writes to it,
+  and an address that bounces is a Guideline 1.5 rejection.
+- **The postal address is not optional.** Clause 8 of Apple's Minimum Terms
+  for a developer-supplied EULA requires it, and since 2025 the App Store also
+  requires trader details for EU storefronts (see §4).
+
+After editing `legal.ts`, redeploy the site — the legal pages publish from
+`web/`, through `.github/workflows/deploy-pages.yml`, on a push to `main` that
+touches `web/**`. The three URLs must return 200 **before** you submit.
+
+---
+
+## 2. What the repository now handles
+
+| Item | Where | Why it matters |
+|---|---|---|
+| Privacy manifest | `RingPromoter/PrivacyInfo.xcprivacy` | Without it an upload that touches a required-reason API is answered with **ITMS-91053 Missing API declaration**. The app uses `UserDefaults`, declared with reason `CA92.1`. |
+| Export compliance | `ITSAppUsesNonExemptEncryption = false` in `Config/RingPromoter-Info.plist` | Unanswered, the build sits at *Missing Compliance* and cannot be submitted. `false` is accurate: only iOS-provided TLS and Keychain are used. |
+| Push entitlement | `aps-environment` in `Config/RingPromoter.entitlements`, driven by `APS_ENVIRONMENT` | The app calls `registerForRemoteNotifications()`. Without the entitlement that fails and Settings prints the raw error — a feature a reviewer can tap into a broken state (Guideline 2.1). `fastlane ios prepare_signing` enables the capability and asserts the profile carries it. |
+| Privacy policy, terms, support pages | `web/src/app/{privacy,terms,support}/` | Privacy Policy URL and Support URL are required fields. The terms include Apple's Minimum Terms for a developer-supplied EULA in full. |
+| Store listing text | `fastlane/metadata/` | Reviewable in a pull request instead of retyped into App Store Connect. Every character limit is checked. |
+| Review notes | `fastlane/metadata/review_information/notes.txt` | The single highest-value field for this app — see §3. |
+| Screenshots | `fastlane/screenshots/en-GB/` | Apple accepts a fixed list of pixel sizes and rejects anything else at upload. |
+| App icon | 1024×1024, RGB, no alpha | An alpha channel in the icon is an upload rejection. |
+
+`deliver` uploads metadata and screenshots from this repository
+(`skip_metadata` and `skip_screenshots` are both `false`), so **what is
+committed wins** over whatever is currently in App Store Connect.
+
+### Locale
+
+Metadata lives in `fastlane/metadata/en-GB/` and screenshots in
+`fastlane/screenshots/en-GB/`. That must match the **primary language** of the
+app record in App Store Connect. If the record says English (U.S.), rename both
+directories to `en-US` and pass `LOCALE=en-US` to the scripts — otherwise
+`deliver` fails with *locale not available*.
+
+---
+
+## 3. Why this app needs good review notes
+
+Ring Promoter is a client for a control plane the operator runs themselves.
+A reviewer who opens it with no server to point it at sees an onboarding screen
+asking for a URL and a token — and an app that appears not to work is a
+Guideline 2.1 rejection.
+
+The app answers this properly: **demo mode** drives every screen from bundled
+data with no network at all, including the gates that refuse an illegal
+promotion and a genuine failed-and-rolled-back deploy.
+`review_information/notes.txt` walks the reviewer through it and gives the two
+demo-mode credentials (production password `demo`, change-request code `test`).
+
+Read that file before submitting. If the app changes, it changes.
+
+In App Store Connect, **Sign-in required: No** — there is no account to create,
+and so no account-deletion obligation under Guideline 5.1.1(v) either.
+
+---
+
+## 4. App Store Connect, field by field
+
+Nothing below is in the repository; all of it is set once in the web UI.
+
+**App Information**
+
+| Field | Answer |
+|---|---|
+| Primary category | Developer Tools |
+| Secondary category | Utilities |
+| Age rating | 4+ — answer *None* to every content question |
+| Content rights | Contains no third-party content |
+
+**Pricing and Availability** — set the price (free unless you decide
+otherwise) and the territories.
+
+**Trader status (EU Digital Services Act).** Under *Business* → *Trader
+Status*, declare whether you are a trader and supply the name, address, phone
+and email. Apple verifies it, and an app without verified trader details is
+removed from EU storefronts. Use the same address as `POSTAL_ADDRESS`.
+
+**App Privacy** — the nutrition label. Answer:
+
+| Question | Answer |
+|---|---|
+| Do you collect data from this app? | **No** |
+| Does the app use data to track you? | **No** |
+| Third-party partners with access | **None** |
+
+That is accurate and matches the bundled `PrivacyInfo.xcprivacy`: the app has
+no analytics, no crash reporting, no telemetry and no third-party SDK at all.
+Nothing is transmitted anywhere except to the control plane the operator
+entered. On-device storage — the Keychain token, the saved server addresses —
+is not "collection" under Apple's definition.
+
+**Version Information** — description, keywords, screenshots, support URL and
+privacy policy URL all arrive from `deliver`. Set **Version Release** to
+*Manually release this version* so a passed review does not go live
+unattended; `automatic_release: false` in the Fastfile already asks for this.
+
+**App Review Information** — arrives from `deliver` once §1 is filled in.
+
+---
+
+## 5. Remaining rejection risks, most likely first
+
+Ranked by how often Apple actually acts on them for an app of this shape.
+
+### iPad layout — Guideline 4.0 / 2.4.1
+
+The app ships for iPhone **and** iPad (`TARGETED_DEVICE_FAMILY = "1,2"`) and
+has no iPad-specific layout: no size-class branching, no `NavigationSplitView`.
+It is a `TabView` of `NavigationStack`s, which SwiftUI renders correctly at
+iPad width but not distinctively — Apple does reject apps that read as a
+stretched phone app.
+
+Review the committed `ipad13-*` screenshots with that in mind before
+submitting. If any screen looks like a phone layout centred in a lot of empty
+space, the cheapest fix is to ship iPhone-only for this version:
+
+```
+TARGETED_DEVICE_FAMILY = "1"      # in both app-target configs
+```
+
+That also removes the 13" iPad screenshot requirement. iPad can return as a
+later version once a split-view layout is actually built.
+
+### Minimum functionality — Guideline 4.2
+
+A niche operator tool occasionally draws this. The mitigation is already in
+place and should stay visible in the screenshots: the app is not a thin web
+wrapper, it is a native client with widgets, biometric gating, App Intents and
+a working offline mode.
+
+### A dead-end feature a reviewer can reach — Guideline 2.1
+
+Settings offers notification permission, and after this change registration
+succeeds — but **no notification can ever arrive**, because the control plane
+has no push sender. The screen says so in its footer, which is why this is a
+risk and not a defect.
+
+If a reviewer flags it, the honest answer is in the footer text and in
+`docs/API-GAPS.md`. The alternative, if you would rather not argue it, is to
+hide the Notifications section until the backend can send one.
+
+### Broken links in metadata — Guideline 2.1
+
+The description links nothing, but the support and privacy URLs are fetched
+during review. `verify-app-store-readiness.sh --online` checks all three return
+200. Run it *after* the Pages deploy, not before.
+
+---
+
+## 6. Submission sequence
+
+```bash
+cd ios
+
+# 1. Fill in §1, then prove it.
+./scripts/verify-app-store-readiness.sh
+
+# 2. Deploy the website so the legal URLs resolve, then re-check online.
+#    (push to main touching web/** → deploy-pages.yml)
+./scripts/verify-app-store-readiness.sh --online
+
+# 3. Recapture screenshots if any screen has changed.
+./scripts/capture-app-store-screenshots.sh
+```
+
+Then, in GitHub Actions:
+
+1. Run **iOS Release** with `target: testflight`. Install the build and walk
+   the critical paths on a real device — including Face ID and the widget,
+   neither of which the simulator exercises honestly.
+2. Confirm in App Store Connect that the build shows no *Missing Compliance*
+   warning and that no ITMS-91053 mail arrived.
+3. Set the §4 fields that are not in the repository.
+4. Run **iOS Release** with `target: app_store`. The workflow runs the verifier
+   with `--online` before it builds, then `deliver` uploads the listing and
+   submits for review.
+5. Review is typically 24–48 hours. Because `automatic_release` is false, a
+   pass waits for you to release it.
+
+---
+
+## 7. What was deliberately not done
+
+- **No widget privacy manifest.** The widget extension calls no
+  required-reason API — it reads one JSON file from the App Group container.
+  Add one the moment it touches `UserDefaults`; `@AppStorage` counts, and the
+  verifier's API scan covers both targets.
+- **Live Activities stay disabled.** `NSSupportsLiveActivities` is `false`, the
+  widget bundle omits `PromotionLiveActivity`, and `LiveActivityController`
+  is hard-off after an unexplained crash. All three agree, which is the point.
+  Nothing in the store listing or the screenshots claims the feature.
+- **No certificate pinning.** Operators point this at their own control planes
+  with their own certificates, often rotated by cert-manager; a pin the app
+  cannot update turns a routine renewal into a broken app.
+- **No analytics.** Which is what makes the "Data Not Collected" declaration in
+  §4 true, and worth keeping true.
+- **No in-app links to the privacy policy or terms.** Apple requires the
+  Privacy Policy *URL* on the listing, which is covered, and an in-app link is
+  only mandatory for apps with accounts or subscriptions — this app has
+  neither. It is still a reasonable addition to Settings, and the pages are
+  already live; it was left out here because changing a screen invalidates
+  every committed screenshot, and that trade belongs to whoever owns the UI.
+- **Only 10 of the 15 test screenshots ship.** `capture-app-store-screenshots.sh`
+  holds the curated list and the order shoppers see. The full 15 stay in
+  `docs/screenshots/` as documentation.

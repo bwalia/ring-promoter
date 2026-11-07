@@ -136,8 +136,18 @@ function Footer() {
             Ring Promoter — a control plane for release promotion
           </span>
         </div>
-        <div className="flex items-center gap-6 text-[13px] text-neutral-500">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-neutral-500">
           <span className="font-mono text-xs">int → test → acc → prod</span>
+          {/* Linked from the App Store listing and from inside the iOS app. */}
+          <Link href="/support" className="transition-colors hover:text-neutral-200">
+            Support
+          </Link>
+          <Link href="/privacy" className="transition-colors hover:text-neutral-200">
+            Privacy
+          </Link>
+          <Link href="/terms" className="transition-colors hover:text-neutral-200">
+            Terms
+          </Link>
           <a href={GITHUB} target="_blank" rel="noreferrer" className="transition-colors hover:text-neutral-200">
             GitHub ↗
           </a>
