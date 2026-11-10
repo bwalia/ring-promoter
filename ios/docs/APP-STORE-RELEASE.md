@@ -15,29 +15,105 @@ cd ios
 
 ---
 
-## 1. Before anything else: three things only you can supply
+## 1. Before anything else: the publisher details
 
-The verifier fails until these are replaced. They are placeholders on purpose —
-a privacy policy that still reads `FILL_IN_PUBLISHER_NAME` is worse than no
-policy at all, because Apple opens the URL during review.
+Nothing about the publisher is hard-coded. The legal pages and the store
+listing are both built from environment variables, so releasing this app under
+a different company needs no code change — only different values.
 
-| Where | What |
-|---|---|
-| `web/src/lib/legal.ts` | `PUBLISHER`, `CONTACT_EMAIL`, `JURISDICTION`, `POSTAL_ADDRESS` |
-| `ios/fastlane/metadata/copyright.txt` | publisher name in the copyright line |
-| `ios/fastlane/metadata/review_information/` | `first_name`, `last_name`, `phone_number`, `email_address` |
+They live in **Vault**, in the flat KV v2 secret
+`secret/ring-promoter/config` — the same Vault the iOS signing material
+comes from, so the publisher identity has one source of truth rather than a
+copy in each CI provider's settings, and the privacy policy and the App Store
+listing can never name different companies.
 
-Two constraints on those values:
+`vault kv patch` adds or changes one key; `vault kv put` replaces the whole
+secret, so use patch unless you mean to wipe the rest.
+
+```bash
+vault kv patch secret/ring-promoter/config \
+  PUBLISHER="Example Ltd" \
+  CONTACT_EMAIL="support@example.com" \
+  JURISDICTION="England and Wales" \
+  POSTAL_ADDRESS="1 Example Street|London|EC1A 1AA" \
+  REVIEW_FIRST_NAME="Ada" REVIEW_LAST_NAME="Lovelace" \
+  REVIEW_PHONE="+44 20 7946 0000"
+```
+
+**Keep this separate from `secret/ring-promoter/ios`.** That neighbouring
+secret holds the App Store Connect API key, and `ios/ci/load-ios-vault-secrets.sh`
+requires `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_PRIVATE_KEY_B64` from it.
+Writing branding into it once already replaced those and left the release
+unable to sign — KV v2 keeps versions, so
+`vault kv get -version=<n> secret/ring-promoter/ios` recovers them if it
+happens again.
+
+The split is not bureaucracy: the branding is not iOS-specific — the website
+build reads the same values for the legal pages — so merging the two would
+mean a Pages build reading Apple distribution credentials in order to render
+a privacy policy.
+
+| Secret | Holds | Read by |
+|---|---|---|
+| `secret/ring-promoter/config` | Publisher branding | Pages build, iOS release |
+| `secret/ring-promoter/ios` | App Store Connect API key, team id | iOS release only |
+
+`ci/load-branding-from-vault.sh` reads the branding one and exports the
+values; both workflows run it before they need them. Nothing here is a GitHub secret or a
+repository variable. None of it is secret in the first place — every value
+ends up on a published page or the public listing — but keeping it beside the
+signing material means one place to change for a rebrand.
+
+Both workflows that need it now run on the self-hosted **mac-studio** runner,
+because that is where the Vault token file lives. For the Pages deploy that is
+a change: its build used to be GitHub-hosted to avoid queueing behind cluster
+deploys.
+
+| Variable | Used for | Required |
+|---|---|---|
+| `PUBLISHER` | Named on all three legal pages, and the listing copyright | yes |
+| `CONTACT_EMAIL` | Contact on the legal pages; App Review contact by default | yes |
+| `JURISDICTION` | Governing law in the terms | yes |
+| `POSTAL_ADDRESS` | EULA clause 8 and EU trader details. `\|`-separated lines | yes |
+| `REVIEW_FIRST_NAME` | App Review contact | yes |
+| `REVIEW_LAST_NAME` | App Review contact | yes |
+| `REVIEW_PHONE` | App Review contact | yes |
+| `REVIEW_EMAIL` | App Review contact, if different from `CONTACT_EMAIL` | no |
+| `COPYRIGHT` | Pins a first-publication year; defaults to `<year> <publisher>` | no |
+| `APP_NAME`, `BUNDLE_ID`, `GITHUB_URL`, `SITE_URL` | White-label overrides; default to this project | no |
+| `LEGAL_LAST_UPDATED` | "Last updated" date on the legal pages | no |
+
+`web/.env.example` is the template; copy it to `web/.env.local` for local work.
+
+Three constraints on the values:
 
 - **The support mailbox must actually receive mail.** App Review writes to it,
   and an address that bounces is a Guideline 1.5 rejection.
 - **The postal address is not optional.** Clause 8 of Apple's Minimum Terms
-  for a developer-supplied EULA requires it, and since 2025 the App Store also
-  requires trader details for EU storefronts (see §4).
+  for a developer-supplied EULA requires it, and the App Store also requires
+  trader details for EU storefronts (see §4).
+- **The publisher must match everywhere.** It does automatically, because the
+  website and fastlane read the same variable — a privacy policy and a store
+  listing naming different companies is exactly the mismatch App Review
+  notices.
 
-After editing `legal.ts`, redeploy the site — the legal pages publish from
-`web/`, through `.github/workflows/deploy-pages.yml`, on a push to `main` that
-touches `web/**`. The three URLs must return 200 **before** you submit.
+Missing values fail loudly rather than publishing a blank: `next build` throws
+and names the variable, and `verify-app-store-readiness.sh` fails before
+fastlane uploads anything.
+
+Once they are set, redeploy the site — the legal pages publish from `web/`,
+through `.github/workflows/deploy-pages.yml`, on a push to `main` that touches
+`web/**`. The three URLs must return 200 **before** you submit.
+
+### Releasing under a different brand
+
+1. Change the values in `secret/ring-promoter/config` in Vault.
+2. Edit `ios/fastlane/metadata/en-GB/` — the listing name, subtitle,
+   description, keywords and URLs are per-brand *content*, not configuration,
+   so they stay as reviewable files rather than becoming environment
+   variables.
+3. Change `PRODUCT_BUNDLE_IDENTIFIER`, the app group and the Apple team in the
+   Xcode project and `fastlane/Fastfile`, and recapture screenshots.
 
 ---
 

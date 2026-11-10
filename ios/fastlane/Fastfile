@@ -12,6 +12,53 @@ APP_ID = "org.fictionally.ringpromoter".freeze
 WIDGET_APP_ID = "org.fictionally.ringpromoter.widget".freeze
 APP_GROUP_ID = "group.org.fictionally.ringpromoter".freeze
 
+# Publisher branding, read from the environment so this repository can be
+# released under a different company without a code change. These are the same
+# values the web legal pages are built from — see web/.env.example — because a
+# privacy policy and an App Store listing that name different publishers is
+# exactly the kind of mismatch App Review notices.
+#
+# Nothing here is secret: all of it ends up on the public listing or the public
+# legal pages, so in CI these belong in repository variables, not secrets.
+def required_env(name)
+  value = ENV[name].to_s.strip
+  return value unless value.empty?
+
+  UI.user_error!(
+    "#{name} is not set. Store metadata is built from the environment so the " \
+    "app can be released under another publisher without a code change. See " \
+    "web/.env.example for the full list."
+  )
+end
+
+def optional_env(name, fallback)
+  value = ENV[name].to_s.strip
+  value.empty? ? fallback : value
+end
+
+def branding
+  @branding ||= begin
+    publisher = required_env("PUBLISHER")
+    {
+      publisher: publisher,
+      # Year of this build; override COPYRIGHT to pin a first-publication year.
+      copyright: optional_env("COPYRIGHT", "#{Time.now.year} #{publisher}"),
+      review: {
+        first_name: required_env("REVIEW_FIRST_NAME"),
+        last_name: required_env("REVIEW_LAST_NAME"),
+        phone_number: required_env("REVIEW_PHONE"),
+        # Defaults to the address the legal pages publish, which is normally
+        # the one a reviewer should write to anyway.
+        email_address: optional_env("REVIEW_EMAIL", required_env("CONTACT_EMAIL")),
+        # No account exists, so "sign-in required" is No and these stay empty.
+        demo_user: "",
+        demo_password: "",
+        notes: File.read(File.expand_path("metadata/review_information/notes.txt", __dir__))
+      }
+    }
+  end
+end
+
 def team_id
   ENV.fetch("APPLE_TEAM_ID") do
     UI.user_error!("APPLE_TEAM_ID is not set — add it to Vault secret/ring-promoter/ios")
@@ -353,6 +400,11 @@ platform :ios do
       skip_metadata: false,
       overwrite_screenshots: true,
       precheck_include_in_app_purchases: false,
+      # Publisher-specific values come from the environment rather than from
+      # committed .txt files, so a rebrand needs no edit here. notes.txt stays
+      # a file because it is long prose worth reviewing in a diff.
+      copyright: branding[:copyright],
+      app_review_information: branding[:review],
       # No export_compliance_* keys here on purpose: ITSAppUsesNonExemptEncryption
       # in Config/RingPromoter-Info.plist already answers that question, App
       # Store Connect then stops asking it, and setting it again through the API

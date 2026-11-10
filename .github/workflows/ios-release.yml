@@ -80,6 +80,14 @@ jobs:
           chmod +x ./ci/load-ios-vault-secrets.sh
           ./ci/load-ios-vault-secrets.sh
 
+      # Publisher branding — the name, contact and address the legal pages and
+      # the store listing are built from — comes from the same Vault the
+      # signing material does, so the publisher identity has one source of
+      # truth rather than a copy in each CI provider's settings. Loaded after
+      # the signing step because it reuses the same VAULT_TOKEN_FILE auth.
+      - name: Load publisher branding from Vault
+        run: "$GITHUB_WORKSPACE/ci/load-branding-from-vault.sh"
+
       - name: Install Ruby dependencies
         run: bundle install
 

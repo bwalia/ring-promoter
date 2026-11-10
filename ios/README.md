@@ -455,8 +455,16 @@ be set by hand. The automated half is:
 ```
 
 `fastlane ios release` runs the verifier first and refuses to upload if it
-fails, so a placeholder in the privacy policy or a wrongly-sized screenshot
-cannot reach App Review. Store metadata and screenshots are committed under
+fails, so a missing publisher name or a wrongly-sized screenshot cannot reach
+App Review.
+
+The publisher details — name, contact address, jurisdiction, postal address
+and the App Review contact — are **not** in the code. They come from the
+environment, shared with the website's legal pages, so this app can be
+released under a different company without a code change. CI loads them from
+Vault (`secret/ring-promoter/config`) with
+`ci/load-branding-from-vault.sh`; `web/.env.example` documents them for local
+work. Store metadata and screenshots are committed under
 `fastlane/metadata/` and `fastlane/screenshots/`, so the listing is reviewable
 in a pull request rather than retyped into App Store Connect.
 
