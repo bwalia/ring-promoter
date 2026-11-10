@@ -73,10 +73,25 @@ jobs:
             echo "NEXT_BASE_PATH=/${{ github.event.repository.name }}" >> "$GITHUB_ENV"
           fi
 
+      # The legal pages (/privacy, /terms, /support) are built from these, so
+      # the site can be published under a different company without a code
+      # change. They are repository *variables*, not secrets: every value ends
+      # up visible on the published pages. The build fails loudly if one is
+      # missing rather than publishing a policy with a blank publisher — see
+      # web/.env.example.
       - name: Build static export
         working-directory: web
         env:
           NEXT_OUTPUT: export
+          PUBLISHER: ${{ vars.PUBLISHER }}
+          CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
+          JURISDICTION: ${{ vars.JURISDICTION }}
+          POSTAL_ADDRESS: ${{ vars.POSTAL_ADDRESS }}
+          APP_NAME: ${{ vars.APP_NAME }}
+          BUNDLE_ID: ${{ vars.BUNDLE_ID }}
+          GITHUB_URL: ${{ vars.GITHUB_URL }}
+          SITE_URL: ${{ vars.SITE_URL }}
+          LEGAL_LAST_UPDATED: ${{ vars.LEGAL_LAST_UPDATED }}
         run: npx next build
 
       - name: Assemble landing-only site
