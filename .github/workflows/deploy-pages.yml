@@ -16,7 +16,9 @@ name: Deploy landing page (GitHub Pages)
 # publisher details held in Vault, and the Vault token file only exists on
 # that runner. Keeping the publisher identity in Vault — one source of truth
 # shared with the iOS release — was judged worth the occasional queue.
-# The deploy job stays GitHub-hosted: it only publishes the artifact.
+# Only the build runs there. Packaging and deploying stay GitHub-hosted,
+# because they need no Vault access and the Pages artifact action needs
+# GNU tar, which macOS does not ship.
 
 on:
   push:
@@ -134,6 +136,31 @@ jobs:
             echo "$PAGES_DOMAIN" > site/CNAME
           fi
 
+      # A plain artifact, not a Pages one. actions/upload-pages-artifact shells
+      # out to `gtar` on macOS, which this runner does not have — and installing
+      # it would not be enough, because /opt/homebrew/bin is not on the PATH the
+      # runner gives a step. actions/upload-artifact is pure JavaScript, so it
+      # works here, and the `package` job below turns it into a Pages artifact
+      # on a runner that does have GNU tar.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site
+          retention-days: 1
+          include-hidden-files: true
+
+  # Everything this job does is GNU-tar and Pages plumbing; none of it needs
+  # Vault, so it runs GitHub-hosted. Only the build above has to be on
+  # mac-studio, because that is where the Vault token file lives.
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: site
+
       - uses: actions/configure-pages@v5
         with:
           enablement: true
@@ -143,7 +170,7 @@ jobs:
           path: site
 
   deploy:
-    needs: build
+    needs: package
     runs-on: ubuntu-latest
     environment:
       name: github-pages
