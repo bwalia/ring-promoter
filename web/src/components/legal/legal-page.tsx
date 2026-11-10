@@ -172,11 +172,14 @@ function RingMark({ className }: { className?: string }) {
   );
 }
 
+// `/` rather than `/landing`: deploy-pages.yml publishes out/landing.html as
+// site/index.html, so the overview is served from the site root and /landing
+// is a 404 on the published site.
 function LegalNav() {
   return (
     <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-[#090909]/85 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4 sm:px-6">
-        <Link href="/landing" className="flex items-center gap-2.5">
+        <Link href="/" className="flex items-center gap-2.5">
           <RingMark className="size-6" />
           <span className="font-display text-[15px] font-semibold tracking-tight text-neutral-50">
             {APP_NAME}
@@ -204,7 +207,7 @@ function LegalFooter() {
       <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-8 text-[13px] text-neutral-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <span>{APP_NAME} — a control plane for release promotion</span>
         <div className="flex items-center gap-5">
-          <Link href="/landing" className="transition-colors hover:text-neutral-200">
+          <Link href="/" className="transition-colors hover:text-neutral-200">
             Overview
           </Link>
           <a
