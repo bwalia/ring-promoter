@@ -40,8 +40,26 @@ vault kv patch secret/ring-promoter/config \
   REVIEW_PHONE="+44 20 7946 0000"
 ```
 
-`ci/load-branding-from-vault.sh` reads it and exports the values; both
-workflows run it before they need them. Nothing here is a GitHub secret or a
+**Keep this separate from `secret/ring-promoter/ios`.** That neighbouring
+secret holds the App Store Connect API key, and `ios/ci/load-ios-vault-secrets.sh`
+requires `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_PRIVATE_KEY_B64` from it.
+Writing branding into it once already replaced those and left the release
+unable to sign — KV v2 keeps versions, so
+`vault kv get -version=<n> secret/ring-promoter/ios` recovers them if it
+happens again.
+
+The split is not bureaucracy: the branding is not iOS-specific — the website
+build reads the same values for the legal pages — so merging the two would
+mean a Pages build reading Apple distribution credentials in order to render
+a privacy policy.
+
+| Secret | Holds | Read by |
+|---|---|---|
+| `secret/ring-promoter/config` | Publisher branding | Pages build, iOS release |
+| `secret/ring-promoter/ios` | App Store Connect API key, team id | iOS release only |
+
+`ci/load-branding-from-vault.sh` reads the branding one and exports the
+values; both workflows run it before they need them. Nothing here is a GitHub secret or a
 repository variable. None of it is secret in the first place — every value
 ends up on a published page or the public listing — but keeping it beside the
 signing material means one place to change for a rebrand.
