@@ -31,26 +31,37 @@ META=fastlane/metadata
 WEB=../web
 
 # ─────────────────────────────────────────────────────────────────────────────
-head_ "Placeholders"
-# A privacy policy or support page that still says FILL_IN is worse than none:
-# Apple opens both URLs during review.
-# The pattern differs per target on purpose. legal.ts documents the sentinel in
-# a comment ("fails while any FILL_IN_ sentinel survives"), so matching the bare
-# word there would fail forever even once the real values are in — only a
-# quoted "FILL_IN_… is an actual unreplaced value. The metadata files hold the
-# value and nothing else, so a bare match is right there.
-check_placeholders() { # target, grep pattern
-  if [[ ! -e "$1" ]]; then
-    bad "$1 does not exist"
-  elif grep -rqs "$2" "$1"; then
-    bad "$1 still contains unreplaced placeholders:"
-    grep -rhos "FILL_IN_[A-Z_0-9]*" "$1" | sort -u | sed 's/^/      /'
+head_ "Branding (environment)"
+# The publisher details are read from the environment at build time — by the
+# web legal pages and by fastlane — so this repository can be released under a
+# different company without a code change. They are checked here because an
+# unset one is not a cosmetic problem: a privacy policy naming the wrong
+# publisher, or a support address that bounces, is a Guideline 1.5 rejection,
+# and App Review opens both URLs and writes to the address.
+#
+# None of these is secret; all of them end up published. In CI they belong in
+# repository variables. See web/.env.example.
+for var in PUBLISHER CONTACT_EMAIL JURISDICTION POSTAL_ADDRESS \
+           REVIEW_FIRST_NAME REVIEW_LAST_NAME REVIEW_PHONE; do
+  if [[ -n "${!var:-}" ]]; then
+    ok "$var is set"
   else
-    ok "no placeholders in $1"
+    bad "$var is not set — see web/.env.example"
   fi
-}
-check_placeholders "$WEB/src/lib/legal.ts" '"FILL_IN_'
-check_placeholders "$META" 'FILL_IN_' 
+done
+# REVIEW_EMAIL falls back to CONTACT_EMAIL, COPYRIGHT to "<year> <publisher>".
+for var in REVIEW_EMAIL COPYRIGHT APP_NAME BUNDLE_ID GITHUB_URL SITE_URL; do
+  [[ -n "${!var:-}" ]] && echo "  · $var overridden: ${!var}"
+done
+
+# Nothing should still carry the old sentinels; they were replaced by the
+# environment lookups above and a surviving one means a stale copy somewhere.
+if grep -rqs "FILL_IN_" "$WEB/src" "$META" 2>/dev/null; then
+  bad "FILL_IN_ placeholders still present:"
+  grep -rlos "FILL_IN_" "$WEB/src" "$META" 2>/dev/null | sed 's/^/      /'
+else
+  ok "no FILL_IN_ placeholders left in the web sources or store metadata"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 head_ "Privacy manifest"

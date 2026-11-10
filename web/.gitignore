@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the documented template for the legal-page branding, which
+# carries no secrets and is what a rebrand is configured from.
+!.env.example
 
 # vercel
 .vercel
