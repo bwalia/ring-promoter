@@ -48,7 +48,7 @@ The app collects nothing and contains no third-party SDK — no analytics, no
 crash reporting, no telemetry. Everything is stored on the device only: the API
 token in the Keychain, server addresses in app preferences. This matches the
 "Data Not Collected" declaration and the bundled PrivacyInfo.xcprivacy.
-Privacy policy: https://ring-promoter-pages.fictionally.org/privacy
+Privacy policy: https://ringpromoter.com/privacy/
 
 IPAD
 The app is universal and the same screens are used on iPad; the iPad

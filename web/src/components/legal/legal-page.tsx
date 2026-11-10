@@ -186,13 +186,13 @@ function LegalNav() {
           </span>
         </Link>
         <nav aria-label="Legal" className="flex items-center gap-5 text-[13px] text-neutral-400">
-          <Link href="/privacy" className="transition-colors hover:text-neutral-100">
+          <Link href="/privacy/" className="transition-colors hover:text-neutral-100">
             Privacy
           </Link>
-          <Link href="/terms" className="transition-colors hover:text-neutral-100">
+          <Link href="/terms/" className="transition-colors hover:text-neutral-100">
             Terms
           </Link>
-          <Link href="/support" className="transition-colors hover:text-neutral-100">
+          <Link href="/support/" className="transition-colors hover:text-neutral-100">
             Support
           </Link>
         </nav>
