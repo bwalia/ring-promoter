@@ -40,7 +40,7 @@ head_ "Branding (environment)"
 # and App Review opens both URLs and writes to the address.
 #
 # None of these is secret; all of them end up published. CI loads them from
-# Vault (secret/ring-promoter/branding) with ci/load-branding-from-vault.sh;
+# Vault (secret/ring-promoter/config) with ci/load-branding-from-vault.sh;
 # web/.env.example documents them for local work.
 for var in PUBLISHER CONTACT_EMAIL JURISDICTION POSTAL_ADDRESS \
            REVIEW_FIRST_NAME REVIEW_LAST_NAME REVIEW_PHONE; do

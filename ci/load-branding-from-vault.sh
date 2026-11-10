@@ -3,7 +3,7 @@
 # load-branding-from-vault.sh — publisher branding for the legal pages and the
 # App Store listing, from Vault.
 #
-# Reads the flat KV v2 secret `secret/ring-promoter/branding` (override with
+# Reads the flat KV v2 secret `secret/ring-promoter/config` (override with
 # RINGPROMOTER_BRANDING_VAULT_PATH) and exports the values the website build,
 # fastlane and verify-app-store-readiness.sh all read from the environment.
 #
@@ -29,7 +29,7 @@
 set -euo pipefail
 
 VAULT_TOKEN_FILE="${VAULT_TOKEN_FILE:-$HOME/.secrets/vault/token.json}"
-VAULT_SECRET_PATH="${RINGPROMOTER_BRANDING_VAULT_PATH:-secret/ring-promoter/branding}"
+VAULT_SECRET_PATH="${RINGPROMOTER_BRANDING_VAULT_PATH:-secret/ring-promoter/config}"
 export VAULT_ADDR="${VAULT_ADDR:-}" VAULT_TOKEN="${VAULT_TOKEN:-}" VAULT_TOKEN_FILE VAULT_SECRET_PATH
 
 python3 - <<'PY'

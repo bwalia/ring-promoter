@@ -22,13 +22,16 @@ listing are both built from environment variables, so releasing this app under
 a different company needs no code change — only different values.
 
 They live in **Vault**, in the flat KV v2 secret
-`secret/ring-promoter/branding` — the same Vault the iOS signing material
+`secret/ring-promoter/config` — the same Vault the iOS signing material
 comes from, so the publisher identity has one source of truth rather than a
 copy in each CI provider's settings, and the privacy policy and the App Store
 listing can never name different companies.
 
+`vault kv patch` adds or changes one key; `vault kv put` replaces the whole
+secret, so use patch unless you mean to wipe the rest.
+
 ```bash
-vault kv put secret/ring-promoter/branding \
+vault kv patch secret/ring-promoter/config \
   PUBLISHER="Example Ltd" \
   CONTACT_EMAIL="support@example.com" \
   JURISDICTION="England and Wales" \
@@ -86,7 +89,7 @@ through `.github/workflows/deploy-pages.yml`, on a push to `main` that touches
 
 ### Releasing under a different brand
 
-1. Change the values in `secret/ring-promoter/branding` in Vault.
+1. Change the values in `secret/ring-promoter/config` in Vault.
 2. Edit `ios/fastlane/metadata/en-GB/` — the listing name, subtitle,
    description, keywords and URLs are per-brand *content*, not configuration,
    so they stay as reviewable files rather than becoming environment
