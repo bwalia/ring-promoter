@@ -15,6 +15,38 @@ cd ios
 
 ---
 
+## 0.1. One-time Developer Portal capabilities
+
+Two capabilities must be switched on for the App IDs, by hand, once each:
+
+| App ID | Capability |
+| --- | --- |
+| `org.fictionally.ringpromoter` | Push Notifications, App Groups |
+| `org.fictionally.ringpromoter.widget` | App Groups |
+
+The App Group `group.org.fictionally.ringpromoter` must also be assigned to
+both identifiers.
+
+**CI cannot do this.** `fastlane ios prepare_signing` checks the capabilities
+and fails with instructions if one is missing, but it cannot turn one on: the
+spaceship call behind it (`patch_bundle_id_capability`) puts
+`provisioning_request_client.team_id` in the request body, and resolving that
+hits the legacy `/olympus/v1/session` endpoint, which only a username/password
+Apple ID session can authenticate. An App Store Connect API key gets
+`Unauthenticated` back and fastlane dies parsing it as JSON.
+
+So it needs a browser and an account with **Developer Portal access** —
+Account Holder, or an Admin whose role includes Certificates, Identifiers &
+Profiles. Note that App Store Connect access alone is *not* enough: a user can
+have full App Store Connect rights and still land on a registration page at
+`developer.apple.com/account`.
+
+1. <https://developer.apple.com/account/resources/identifiers/list/bundleId>
+2. Open the identifier, tick the capability, Save.
+
+Once ticked it stays ticked, so this is a per-App-ID setup step, not a
+per-release one. A rebrand onto new bundle identifiers has to repeat it.
+
 ## 1. Before anything else: the publisher details
 
 Nothing about the publisher is hard-coded. The legal pages and the store
@@ -123,7 +155,7 @@ through `.github/workflows/deploy-pages.yml`, on a push to `main` that touches
 |---|---|---|
 | Privacy manifest | `RingPromoter/PrivacyInfo.xcprivacy` | Without it an upload that touches a required-reason API is answered with **ITMS-91053 Missing API declaration**. The app uses `UserDefaults`, declared with reason `CA92.1`. |
 | Export compliance | `ITSAppUsesNonExemptEncryption = false` in `Config/RingPromoter-Info.plist` | Unanswered, the build sits at *Missing Compliance* and cannot be submitted. `false` is accurate: only iOS-provided TLS and Keychain are used. |
-| Push entitlement | `aps-environment` in `Config/RingPromoter.entitlements`, driven by `APS_ENVIRONMENT` | The app calls `registerForRemoteNotifications()`. Without the entitlement that fails and Settings prints the raw error — a feature a reviewer can tap into a broken state (Guideline 2.1). `fastlane ios prepare_signing` enables the capability and asserts the profile carries it. |
+| Push entitlement | `aps-environment` in `Config/RingPromoter.entitlements`, driven by `APS_ENVIRONMENT` | The app calls `registerForRemoteNotifications()`. Without the entitlement that fails and Settings prints the raw error — a feature a reviewer can tap into a broken state (Guideline 2.1). `fastlane ios prepare_signing` asserts the capability is on the App ID and that the profile carries it. It cannot switch it on — see §0.1. |
 | Privacy policy, terms, support pages | `web/src/app/{privacy,terms,support}/` | Privacy Policy URL and Support URL are required fields. The terms include Apple's Minimum Terms for a developer-supplied EULA in full. |
 | Store listing text | `fastlane/metadata/` | Reviewable in a pull request instead of retyped into App Store Connect. Every character limit is checked. |
 | Review notes | `fastlane/metadata/review_information/notes.txt` | The single highest-value field for this app — see §3. |

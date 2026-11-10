@@ -133,8 +133,8 @@ if grep -q "registerForRemoteNotifications" -r --include="*.swift" RingPromoter/
       || bad "APS_ENVIRONMENT = $want is not set — the entitlement expands to an empty string"
   done
   grep -q "ensure_push!" fastlane/Fastfile \
-    && ok "fastlane enables the Push Notifications capability on the App ID" \
-    || warn "fastlane does not enable Push Notifications — the profile may lack aps-environment"
+    && ok "fastlane requires the Push Notifications capability on the App ID" \
+    || warn "fastlane does not check Push Notifications — the profile may lack aps-environment"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

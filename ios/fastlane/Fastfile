@@ -75,11 +75,22 @@ def asc_api_key
 end
 
 # Enable a capability on an App ID via the ASC API key session that
-# `app_store_connect_api_key` already configured. Enabling the capability here
-# is what lets `sigh` regenerate profiles that actually carry the matching
-# entitlement; without it the IPA signs against a profile that lacks it and
-# fails to install, or installs and then misbehaves at runtime.
-def enable_capability!(identifier, capability, label)
+# `app_store_connect_api_key` already configured. A capability that is missing
+# here means `sigh` will mint a profile without the matching entitlement, and
+# the IPA then either fails to export or misbehaves at runtime — so this is a
+# hard precondition, checked before the 15-minute build rather than after it.
+#
+# It reads, and deliberately does not write. Turning a capability ON through
+# the API is not possible with an App Store Connect API key: spaceship's
+# `patch_bundle_id_capability` puts `provisioning_request_client.team_id` in
+# the request body, and `Spaceship::Client#team_id` resolves that by calling
+# the legacy `/olympus/v1/session` endpoint, which only a username/password
+# Apple ID session can authenticate. With a key it answers "Unauthenticated"
+# and fastlane dies parsing that as JSON. (`team_id=` is no escape — it calls
+# the same endpoint to validate.) Reaching it would mean writing into a
+# private ivar of the gem, to automate a click that happens once per App ID
+# in its entire lifetime. Not worth it; ticking the box is the fix.
+def require_capability!(identifier, capability, label)
   require "spaceship"
 
   bundle = Spaceship::ConnectAPI::BundleId.find(
@@ -91,13 +102,24 @@ def enable_capability!(identifier, capability, label)
 
   caps = bundle.bundle_id_capabilities || bundle.get_capabilities || []
   if caps.any? { |c| c.is_type?(capability) }
-    UI.message("#{label} already enabled for #{identifier}")
+    UI.message("#{label} is enabled for #{identifier}")
     return
   end
 
-  UI.message("Enabling #{label} for #{identifier}")
-  bundle.update_capability(capability, enabled: true)
-  UI.success("#{label} enabled for #{identifier}")
+  UI.user_error!(
+    "#{label} is not enabled for the App ID '#{identifier}'.\n" \
+    "\n" \
+    "Enable it once, by hand, with an account that has Developer Portal " \
+    "access (Account Holder or an Admin with Certificates, Identifiers & " \
+    "Profiles):\n" \
+    "\n" \
+    "  1. https://developer.apple.com/account/resources/identifiers/list/bundleId\n" \
+    "  2. Open '#{identifier}'\n" \
+    "  3. Tick '#{label}', then Save\n" \
+    "\n" \
+    "Then re-run this workflow. An App Store Connect API key cannot do this " \
+    "step — see the comment above require_capability! for why."
+  )
 end
 
 # App Groups on both App IDs — the app writes the widget snapshot, the widget
@@ -108,7 +130,7 @@ def ensure_app_groups!
   require "spaceship"
 
   [APP_ID, WIDGET_APP_ID].each do |identifier|
-    enable_capability!(
+    require_capability!(
       identifier,
       Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS,
       "App Groups"
@@ -133,7 +155,7 @@ end
 def ensure_push!
   require "spaceship"
 
-  enable_capability!(
+  require_capability!(
     APP_ID,
     Spaceship::ConnectAPI::BundleIdCapability::Type::PUSH_NOTIFICATIONS,
     "Push Notifications"
