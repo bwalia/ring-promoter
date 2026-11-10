@@ -241,12 +241,29 @@ grep -q "for page in privacy terms support" ../.github/workflows/deploy-pages.ym
   || bad "deploy-pages.yml does not copy the legal pages into the published site"
 
 if (( ONLINE )); then
-  for url in \
-    https://ring-promoter-pages.fictionally.org/privacy \
-    https://ring-promoter-pages.fictionally.org/terms \
-    https://ring-promoter-pages.fictionally.org/support; do
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$url")
-    [[ "$code" == 200 ]] && ok "$url → 200" || bad "$url → $code (App Review opens this)"
+  # Check the URLs actually being submitted, read from the metadata rather than
+  # repeated here, so the check cannot drift from the listing.
+  urls=()
+  for f in privacy_url support_url marketing_url; do
+    [[ -s "$META/$LOCALE/$f.txt" ]] && urls+=("$(cat "$META/$LOCALE/$f.txt")")
+  done
+  urls+=("$(cat "$META/$LOCALE/privacy_url.txt" 2>/dev/null | sed 's#/privacy/*$#/terms/#')")
+
+  for url in "${urls[@]}"; do
+    [[ -n "$url" ]] || continue
+    # -L on purpose: a bare 301 is not a failure. But the redirect target
+    # matters — GitHub Pages sends /privacy to http://…/privacy/ unless
+    # "Enforce HTTPS" is on, and a privacy policy that downgrades to cleartext
+    # is not what should be on an App Store listing.
+    read -r code final < <(curl -sL -o /dev/null \
+      -w '%{http_code} %{url_effective}' --max-time 25 "$url")
+    if [[ "$code" != 200 ]]; then
+      bad "$url → HTTP $code (App Review opens this)"
+    elif [[ "$final" != https://* ]]; then
+      bad "$url → 200 but redirected to $final — enable Enforce HTTPS in Pages settings"
+    else
+      ok "$url → 200"
+    fi
   done
 else
   warn "public URLs not fetched — re-run with --online once the site has deployed"

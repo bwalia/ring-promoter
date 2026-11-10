@@ -249,7 +249,7 @@ export default function SupportPage() {
         <Bullets
           items={[
             <>
-              <In href="/landing">What Ring Promoter does</In> — the control
+              <In href="/">What Ring Promoter does</In> — the control
               plane behind the app.
             </>,
             <>
