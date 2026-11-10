@@ -74,7 +74,7 @@ export const BUNDLE_ID = process.env.BUNDLE_ID?.trim() || "org.fictionally.ringp
 export const GITHUB_URL =
   process.env.GITHUB_URL?.trim() || "https://github.com/bwalia/ring-promoter";
 export const SITE_URL =
-  process.env.SITE_URL?.trim() || "https://ring-promoter-pages.fictionally.org";
+  process.env.SITE_URL?.trim() || "https://ringpromoter.com";
 
 /**
  * Shown as "last updated" on every legal page.
