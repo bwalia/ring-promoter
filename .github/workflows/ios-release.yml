@@ -53,20 +53,6 @@ jobs:
       VAULT_TOKEN_FILE: /Users/balinderwalia/.secrets/acc-vault/login-token.json
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
-      # Publisher branding for the store listing and the App Review contact,
-      # read by fastlane and by verify-app-store-readiness.sh. The same values
-      # the web legal pages are built from, so the listing and the privacy
-      # policy can never name different publishers. Repository *variables*, not
-      # secrets — all of it ends up on the public listing. See web/.env.example.
-      PUBLISHER: ${{ vars.PUBLISHER }}
-      CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
-      JURISDICTION: ${{ vars.JURISDICTION }}
-      POSTAL_ADDRESS: ${{ vars.POSTAL_ADDRESS }}
-      REVIEW_FIRST_NAME: ${{ vars.REVIEW_FIRST_NAME }}
-      REVIEW_LAST_NAME: ${{ vars.REVIEW_LAST_NAME }}
-      REVIEW_PHONE: ${{ vars.REVIEW_PHONE }}
-      REVIEW_EMAIL: ${{ vars.REVIEW_EMAIL }}
-      COPYRIGHT: ${{ vars.COPYRIGHT }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -93,6 +79,14 @@ jobs:
         run: |
           chmod +x ./ci/load-ios-vault-secrets.sh
           ./ci/load-ios-vault-secrets.sh
+
+      # Publisher branding — the name, contact and address the legal pages and
+      # the store listing are built from — comes from the same Vault the
+      # signing material does, so the publisher identity has one source of
+      # truth rather than a copy in each CI provider's settings. Loaded after
+      # the signing step because it reuses the same VAULT_TOKEN_FILE auth.
+      - name: Load publisher branding from Vault
+        run: "$GITHUB_WORKSPACE/ci/load-branding-from-vault.sh"
 
       - name: Install Ruby dependencies
         run: bundle install

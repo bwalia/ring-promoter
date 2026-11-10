@@ -461,8 +461,10 @@ App Review.
 The publisher details — name, contact address, jurisdiction, postal address
 and the App Review contact — are **not** in the code. They come from the
 environment, shared with the website's legal pages, so this app can be
-released under a different company without a code change. `web/.env.example`
-is the template; CI reads them from repository variables. Store metadata and screenshots are committed under
+released under a different company without a code change. CI loads them from
+Vault (`secret/ring-promoter/branding`) with
+`ci/load-branding-from-vault.sh`; `web/.env.example` documents them for local
+work. Store metadata and screenshots are committed under
 `fastlane/metadata/` and `fastlane/screenshots/`, so the listing is reviewable
 in a pull request rather than retyped into App Store Connect.
 

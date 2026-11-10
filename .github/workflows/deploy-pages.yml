@@ -8,9 +8,15 @@ name: Deploy landing page (GitHub Pages)
 # A custom domain serves from the root; a project page serves from /<repo>.
 # Getting this wrong breaks every asset URL, so the domain is resolved at
 # build time (CNAME file, then the Pages API) instead of hard-coding either
-# form — the same pattern as the vantiq deploy. Runs on GitHub-hosted runners
-# on purpose: it must not queue behind deploys on the single self-hosted
-# mac-studio runner.
+# form — the same pattern as the vantiq deploy.
+#
+# The build runs on the self-hosted mac-studio runner, not a GitHub-hosted
+# one. It used to be GitHub-hosted so it would not queue behind cluster
+# deploys, but the legal pages (/privacy, /terms, /support) are built from
+# publisher details held in Vault, and the Vault token file only exists on
+# that runner. Keeping the publisher identity in Vault — one source of truth
+# shared with the iOS release — was judged worth the occasional queue.
+# The deploy job stays GitHub-hosted: it only publishes the artifact.
 
 on:
   push:
@@ -31,7 +37,10 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Self-hosted: this is where VAULT_TOKEN_FILE lives. See the note above.
+    runs-on: [self-hosted, mac-studio]
+    env:
+      VAULT_TOKEN_FILE: /Users/balinderwalia/.secrets/acc-vault/login-token.json
     steps:
       - uses: actions/checkout@v4
 
@@ -73,25 +82,19 @@ jobs:
             echo "NEXT_BASE_PATH=/${{ github.event.repository.name }}" >> "$GITHUB_ENV"
           fi
 
-      # The legal pages (/privacy, /terms, /support) are built from these, so
-      # the site can be published under a different company without a code
-      # change. They are repository *variables*, not secrets: every value ends
-      # up visible on the published pages. The build fails loudly if one is
-      # missing rather than publishing a policy with a blank publisher — see
-      # web/.env.example.
+      # The legal pages (/privacy, /terms, /support) name the publisher, its
+      # contact address and its postal address, and those come from Vault —
+      # the same secret the iOS release reads, so the privacy policy and the
+      # App Store listing can never name different companies. The build fails
+      # loudly if one is missing rather than publishing a policy with a blank
+      # publisher. See ci/load-branding-from-vault.sh and web/.env.example.
+      - name: Load publisher branding from Vault
+        run: ./ci/load-branding-from-vault.sh
+
       - name: Build static export
         working-directory: web
         env:
           NEXT_OUTPUT: export
-          PUBLISHER: ${{ vars.PUBLISHER }}
-          CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
-          JURISDICTION: ${{ vars.JURISDICTION }}
-          POSTAL_ADDRESS: ${{ vars.POSTAL_ADDRESS }}
-          APP_NAME: ${{ vars.APP_NAME }}
-          BUNDLE_ID: ${{ vars.BUNDLE_ID }}
-          GITHUB_URL: ${{ vars.GITHUB_URL }}
-          SITE_URL: ${{ vars.SITE_URL }}
-          LEGAL_LAST_UPDATED: ${{ vars.LEGAL_LAST_UPDATED }}
         run: npx next build
 
       - name: Assemble landing-only site

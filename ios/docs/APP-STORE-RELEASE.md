@@ -21,10 +21,32 @@ Nothing about the publisher is hard-coded. The legal pages and the store
 listing are both built from environment variables, so releasing this app under
 a different company needs no code change — only different values.
 
-Set these wherever the build runs. In GitHub Actions they are **repository
-variables** (Settings → Secrets and variables → Actions → Variables), not
-secrets: every one of them ends up visible on the published pages or the store
-listing.
+They live in **Vault**, in the flat KV v2 secret
+`secret/ring-promoter/branding` — the same Vault the iOS signing material
+comes from, so the publisher identity has one source of truth rather than a
+copy in each CI provider's settings, and the privacy policy and the App Store
+listing can never name different companies.
+
+```bash
+vault kv put secret/ring-promoter/branding \
+  PUBLISHER="Example Ltd" \
+  CONTACT_EMAIL="support@example.com" \
+  JURISDICTION="England and Wales" \
+  POSTAL_ADDRESS="1 Example Street|London|EC1A 1AA" \
+  REVIEW_FIRST_NAME="Ada" REVIEW_LAST_NAME="Lovelace" \
+  REVIEW_PHONE="+44 20 7946 0000"
+```
+
+`ci/load-branding-from-vault.sh` reads it and exports the values; both
+workflows run it before they need them. Nothing here is a GitHub secret or a
+repository variable. None of it is secret in the first place — every value
+ends up on a published page or the public listing — but keeping it beside the
+signing material means one place to change for a rebrand.
+
+Both workflows that need it now run on the self-hosted **mac-studio** runner,
+because that is where the Vault token file lives. For the Pages deploy that is
+a change: its build used to be GitHub-hosted to avoid queueing behind cluster
+deploys.
 
 | Variable | Used for | Required |
 |---|---|---|
@@ -64,7 +86,7 @@ through `.github/workflows/deploy-pages.yml`, on a push to `main` that touches
 
 ### Releasing under a different brand
 
-1. Change the repository variables above.
+1. Change the values in `secret/ring-promoter/branding` in Vault.
 2. Edit `ios/fastlane/metadata/en-GB/` — the listing name, subtitle,
    description, keywords and URLs are per-brand *content*, not configuration,
    so they stay as reviewable files rather than becoming environment
