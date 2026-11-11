@@ -385,7 +385,12 @@ platform :ios do
     # Scripted rather than listed in a checklist: the failure modes it catches
     # (a missing privacy manifest, an unaccepted screenshot size, a placeholder
     # left in the privacy policy) all cost a round trip with App Review.
-    sh("./scripts/verify-app-store-readiness.sh")
+    # Absolute, via __dir__, because fastlane's `sh` runs in the Fastfile's own
+    # directory rather than the one the lane runs from: a bare
+    # "./scripts/..." looks for ios/fastlane/scripts and dies with "Error
+    # accessing file". The script cd's to the repo itself, so only finding it
+    # matters. See https://docs.fastlane.tools/advanced/#directory-behavior
+    sh(File.expand_path("../scripts/verify-app-store-readiness.sh", __dir__))
   end
 
   desc "Submit the latest build for App Store review (manual release gate)"
