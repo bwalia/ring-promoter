@@ -1,0 +1,21 @@
+{
+    "groups": [
+        {
+            "id": "g-13c80161ab67",
+            "name": "Batch",
+            "apps": [
+                "batch-worker"
+            ],
+            "updated_at": "2026-07-29T10:38:51.856224Z"
+        },
+        {
+            "id": "g-49eb2e0944c5",
+            "name": "Core Platform",
+            "apps": [
+                "web-frontend",
+                "payments-api"
+            ],
+            "updated_at": "2026-07-29T10:38:51.690699Z"
+        }
+    ]
+}

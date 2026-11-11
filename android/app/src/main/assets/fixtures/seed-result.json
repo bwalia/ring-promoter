@@ -1,0 +1,17 @@
+{
+    "app": "web-frontend",
+    "action": "seed",
+    "ring": "int",
+    "version": "2.7.1",
+    "success": true,
+    "message": "seeded 2.7.1 and healthy",
+    "state": {
+        "app": "web-frontend",
+        "ring": "int",
+        "current_version": "2.7.1",
+        "previous_version": "",
+        "healthy": true,
+        "auto_promote": false,
+        "updated_at": "2026-07-29T10:38:47.314279Z"
+    }
+}

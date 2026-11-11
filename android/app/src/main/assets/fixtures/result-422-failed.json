@@ -1,0 +1,17 @@
+{
+    "app": "payments-api",
+    "action": "seed",
+    "ring": "acc",
+    "version": "v9.2.0",
+    "success": false,
+    "message": "seeded but health check failed: unhealthy: status 503",
+    "state": {
+        "app": "payments-api",
+        "ring": "acc",
+        "current_version": "v9.2.0",
+        "previous_version": "",
+        "healthy": false,
+        "auto_promote": false,
+        "updated_at": "2026-07-29T10:40:07.39965Z"
+    }
+}

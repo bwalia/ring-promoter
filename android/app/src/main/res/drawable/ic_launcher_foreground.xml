@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The promotion rings as orbits around a glowing core, matching the iOS app
+     icon. Everything sits inside the adaptive-icon safe zone (the centre 66dp
+     of 108dp) so no launcher mask clips an orbit. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Glow behind the core. -->
+    <path android:pathData="M30,54 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="54"
+                android:gradientRadius="24"
+                android:startColor="#59FFCB6B"
+                android:centerColor="#1FFFCB6B"
+                android:endColor="#00FFCB6B" />
+        </aapt:attr>
+    </path>
+
+    <!-- Three orbits: int outermost, prod closest to the core. -->
+    <path
+        android:pathData="M24,54 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0"
+        android:strokeColor="#B9A66A"
+        android:strokeWidth="1.1"
+        android:strokeAlpha="0.85" />
+    <path
+        android:pathData="M31,54 a23,23 0 1,0 46,0 a23,23 0 1,0 -46,0"
+        android:strokeColor="#B9A66A"
+        android:strokeWidth="1.1"
+        android:strokeAlpha="0.85" />
+    <path
+        android:pathData="M37.5,54 a16.5,16.5 0 1,0 33,0 a16.5,16.5 0 1,0 -33,0"
+        android:strokeColor="#B9A66A"
+        android:strokeWidth="1.1"
+        android:strokeAlpha="0.85" />
+
+    <!-- The core: live users. -->
+    <path android:pathData="M44,54 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="50"
+                android:centerY="50"
+                android:gradientRadius="13"
+                android:startColor="#FFF0C4"
+                android:endColor="#FFC24D" />
+        </aapt:attr>
+    </path>
+
+    <!-- Applications riding their orbits. -->
+    <path
+        android:pathData="M39.13,42.33 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0"
+        android:fillColor="#8FC4F0" />
+    <path
+        android:pathData="M67.8,29.43 a3.4,3.4 0 1,0 6.8,0 a3.4,3.4 0 1,0 -6.8,0"
+        android:fillColor="#F4A49B" />
+    <path
+        android:pathData="M68.32,68.78 a3.3,3.3 0 1,0 6.6,0 a3.3,3.3 0 1,0 -6.6,0"
+        android:fillColor="#9BE8AE" />
+</vector>

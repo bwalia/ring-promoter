@@ -1,0 +1,60 @@
+{
+    "app": "shop",
+    "ring": "int",
+    "version": "v1.4.0",
+    "links": [
+        {
+            "label": "Shop web UI",
+            "url": "https://int.shop.example.net/",
+            "kind": "web",
+            "source": "config"
+        },
+        {
+            "label": "iOS beta (TestFlight)",
+            "url": "https://testflight.apple.com/join/AbCd1234",
+            "kind": "ios",
+            "source": "config"
+        },
+        {
+            "label": "API docs",
+            "url": "https://api-int.shop.example.net/docs",
+            "kind": "docs",
+            "source": "config"
+        },
+        {
+            "label": "Release notes",
+            "url": "https://github.com/acme/shop/releases/tag/v1.4.0",
+            "kind": "release",
+            "source": "config"
+        }
+    ],
+    "plan": {
+        "summary": "This deploy ships the shop web UI and an iOS beta build to int.",
+        "checklist": [
+            "Open the shop web UI and sign in",
+            "Add an item to the cart and check out",
+            "Install the TestFlight build and launch the app",
+            "Skim the API docs for changed endpoints"
+        ],
+        "links": [
+            {
+                "label": "Shop web UI",
+                "url": "https://int.shop.example.net/",
+                "kind": "web",
+                "source": "config",
+                "why": "Sign in and try checkout"
+            },
+            {
+                "label": "iOS beta (TestFlight)",
+                "url": "https://testflight.apple.com/join/AbCd1234",
+                "kind": "ios",
+                "source": "config",
+                "why": "Install the iOS beta"
+            }
+        ],
+        "generated_at": "2026-10-02T21:23:43.018809Z"
+    },
+    "captured_at": "2026-10-02T21:23:43.007085Z",
+    "ai_enabled": true,
+    "plan_status": "done"
+}

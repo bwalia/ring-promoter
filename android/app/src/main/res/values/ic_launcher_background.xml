@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The deep navy of the Rings of Applications stage, matching the iOS icon. -->
+    <color name="ic_launcher_background">#16162F</color>
+</resources>

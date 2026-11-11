@@ -1,0 +1,21 @@
+{
+    "gated": true,
+    "gated_rings": [
+        "prod"
+    ],
+    "recurring": [
+        {
+            "Days": [
+                "Sat",
+                "Sun"
+            ],
+            "Start": "02:00",
+            "End": "04:00",
+            "Timezone": "Europe/London"
+        }
+    ],
+    "windows": [],
+    "open_rings": {
+        "prod": false
+    }
+}

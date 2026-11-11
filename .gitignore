@@ -9,3 +9,10 @@ web/node_modules/
 web/.next/
 web/out/
 web/next-env.d.ts
+
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.kotlin/
