@@ -5,6 +5,7 @@ import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.BlurCircular
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Settings
@@ -60,6 +61,7 @@ import org.fictionally.ringpromoter.ui.maintenance.MaintenanceViewModel
 import org.fictionally.ringpromoter.ui.onboarding.OnboardingScreen
 import org.fictionally.ringpromoter.ui.overview.OverviewScreen
 import org.fictionally.ringpromoter.ui.overview.OverviewViewModel
+import org.fictionally.ringpromoter.ui.rings.RingsScreen
 import org.fictionally.ringpromoter.ui.settings.ControlPlanesScreen
 import org.fictionally.ringpromoter.ui.settings.InstanceSwitcher
 import org.fictionally.ringpromoter.ui.settings.ReauthenticationDialog
@@ -73,6 +75,7 @@ import org.fictionally.ringpromoter.ui.settings.SettingsScreen
  */
 internal object Routes {
     const val OVERVIEW = "overview"
+    const val RINGS = "rings"
     const val ACTIVITY = "activity"
     const val SETTINGS = "settings"
     const val CLUSTERS = "clusters"
@@ -92,9 +95,10 @@ internal object Routes {
     private fun encode(segment: String): String = Uri.encode(segment)
 }
 
-/** The three top-level screens. */
+/** The top-level screens, in order. */
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     OVERVIEW(Routes.OVERVIEW, "Overview", Icons.Filled.Layers),
+    RINGS(Routes.RINGS, "Rings", Icons.Filled.BlurCircular),
     ACTIVITY(Routes.ACTIVITY, "Activity", Icons.Filled.History),
     SETTINGS(Routes.SETTINGS, "Settings", Icons.Filled.Settings),
 }
@@ -199,6 +203,7 @@ private fun ConnectedApp(session: Session, modifier: Modifier = Modifier) {
             modifier = Modifier.padding(bottom = bottomInset.calculateBottomPadding()),
         ) {
             composable(Routes.OVERVIEW) { OverviewRoute(session, navController) }
+            composable(Routes.RINGS) { RingsRoute(session, navController) }
             composable(Routes.ACTIVITY) { ActivityRoute(session, navController) }
 
             composable(Routes.SETTINGS) {
@@ -315,6 +320,38 @@ private fun OverviewRoute(session: Session, navController: NavHostController) {
             state = state,
             onSearch = vm::setSearchText,
             onSelectGroup = vm::selectGroup,
+            onOpenApp = { navController.navigate(Routes.app(it)) },
+            onRetry = { scope.launch { vm.refresh() } },
+            modifier = Modifier.padding(inset),
+        )
+    }
+}
+
+/**
+ * The whole fleet on one stage. Driven by the same [OverviewViewModel] as the
+ * Overview — one fetch, two readings of it, and no second set of refresh rules
+ * to keep in step.
+ */
+@Composable
+private fun RingsRoute(session: Session, navController: NavHostController) {
+    val vm = remember { OverviewViewModel(session) }
+    val state by vm.state.collectAsStateWithLifecycle()
+    val refreshInterval by session.settings.refreshInterval.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) { vm.refresh() }
+    LaunchedEffect(refreshInterval) {
+        if (refreshInterval <= 0) return@LaunchedEffect
+        while (true) {
+            delay(refreshInterval * 1_000L)
+            vm.refresh()
+        }
+    }
+
+    Scaffolded("Rings", session, navController, showsBack = false) { inset ->
+        RingsScreen(
+            state = state,
+            ringNames = session.pipeline.names,
             onOpenApp = { navController.navigate(Routes.app(it)) },
             onRetry = { scope.launch { vm.refresh() } },
             modifier = Modifier.padding(inset),
