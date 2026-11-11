@@ -125,9 +125,10 @@ byte, so:
 Each phase ends with something runnable and one check that fails if the phase's
 logic breaks. No phase is "done" without its check.
 
-**Status: phases 0–4 are complete and green.** 106 JVM unit tests pass, and the
-whole critical path — demo mode, Overview, app detail, action sheet, live job —
-was walked on an emulator and screenshotted. Phases 5–8 remain.
+**Status: phases 0–8 are complete.** 172 JVM unit tests pass; every screen was
+walked on an emulator. The one thing outstanding is not code: the Play listing
+needs an account holder to create the app entry, accept the Console terms, and
+own the upload key. `scripts/verify-play-readiness.sh` says which.
 
 ### Phase 0 — it builds and runs ✅
 Gradle skeleton, version catalog, manifest, Compose scaffold, theme ported from
@@ -169,12 +170,14 @@ operator both actually walk.
 change fails the walk loudly instead of silently tapping empty space. A Compose
 instrumentation test still to be added in phase 5.
 
-### Phase 5 — the rest of the screens
+### Phase 5 — the rest of the screens ✅
 Activity feed, History, Maintenance windows, Groups, Settings + control-plane
 management + instance switcher, Test kits, lock screen, re-authentication.
-**Check:** `NavigationAndStoreTests` port.
+Three tabs: Overview, Activity, Settings (Rings joined them in phase 6).
+**Check:** `NavigationTest` — deep links, the history day grouping, and the
+cluster probe, all pure or against a mock server.
 
-### Phase 6 — Rings of Applications ("Descent")
+### Phase 6 — Rings of Applications ("Descent") ✅
 The hardest screen: Earth at the centre, promotion rings as orbits (int
 outermost, prod just above Earth), one straight spoke per app with a lit trail
 showing how far its newest version has travelled. Falls back to "lanes" (one row
@@ -185,17 +188,24 @@ The geometry is already written three times — `ios/.../DescentLayout.swift`,
 Port the maths as pure functions first and test it against the iOS test
 expectations, then draw it with Compose `Canvas`. Honour
 `Settings.Global.ANIMATOR_DURATION_SCALE == 0` as iOS honours Reduce Motion.
-**Check:** `RingsUniverseTests` port — pure geometry, no rendering.
+**Check:** `RingsUniverseTest` — pure geometry, no rendering.
 
-### Phase 7 — platform extras
-Glance widget (pipeline snapshot, no token in the snapshot), `ringpromoter://`
-deep links, biometric app lock, theme switching.
-**Check:** widget snapshot round-trips; deep link opens the right app.
+### Phase 7 — platform extras ✅
+Glance widget (pipeline snapshot, no token in it), `ringpromoter://` deep
+links, biometric app lock and production confirmation, theme switching.
+**Check:** `WidgetSnapshotTest` sweeps the encoded snapshot for anything
+resembling a credential or a host; `NavigationTest` covers the deep links.
+Verified on a device: the widget was placed on a home screen and tapping it
+opened the right application.
 
-### Phase 8 — ship
-App icon, feature graphic, phone screenshots from the emulator, signing key,
-Play release lane in CI mirroring `ios-release.yml`. Feeds the Play Console
-prompt already written.
+### Phase 8 — ship ✅
+App icon (adaptive, drawn as vectors in phase 0), feature graphic, phone
+screenshots captured from demo mode, signing configuration, and a Play release
+lane mirroring `ios-release.yml`: Vault for the upload key and the service
+account, fastlane `supply` for the upload, every upload a **draft** so nothing
+reaches a user until a human presses release.
+**Check:** `scripts/verify-play-readiness.sh`, which also runs in CI before the
+build. See `store/README.md` for what only the account holder can do.
 
 ## Toolchain notes
 
@@ -221,17 +231,25 @@ cd android
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew test assembleDebug
 ```
 
+The release build works without any signing material — it simply comes out
+unsigned — so anyone can check that R8 and the proguard rules still hold:
+
+```sh
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleRelease
+```
+
 ## Order of work, and what I will ask about
 
 Phases 0–3 need no decisions — they are a mechanical port of logic that already
 has tests.
 
-Two things to settle before they bite:
+One thing is still open, and it is the one that cannot be undone:
 
-- **The `applicationId`**, before anything is uploaded to Play. Permanent, and
-  currently set to `org.fictionally.ringpromoter` to match iOS.
-- **Whether Phase 6 is wanted in v1.** The Descent screen is roughly a fifth of
-  the UI work for a screen that is beautiful rather than load-bearing; the lanes
-  fallback alone would get the same information on screen for a tenth of the
-  effort. Shipping v1 without the orbital rendering is a defensible call, and
-  the tab can arrive in 1.1.
+- **The `applicationId`**, before anything is uploaded to Play. It is
+  `org.fictionally.ringpromoter`, matching the iOS bundle ID. A package name
+  can never be changed, reused or freed once published, not even after the app
+  is deleted, so it wants a deliberate yes rather than a default.
+
+Phase 6 was built. The question recorded here was whether the Descent screen
+earned its place in v1; it did, and the lanes fallback that would have replaced
+it ships alongside it as the view a narrow screen or a large fleet gets anyway.

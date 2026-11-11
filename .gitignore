@@ -16,3 +16,9 @@ android/build/
 android/app/build/
 android/local.properties
 android/.kotlin/
+# Upload-key material. Never committed: a leaked upload key lets someone else
+# publish to this Play listing, and Play will not let the package name move.
+android/keystore.properties
+android/*.jks
+android/*.keystore
+android/.android-secrets/
