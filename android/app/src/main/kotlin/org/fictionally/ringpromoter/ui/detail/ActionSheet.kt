@@ -37,6 +37,9 @@ import org.fictionally.ringpromoter.model.PromotionAction
 import org.fictionally.ringpromoter.model.PromotionLegality
 import org.fictionally.ringpromoter.model.RingStatus
 import org.fictionally.ringpromoter.net.ApiError
+import androidx.activity.compose.LocalActivity
+import androidx.fragment.app.FragmentActivity
+import org.fictionally.ringpromoter.LocalContainer
 import org.fictionally.ringpromoter.ui.components.ErrorRow
 import org.fictionally.ringpromoter.ui.theme.rpPalette
 
@@ -82,6 +85,8 @@ fun ActionSheetContent(
 ) {
     val palette = rpPalette
     val scope = rememberCoroutineScope()
+    val biometrics = LocalContainer.current.biometrics
+    val activity = LocalActivity.current as? FragmentActivity
 
     var crCode by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -124,6 +129,15 @@ fun ActionSheetContent(
     }
     val signoffSatisfied = !requirements.qaSignoff || existingSignoff?.isGo == true
     val windowSatisfied = !requirements.maintenanceWindow || requirements.maintenanceWindowOpen
+
+    /**
+     * Ask for the device unlock first. Scoped exactly as the typed
+     * confirmation is: production, and never a rollback.
+     */
+    val needsBiometricConfirmation = targetsProduction &&
+        request.action != PromotionAction.ROLLBACK &&
+        viewModel.requiresBiometricsForProduction &&
+        biometrics.canAuthenticate
 
     val canSubmit = legality.isAllowed && !isSubmitting &&
         (!requirements.changeRequestCode || crCode.isNotBlank()) &&
@@ -296,6 +310,14 @@ fun ActionSheetContent(
             )
         }
 
+        if (needsBiometricConfirmation) {
+            Text(
+                "You will be asked for the device unlock before this runs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         if (requiresTypedConfirmation) {
             OutlinedTextField(
                 value = typedAppName,
@@ -326,6 +348,20 @@ fun ActionSheetContent(
                         isSubmitting = true
                         error = null
                         try {
+                            // The device unlock, before anything reaches
+                            // production. Rollback never asks: incident
+                            // response is the one thing never to slow down.
+                            if (needsBiometricConfirmation &&
+                                activity != null &&
+                                !biometrics.authenticate(
+                                    activity = activity,
+                                    title = "Confirm production action",
+                                    subtitle = "${request.action.title} into " +
+                                        (targetRing?.ring?.label ?: "production"),
+                                )
+                            ) {
+                                return@launch
+                            }
                             val jobId = when (request) {
                                 is ActionRequest.Promote -> viewModel.promote(
                                     request.ring.ring.name,

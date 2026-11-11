@@ -28,6 +28,11 @@ class Session(
     val settings: Settings,
     private val fixtures: FixtureSource,
     private val http: OkHttpClient = RingPromoterClient.defaultHttpClient(),
+    /**
+     * Where the home-screen widget's snapshot goes. Null in tests and
+     * previews, which have no widget host.
+     */
+    private val widget: WidgetPublisher? = null,
 ) {
     /** How the app is currently talking to a control plane. */
     sealed interface Mode {
@@ -191,6 +196,7 @@ class Session(
 
     /** Leave the current instance without deleting it, returning to onboarding. */
     fun disconnect() {
+        widget?.clear()
         _mode.value = Mode.Disconnected
         _api.value = UnconfiguredClient
         generation += 1
@@ -230,6 +236,16 @@ class Session(
      */
     fun note(error: ApiError) {
         if (error.requiresReauthentication) _needsReauthentication.value = true
+    }
+
+    /**
+     * Hand the widget what the Overview just loaded.
+     *
+     * Only ever the app list, versions and health — never a token or a server
+     * address. See [org.fictionally.ringpromoter.widget.WidgetSnapshot].
+     */
+    fun publishWidgetSnapshot(apps: List<org.fictionally.ringpromoter.ui.overview.AppSummary>) {
+        widget?.publish(instanceName, instanceTint.name.lowercase(), isDemo, apps)
     }
 
     fun clearReauthenticationFlag() {

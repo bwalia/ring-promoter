@@ -39,6 +39,19 @@
                 <data android:scheme="ringpromoter" android:host="app" />
             </intent-filter>
         </activity>
+
+        <!-- The widget draws from the app's cached snapshot, which holds no
+             token and no server address — only what is already on screen. -->
+        <receiver
+            android:name=".widget.PipelineWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/pipeline_widget_info" />
+        </receiver>
     </application>
 
 </manifest>

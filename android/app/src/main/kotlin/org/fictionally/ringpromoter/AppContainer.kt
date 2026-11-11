@@ -12,6 +12,7 @@ import org.fictionally.ringpromoter.store.Session
 import org.fictionally.ringpromoter.store.Settings
 import org.fictionally.ringpromoter.store.TokenStore
 import org.fictionally.ringpromoter.ui.DeepLink
+import org.fictionally.ringpromoter.widget.GlanceWidgetPublisher
 
 /**
  * Everything the app depends on, built once.
@@ -38,6 +39,7 @@ class AppContainer(context: Context) {
         instances = instances,
         settings = settings,
         fixtures = FixtureSource.fromAssets(app.assets),
+        widget = GlanceWidgetPublisher(app),
     )
 
     /**

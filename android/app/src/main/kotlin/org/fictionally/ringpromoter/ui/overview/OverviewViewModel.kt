@@ -217,6 +217,11 @@ class OverviewViewModel(private val session: Session) : ViewModel() {
                     lastUpdated = Instant.now(),
                 )
             }
+
+            // The home-screen widget draws from this, and only this: a
+            // refresh that failed leaves the previous snapshot alone rather
+            // than replacing it with half a picture.
+            session.publishWidgetSnapshot(summaries)
         } finally {
             _state.update { it.copy(isLoading = false) }
         }

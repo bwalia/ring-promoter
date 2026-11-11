@@ -70,6 +70,10 @@ class AppDetailViewModel(
     val prodProtected: Boolean get() = session.prodProtected
     val aiEnabled: Boolean get() = session.aiEnabled
 
+    /** This instance asks for the device unlock before a production deploy. */
+    val requiresBiometricsForProduction: Boolean
+        get() = session.requiresBiometricsForProduction
+
     suspend fun refresh() {
         if (!refreshing.tryLock()) return
         try {
