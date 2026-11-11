@@ -7,6 +7,8 @@ import org.fictionally.ringpromoter.model.AppsResponse
 import org.fictionally.ringpromoter.model.DISTANT_PAST
 import org.fictionally.ringpromoter.model.GroupsResponse
 import org.fictionally.ringpromoter.model.HistoryEntry
+import org.fictionally.ringpromoter.model.Job
+import org.fictionally.ringpromoter.model.JobsResponse
 import org.fictionally.ringpromoter.model.HistoryResponse
 import org.fictionally.ringpromoter.model.MaintenanceStatus
 import org.fictionally.ringpromoter.model.MaintenanceWindow
@@ -22,6 +24,7 @@ import org.fictionally.ringpromoter.model.Signoff
 import org.fictionally.ringpromoter.model.SignoffsResponse
 import org.fictionally.ringpromoter.model.VersionsResponse
 import org.fictionally.ringpromoter.net.RpJson
+import java.time.Duration
 import java.time.Instant
 import kotlin.random.Random
 
@@ -36,6 +39,14 @@ class DemoWorld(
     var apps: AppsResponse,
     private val ringsByApp: MutableMap<String, List<RingStatus>>,
     var history: MutableList<HistoryEntry>,
+    /**
+     * Finished jobs from the captured corpus, so the Activity feed has
+     * something in it before the operator has started anything themselves.
+     *
+     * A live demo of a screen whose whole subject is "what is everyone doing"
+     * cannot open on "nothing has run yet".
+     */
+    val seededJobs: List<Job>,
     private val groups: MutableList<AppGroup>,
     val signoffs: MutableList<Signoff>,
     private val windowsByApp: MutableMap<String, MutableList<MaintenanceWindow>>,
@@ -274,6 +285,12 @@ class DemoWorld(
                     entry.copy(createdAt = now.minusSeconds(index * 2_400L))
                 }
 
+            // One every 25 minutes, newest first, with each job's own step
+            // timings preserved.
+            val seededJobs = decode(FixtureName.JOBS, JobsResponse.serializer()).jobs
+                .sortedByDescending { it.startedAt }
+                .mapIndexed { index, job -> job.rebased(now.minusSeconds(index * 1_500L)) }
+
             val groups = decode(FixtureName.GROUPS, GroupsResponse.serializer()).groups
                 .map { it.copy(updatedAt = now) }
             val signoffs = decode(FixtureName.SIGNOFFS, SignoffsResponse.serializer()).signoffs
@@ -300,6 +317,7 @@ class DemoWorld(
                     "batch-worker" to managedRings.map { it.rebased(now, random) },
                 ),
                 history = history.toMutableList(),
+                seededJobs = seededJobs,
                 groups = groups.toMutableList(),
                 signoffs = signoffs.toMutableList(),
                 windowsByApp = mutableMapOf("payments-api" to windows.toMutableList()),
@@ -348,6 +366,7 @@ class DemoWorld(
                 apps = apps,
                 ringsByApp = mutableMapOf("web-frontend" to states),
                 history = mutableListOf(),
+                seededJobs = emptyList(),
                 groups = mutableListOf(),
                 signoffs = mutableListOf(),
                 windowsByApp = mutableMapOf(),
@@ -365,6 +384,22 @@ class DemoWorld(
  * Move a never-deployed ring's zero timestamp aside and pull real ones close to
  * [now], so demo mode shows "12 minutes ago", not a stale date.
  */
+/**
+ * Move a captured job so it started at [target], keeping every internal
+ * duration exactly as it was recorded.
+ */
+private fun Job.rebased(target: Instant): Job {
+    val shift = Duration.between(startedAt, target)
+    fun Instant.moved(): Instant = plus(shift)
+    return copy(
+        startedAt = startedAt.moved(),
+        finishedAt = finishedAt?.moved(),
+        steps = steps.map {
+            it.copy(startedAt = it.startedAt.moved(), finishedAt = it.finishedAt?.moved())
+        },
+    )
+}
+
 private fun RingStatus.rebased(now: Instant, random: Random): RingStatus =
     if (!hasBeenDeployedTo) this
     else copy(updatedAt = now.minusSeconds(random.nextLong(300, 7_200)))

@@ -34,6 +34,7 @@ import org.fictionally.ringpromoter.model.Job
 import org.fictionally.ringpromoter.model.JobStep
 import org.fictionally.ringpromoter.model.StepStatus
 import org.fictionally.ringpromoter.ui.components.ErrorRow
+import org.fictionally.ringpromoter.ui.components.MarkdownText
 import org.fictionally.ringpromoter.ui.theme.RpPalette
 import org.fictionally.ringpromoter.ui.theme.rpPalette
 
@@ -88,7 +89,7 @@ fun JobScreen(
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Diagnosis", style = MaterialTheme.typography.titleSmall)
-                        Text(diagnosis, style = MaterialTheme.typography.bodySmall)
+                        MarkdownText(diagnosis, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

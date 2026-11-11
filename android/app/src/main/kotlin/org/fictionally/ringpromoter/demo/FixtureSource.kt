@@ -32,6 +32,7 @@ object FixtureName {
     const val RINGS_GATED = "rings-gated"
     const val RINGS_MANAGED = "rings-managed"
     const val RINGS_UNHEALTHY = "rings-unhealthy"
+    const val JOBS = "jobs"
     const val HISTORY = "history"
     const val HISTORY_WITH_FAILURES = "history-with-failures"
     const val GROUPS = "groups"

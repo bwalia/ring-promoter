@@ -133,18 +133,27 @@ class DemoClient(
     }
 
     override suspend fun job(app: String, id: String): Job = lock.withLock {
-        val demo = jobs[id]?.takeIf { it.app == app } ?: throw ApiError.NotFound("job not found")
-        // Advance on read: the poller sees steps appear as time passes, with no
-        // background work to leak.
-        val advanced = demo.snapshot(clock())
-        applyCompletion(demo, advanced)
-        advanced
+        val demo = jobs[id]?.takeIf { it.app == app }
+        if (demo != null) {
+            // Advance on read: the poller sees steps appear as time passes,
+            // with no background work to leak.
+            val advanced = demo.snapshot(clock())
+            applyCompletion(demo, advanced)
+            advanced
+        } else {
+            // A seeded job from the captured corpus is already finished, so it
+            // is returned as it stands rather than advanced.
+            world.seededJobs.firstOrNull { it.id == id && it.app == app }
+                ?: throw ApiError.NotFound("job not found")
+        }
     }
 
     override suspend fun recentJobs(): List<Job> = lock.withLock {
         val now = clock()
-        jobs.values
-            .map { it.snapshot(now) }
+        // The server returns the newest job per application, so a job started
+        // in this session replaces the seeded one for that app rather than
+        // appearing alongside it.
+        (world.seededJobs + jobs.values.map { it.snapshot(now) })
             .groupBy { it.app }
             .mapNotNull { (_, snapshots) -> snapshots.maxByOrNull { it.startedAt } }
             .sortedByDescending { it.startedAt }
@@ -294,6 +303,8 @@ class DemoClient(
 
     override suspend fun diagnoseJob(app: String, id: String): DiagnosisResponse = lock.withLock {
         requireAi()
+        // Only a job started in this session can be diagnosed; the seeded one
+        // succeeded, and the server refuses to diagnose a success anyway.
         val demo = jobs[id]?.takeIf { it.app == app } ?: throw ApiError.NotFound("job not found")
         if (demo.snapshot(clock()).status != JobStatus.FAILED) {
             throw ApiError.Conflict("only failed jobs can be diagnosed")

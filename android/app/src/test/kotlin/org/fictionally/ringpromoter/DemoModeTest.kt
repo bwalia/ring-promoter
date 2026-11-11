@@ -2,6 +2,7 @@ package org.fictionally.ringpromoter
 
 import kotlinx.coroutines.test.runTest
 import org.fictionally.ringpromoter.demo.DemoClient
+import org.fictionally.ringpromoter.model.JobsResponse
 import org.fictionally.ringpromoter.demo.DemoWorld
 import org.fictionally.ringpromoter.demo.FixtureSource
 import org.fictionally.ringpromoter.model.Job
@@ -14,6 +15,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Duration
 import java.time.Instant
 import kotlin.random.Random
 
@@ -456,5 +458,47 @@ class DemoModeTest {
         val world = DemoWorld.load(FixtureSource { error("no fixtures here") }, start)
         assertTrue("demo mode must never open to a blank screen", world.apps.apps.isNotEmpty())
         assertTrue(world.rings("web-frontend").isNotEmpty())
+    }
+
+    // The activity feed
+
+    @Test
+    fun `the activity feed is not empty before anything has been started`() = runTest {
+        // A screen whose subject is "what is everyone doing" must not open on
+        // "nothing has run yet" during a demo.
+        val jobs = client().recentJobs()
+        assertTrue(jobs.isNotEmpty())
+        assertTrue(jobs.all { it.isFinished })
+    }
+
+    @Test
+    fun `a seeded job keeps its recorded step durations`() = runTest {
+        val job = client().recentJobs().first { it.app == "web-frontend" }
+        val captured: JobsResponse = Fixtures.decode("jobs")
+        val original = captured.jobs.first { it.id == job.id }
+        assertEquals(
+            original.steps.map { Duration.between(it.startedAt, it.finishedAt).toMillis() },
+            job.steps.map { Duration.between(it.startedAt, it.finishedAt).toMillis() },
+        )
+    }
+
+    @Test
+    fun `a seeded job opens from the feed`() = runTest {
+        val listed = client().recentJobs().first()
+        val opened = client().job(listed.app, listed.id)
+        assertEquals(listed.id, opened.id)
+    }
+
+    @Test
+    fun `a job started now replaces the seeded one for that app`() = runTest {
+        val (client, clock) = clientAndClock()
+        val before = client.recentJobs().size
+        val id = client.seed("web-frontend", "int", "9.9.9", null, null)
+        clock.advance(30)
+        val jobs = client.recentJobs()
+        // The server returns the newest job per app, so the count is unchanged
+        // and the new job is the one listed.
+        assertEquals(before, jobs.size)
+        assertEquals(id, jobs.first { it.app == "web-frontend" }.id)
     }
 }

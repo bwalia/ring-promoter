@@ -1,10 +1,12 @@
 #!/bin/sh
-# Tap the on-screen element whose text contains $1, then optionally screenshot
-# to $2.
+# Tap the on-screen element whose text is exactly $1, then optionally
+# screenshot to $2.
 #
 # Taps by label rather than by coordinate, so a layout change makes the
 # walkthrough fail loudly instead of silently tapping empty space and
-# "passing". Retries for a few seconds because a tap and the recomposition it
+# "passing". The match is exact: a prefix match once tapped "Open now" when
+# the walk asked for "Open", which is the same silent-wrong-tap failure in a
+# different costume. Retries for a few seconds because a tap and the recomposition it
 # causes are not synchronous — the previous version of this script raced them
 # and reported success against a stale screen.
 set -e
@@ -19,7 +21,7 @@ i=0
 while [ "$i" -lt "$tries" ]; do
   $ADB shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
   xml=$($ADB shell cat /sdcard/ui.xml 2>/dev/null || true)
-  coords=$(printf '%s' "$xml" | tr '>' '\n' | grep -F "text=\"$label" | head -1 |
+  coords=$(printf '%s' "$xml" | tr '>' '\n' | grep -F "text=\"$label\"" | head -1 |
     grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' |
     grep -oE '[0-9]+' | tr '\n' ' ')
   [ -n "$coords" ] && break
