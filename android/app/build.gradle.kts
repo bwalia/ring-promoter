@@ -26,9 +26,15 @@ val uploadStorePath = signingValue("storeFile", "RP_ANDROID_KEYSTORE")
 val uploadStorePassword = signingValue("storePassword", "RP_ANDROID_KEYSTORE_PASSWORD")
 val uploadKeyAlias = signingValue("keyAlias", "RP_ANDROID_KEY_ALIAS")
 val uploadKeyPassword = signingValue("keyPassword", "RP_ANDROID_KEY_PASSWORD")
+
+// `storeFile` is read from the root-level keystore.properties, so a relative
+// path in it means relative to that file — not to this module. Resolving it
+// with `file()` instead looked for android/app/upload.jks, found nothing, and
+// quietly produced an UNSIGNED release bundle that Play would reject.
+val uploadStoreFile = uploadStorePath?.let { rootProject.file(it) }
 val hasUploadKey = listOf(
     uploadStorePath, uploadStorePassword, uploadKeyAlias, uploadKeyPassword,
-).all { !it.isNullOrEmpty() } && file(uploadStorePath!!).exists()
+).all { !it.isNullOrEmpty() } && uploadStoreFile!!.exists()
 
 android {
     namespace = "org.fictionally.ringpromoter"
@@ -55,7 +61,7 @@ android {
     signingConfigs {
         if (hasUploadKey) {
             create("upload") {
-                storeFile = file(uploadStorePath!!)
+                storeFile = uploadStoreFile
                 storePassword = uploadStorePassword
                 keyAlias = uploadKeyAlias
                 keyPassword = uploadKeyPassword

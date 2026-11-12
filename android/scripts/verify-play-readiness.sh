@@ -51,8 +51,19 @@ fi
   || bad "no launcher icon"
 
 # An unsigned bundle cannot be uploaded at all.
-if [ -n "${RP_ANDROID_KEYSTORE:-}" ] || [ -f keystore.properties ]; then
-  ok "upload key configured"
+#
+# This looks for the keystore itself, not merely for a keystore.properties
+# beside it. The earlier version checked only that the properties file existed
+# and reported "ok" while Gradle resolved the path to nothing and emitted an
+# unsigned bundle — a green check against a state it had never looked at.
+store="${RP_ANDROID_KEYSTORE:-}"
+if [ -z "$store" ] && [ -f keystore.properties ]; then
+  store=$(sed -n 's/^storeFile=//p' keystore.properties | head -1)
+fi
+# A relative storeFile is relative to this directory, which is where Gradle
+# resolves it from too.
+if [ -n "$store" ] && [ -f "$store" ]; then
+  ok "upload key present and resolvable"
 else
   bad "no upload key — set keystore.properties or RP_ANDROID_KEYSTORE (CI loads it from Vault)"
 fi
