@@ -13,7 +13,8 @@ import {
 import { AutoPromoteDiagram } from "@/components/landing/autopromote-diagram";
 import { CtaTerminal } from "@/components/landing/cta-terminal";
 import { DeployerPaths } from "@/components/landing/deployer-paths";
-import { AppStoreBadge, APP_STORE_URL, IosAppSection } from "@/components/landing/ios-app-section";
+import { AppStoreBadge } from "@/components/app-store-badge";
+import { IosAppSection } from "@/components/landing/ios-app-section";
 import { FactStrip } from "@/components/landing/fact-strip";
 import { ScrollRefresh } from "@/components/landing/gsap/scroll-refresh";
 import { HeroSim } from "@/components/landing/hero-sim";
@@ -73,7 +74,6 @@ function Nav() {
     ["Protocol", "#protocol"],
     ["Live ops", "#live-ops"],
     ["Deployers", "#deployers"],
-    ["iOS app", "#ios"],
     ["Config", "#config"],
     ["FAQ", "#faq"],
     ["Compare", "compare/"],
@@ -83,33 +83,34 @@ function Nav() {
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
         <a href="#" className="flex items-center gap-2.5">
           <RingMark className="size-6" />
-          <span className="font-display text-[15px] font-semibold tracking-tight text-neutral-50">
+          <span className="whitespace-nowrap font-display text-[15px] font-semibold tracking-tight text-neutral-50">
             Ring Promoter
           </span>
         </a>
-        <nav aria-label="Sections" className="hidden items-center gap-6 md:flex">
+        <nav aria-label="Sections" className="hidden items-center gap-5 lg:flex xl:gap-6">
           {links.map(([label, href]) => (
             <a
               key={href}
               href={href}
-              className="text-[13px] text-neutral-400 transition-colors hover:text-neutral-100"
+              className="whitespace-nowrap text-[13px] text-neutral-400 transition-colors hover:text-neutral-100"
             >
               {label}
             </a>
           ))}
         </nav>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <AppStoreBadge size="sm" compact />
           <a
             href={GITHUB}
             target="_blank"
             rel="noreferrer"
-            className="hidden text-[13px] text-neutral-400 transition-colors hover:text-neutral-100 sm:block"
+            className="hidden whitespace-nowrap text-[13px] text-neutral-400 transition-colors hover:text-neutral-100 xl:block"
           >
             GitHub ↗
           </a>
           <Link
             href="/"
-            className="rounded-md bg-neutral-100 px-3 py-1.5 text-[13px] font-medium text-neutral-900 transition-colors hover:bg-white"
+            className="hidden whitespace-nowrap rounded-md bg-neutral-100 px-3 py-1.5 text-[13px] font-medium sm:block text-neutral-900 transition-colors hover:bg-white"
           >
             Open the console
           </Link>
@@ -133,11 +134,14 @@ function Footer() {
   return (
     <footer className="border-t border-white/[0.07]">
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div className="flex items-center gap-2.5">
-          <RingMark className="size-4" />
-          <span className="text-sm text-neutral-400">
-            Ring Promoter — a control plane for release promotion
-          </span>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-2.5">
+            <RingMark className="size-4" />
+            <span className="text-sm text-neutral-400">
+              Ring Promoter — a control plane for release promotion
+            </span>
+          </div>
+          <AppStoreBadge size="sm" className="self-start" />
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-neutral-500">
           <span className="font-mono text-xs">int → test → acc → prod</span>
@@ -151,9 +155,6 @@ function Footer() {
           <Link href="/terms" className="transition-colors hover:text-neutral-200">
             Terms
           </Link>
-          <a href={APP_STORE_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-neutral-200">
-            iPhone &amp; iPad app ↗
-          </a>
           <a href={GITHUB} target="_blank" rel="noreferrer" className="transition-colors hover:text-neutral-200">
             GitHub ↗
           </a>

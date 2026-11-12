@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { AppStoreBadge } from "@/components/app-store-badge";
 import { APP_NAME, GITHUB_URL, LAST_UPDATED } from "@/lib/legal";
 
 /**
@@ -185,17 +186,21 @@ function LegalNav() {
             {APP_NAME}
           </span>
         </Link>
-        <nav aria-label="Legal" className="flex items-center gap-5 text-[13px] text-neutral-400">
-          <Link href="/privacy/" className="transition-colors hover:text-neutral-100">
-            Privacy
-          </Link>
-          <Link href="/terms/" className="transition-colors hover:text-neutral-100">
-            Terms
-          </Link>
-          <Link href="/support/" className="transition-colors hover:text-neutral-100">
-            Support
-          </Link>
-        </nav>
+        <div className="flex items-center gap-4 sm:gap-5">
+          {/* Hidden below sm so the App Store badge fits; the footer repeats them. */}
+          <nav aria-label="Legal" className="hidden items-center gap-5 text-[13px] text-neutral-400 sm:flex">
+            <Link href="/privacy/" className="transition-colors hover:text-neutral-100">
+              Privacy
+            </Link>
+            <Link href="/terms/" className="transition-colors hover:text-neutral-100">
+              Terms
+            </Link>
+            <Link href="/support/" className="transition-colors hover:text-neutral-100">
+              Support
+            </Link>
+          </nav>
+          <AppStoreBadge size="sm" compact />
+        </div>
       </div>
     </header>
   );
@@ -205,8 +210,20 @@ function LegalFooter() {
   return (
     <footer className="border-t border-white/[0.07]">
       <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-8 text-[13px] text-neutral-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <span>{APP_NAME} — a control plane for release promotion</span>
-        <div className="flex items-center gap-5">
+        <div className="flex flex-col gap-4">
+          <span>{APP_NAME} — a control plane for release promotion</span>
+          <AppStoreBadge size="sm" className="self-start" />
+        </div>
+        <div className="flex flex-wrap items-center gap-5">
+          <Link href="/privacy/" className="transition-colors hover:text-neutral-200">
+            Privacy
+          </Link>
+          <Link href="/terms/" className="transition-colors hover:text-neutral-200">
+            Terms
+          </Link>
+          <Link href="/support/" className="transition-colors hover:text-neutral-200">
+            Support
+          </Link>
           <Link href="/" className="transition-colors hover:text-neutral-200">
             Overview
           </Link>
