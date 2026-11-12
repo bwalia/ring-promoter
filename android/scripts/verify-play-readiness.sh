@@ -50,6 +50,15 @@ fi
   && ok "launcher icon" \
   || bad "no launcher icon"
 
+# Play wants a 512x512 PNG, and the app's icon is a vector, so there is no
+# raster anywhere in the build to upload. The listing cannot be completed
+# without this file and nothing else in the repository produces it.
+if [ -f store/play-icon-512.png ]; then
+  ok "store icon (512x512)"
+else
+  bad "no store/play-icon-512.png (python3 scripts/make-play-icon.py)"
+fi
+
 # An unsigned bundle cannot be uploaded at all.
 #
 # This looks for the keystore itself, not merely for a keystore.properties
@@ -68,9 +77,24 @@ else
   bad "no upload key — set keystore.properties or RP_ANDROID_KEYSTORE (CI loads it from Vault)"
 fi
 
+# A signed bundle still cannot reach Play without credentials for the upload.
+# Checked here rather than discovered by the release lane, which fails at the
+# last step after a full build.
+if [ -n "${PLAY_SERVICE_ACCOUNT_JSON_B64:-}" ]; then
+  ok "play service account in the environment"
+elif [ -f .android-secrets/play-service-account.json ]; then
+  ok "play service account present"
+  note "local only — it belongs in Vault at secret/ring-promoter/android"
+else
+  bad "no play service account — CI reads PLAY_SERVICE_ACCOUNT_JSON_B64 from Vault"
+fi
+
 # The data-safety form is answered in the Console, but it has to be true of the
-# build. This is the check that keeps it honest.
-if grep -rqE 'com\.google\.firebase|google-services|analytics' app/build.gradle.kts; then
+# build. This is the check that keeps it honest. The version catalog is checked
+# too: an alias there is how such a dependency would arrive without the word
+# ever appearing in the build file.
+if grep -rqE 'com\.google\.firebase|google-services|analytics|crashlytics|play-services-ads' \
+    app/build.gradle.kts gradle/libs.versions.toml; then
   bad "an analytics or Firebase dependency is present — the Data safety form says no data is collected"
 else
   ok "no analytics or telemetry dependency"
