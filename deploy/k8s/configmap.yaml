@@ -737,7 +737,7 @@ data:
       # diytaxreturn-dns sitting above the app it fronts.
       #
       # Both use the github deployer (RP_GITHUB_TOKEN). deploy-k3s.yml builds
-      # and helm-upgrades server + showcase; register-edge-vhost.yml upserts
+      # and swaps the showcase image (showcase-only); register-edge-vhost.yml upserts
       # Cloudflare CNAME + wslproxy server/rule. Health probes the public host
       # (/livez is auth-exempt).
       - name: nebuladb-edge
@@ -771,7 +771,10 @@ data:
           env_input: TARGET_ENV
           version_input: IMAGE_TAG
           mode_input: DEPLOYMENT_TYPE
-          deploy_mode: build-and-deploy
+          # showcase-only: build, then swap only the showcase image. The
+          # database Deployment is never touched by a promotion (deploy-k3s
+          # fails the run if it changes). Server releases are dispatched by hand.
+          deploy_mode: showcase-only
           token_env: RP_GITHUB_TOKEN
           poll_interval: 20s
           run_lookup_timeout: 90s
