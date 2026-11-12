@@ -9,7 +9,7 @@ import {
   Out,
   Section,
 } from "@/components/legal/legal-page";
-import { APP_STORE_URL } from "@/components/landing/ios-app-section";
+import { APP_STORE_URL } from "@/components/app-store-badge";
 import { APP_NAME, CONTACT_EMAIL, GITHUB_URL, PUBLISHER } from "@/lib/legal";
 
 export const metadata: Metadata = {
