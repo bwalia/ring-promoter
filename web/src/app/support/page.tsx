@@ -9,6 +9,7 @@ import {
   Out,
   Section,
 } from "@/components/legal/legal-page";
+import { APP_STORE_URL } from "@/components/landing/ios-app-section";
 import { APP_NAME, CONTACT_EMAIL, GITHUB_URL, PUBLISHER } from "@/lib/legal";
 
 export const metadata: Metadata = {
@@ -35,6 +36,13 @@ export default function SupportPage() {
           Bugs and feature requests can also go to{" "}
           <Out href={ISSUES}>GitHub issues</Out>, where they are public and you
           can follow the fix.
+        </p>
+      </Section>
+
+      <Section id="download" heading="Get the app">
+        <p>
+          {APP_NAME} is free on the{" "}
+          <Out href={APP_STORE_URL}>App Store</Out> for iPhone and iPad.
         </p>
       </Section>
 

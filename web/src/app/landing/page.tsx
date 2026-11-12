@@ -13,6 +13,7 @@ import {
 import { AutoPromoteDiagram } from "@/components/landing/autopromote-diagram";
 import { CtaTerminal } from "@/components/landing/cta-terminal";
 import { DeployerPaths } from "@/components/landing/deployer-paths";
+import { AppStoreBadge, APP_STORE_URL, IosAppSection } from "@/components/landing/ios-app-section";
 import { FactStrip } from "@/components/landing/fact-strip";
 import { ScrollRefresh } from "@/components/landing/gsap/scroll-refresh";
 import { HeroSim } from "@/components/landing/hero-sim";
@@ -52,6 +53,7 @@ export default function LandingPage() {
         <LiveOps />
         <ProdGate />
         <Deployers />
+        <IosAppSection />
         <Config />
         <Roadmap />
         <Faq />
@@ -71,6 +73,7 @@ function Nav() {
     ["Protocol", "#protocol"],
     ["Live ops", "#live-ops"],
     ["Deployers", "#deployers"],
+    ["iOS app", "#ios"],
     ["Config", "#config"],
     ["FAQ", "#faq"],
     ["Compare", "compare/"],
@@ -148,6 +151,9 @@ function Footer() {
           <Link href="/terms" className="transition-colors hover:text-neutral-200">
             Terms
           </Link>
+          <a href={APP_STORE_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-neutral-200">
+            iPhone &amp; iPad app ↗
+          </a>
           <a href={GITHUB} target="_blank" rel="noreferrer" className="transition-colors hover:text-neutral-200">
             GitHub ↗
           </a>
@@ -231,6 +237,13 @@ function Hero() {
             >
               Read the deployment model
             </a>
+          </div>
+          <div
+            className="ls-rise mt-5 flex flex-wrap items-center justify-center gap-3"
+            style={{ "--d": "0.6s" } as React.CSSProperties}
+          >
+            <AppStoreBadge size="sm" />
+            <span className="text-[12px] text-neutral-500">Now on iPhone and iPad</span>
           </div>
         </div>
         <div className="mx-auto mt-14 max-w-4xl sm:mt-16">

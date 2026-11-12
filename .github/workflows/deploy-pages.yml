@@ -110,6 +110,13 @@ jobs:
           if [ -d web/out/releases ]; then
             cp -R web/out/releases site/releases
           fi
+          # iPhone/iPad screenshots for the App Store section (web/public/ios).
+          # Fail rather than ship a landing page with broken images.
+          if [ ! -d web/out/ios ]; then
+            echo "::error::web/out/ios missing — the landing page's iOS section links to /ios/*.png" >&2
+            exit 1
+          fi
+          cp -R web/out/ios site/ios
           # Standalone comparison page (web/public/compare) at /compare/.
           cp -R web/out/compare site/compare
           # Legal and support pages. Apple opens the privacy policy and support
