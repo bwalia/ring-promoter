@@ -1,0 +1,126 @@
+name: Android Release (Play)
+
+# Build, sign, and upload the native Ring Promoter Android app.
+#
+#   PRIMARY   : workflow_dispatch — internal testing track by default
+#   SECONDARY : push an android-v*.*.* tag
+#
+# Mirrors ios-release.yml. Signing material and the Play service account are
+# loaded from HashiCorp Vault (secret/ring-promoter/android) at build time —
+# nothing is stored in GitHub.
+#
+# Every upload lands as a DRAFT on its track. Nothing reaches a user until a
+# human presses release in the Play Console, which is the same rule the iOS
+# lane follows and for the same reason.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version name override (blank = versionName in build.gradle.kts)"
+        required: false
+        default: ""
+      track:
+        description: "Play track to upload to"
+        required: true
+        type: choice
+        default: internal
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+  push:
+    tags:
+      - "android-v*.*.*"
+
+concurrency:
+  group: ringpromoter-android-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: android
+
+jobs:
+  release:
+    name: Build & upload (${{ github.event_name == 'workflow_dispatch' && inputs.track || 'internal' }})
+    runs-on: [self-hosted, mac-studio]
+    timeout-minutes: 60
+    env:
+      VAULT_TOKEN_FILE: /Users/balinderwalia/.secrets/acc-vault/login-token.json
+      JAVA_HOME: /Applications/Android Studio.app/Contents/jbr/Contents/Home
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The tests are the reason to trust the build. They run first so a
+      # broken promotion rule costs 30 seconds rather than a Play upload.
+      - name: Run unit tests
+        run: ./gradlew test
+
+      - name: Load release material from Vault
+        run: |
+          chmod +x ./ci/load-android-vault-secrets.sh
+          ./ci/load-android-vault-secrets.sh
+
+      # After the Vault step, which is what provides the upload key, and
+      # before the build: every check here fails for a reason that would
+      # otherwise be found by the Play Console once a bundle already exists.
+      - name: Verify Play readiness
+        run: ./scripts/verify-play-readiness.sh
+
+      - name: Install Ruby dependencies
+        run: bundle install
+
+      - name: Resolve version name
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            v="${GITHUB_REF_NAME#android-v}"
+          elif [ -n "${INPUT_VERSION:-}" ]; then
+            v="$INPUT_VERSION"
+          else
+            v="$(sed -n 's/.*versionName") as String?) ?: "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)"
+          fi
+          echo "Resolved version: $v"
+          echo "VERSION_NAME=$v" >> "$GITHUB_ENV"
+
+      # One above the highest code Play has seen on any track, so a rebuild of
+      # the same commit never collides with an uploaded bundle.
+      - name: Compute next version code
+        id: code
+        run: bundle exec fastlane android ci_version_code
+
+      - name: Build signed App Bundle
+        run: |
+          bundle exec fastlane android bundle \
+            version_code:${{ steps.code.outputs.version_code }} \
+            version_name:"$VERSION_NAME"
+
+      - name: Upload to Play (draft)
+        run: |
+          bundle exec fastlane android publish \
+            track:${{ github.event_name == 'workflow_dispatch' && inputs.track || 'internal' }}
+
+      - name: Archive bundle and mapping
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ring-promoter-android-${{ github.run_number }}
+          if-no-files-found: ignore
+          # The mapping file is what makes a Play crash report readable. It is
+          # kept here as well as uploaded, because a release whose stack traces
+          # cannot be read is a release that cannot be debugged.
+          path: |
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/mapping/release/mapping.txt
+
+      - name: Remove secrets from the runner
+        if: always()
+        run: rm -rf "${RUNNER_TEMP:-.}/upload.jks" "${RUNNER_TEMP:-.}/play-service-account.json"

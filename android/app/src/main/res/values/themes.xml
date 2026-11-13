@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns all real theming. This exists only for the window before
+         Compose's first frame: without a night-aware background, launching in
+         dark mode flashes white. The framework has no
+         DeviceDefault.DayNight.NoActionBar, and AppCompat is not a dependency,
+         so the day/night split is done with a -night colour instead. -->
+    <style name="Theme.RingPromoter" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

@@ -1,0 +1,58 @@
+# Ring Promoter for Android — release lanes.
+#
+# Mirrors ios/fastlane/Fastfile: the same shape, the same places to look when a
+# release stops working. Signing material and the Play service account come
+# from Vault at build time (ci/load-android-vault-secrets.sh); nothing is
+# stored in GitHub.
+
+default_platform(:android)
+
+platform :android do
+  desc "The next version code: one above the highest Play has seen, on any track"
+  lane :ci_version_code do
+    codes = google_play_track_version_codes(track: "internal") +
+            google_play_track_version_codes(track: "alpha") +
+            google_play_track_version_codes(track: "beta") +
+            google_play_track_version_codes(track: "production")
+    # A first upload has no history at all, so start at 1.
+    next_code = (codes.compact.max || 0) + 1
+    UI.message("Next version code: #{next_code}")
+    sh("echo 'version_code=#{next_code}' >> #{ENV['GITHUB_OUTPUT']}") if ENV["GITHUB_OUTPUT"]
+    next_code
+  end
+
+  desc "Build the signed App Bundle"
+  lane :bundle do |options|
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      project_dir: "..",
+      properties: {
+        "versionCode" => options[:version_code],
+        "versionName" => options[:version_name],
+      }.compact,
+    )
+  end
+
+  desc "Upload to a Play track. Draft by default: a human presses release."
+  lane :publish do |options|
+    track = options[:track] || "internal"
+    upload_to_play_store(
+      track: track,
+      # Nothing goes live on its own. The same rule as the iOS lane, and the
+      # same reason: a deploy pipeline must not be able to ship to the public
+      # without someone deciding to.
+      release_status: "draft",
+      aab: "../app/build/outputs/bundle/release/app-release.aab",
+      skip_upload_apk: true,
+      # The listing, screenshots, graphics and release notes are managed in
+      # the Console, not here. Uploading them from CI would overwrite whatever
+      # a human last corrected there — and a half-written changelog is worse
+      # than none.
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: true,
+    )
+  end
+end

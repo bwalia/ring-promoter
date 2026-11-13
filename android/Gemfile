@@ -1,0 +1,5 @@
+source "https://rubygems.org"
+
+# fastlane's `supply` uploads the bundle to Play. Pinned loosely, as the iOS
+# Gemfile is, so a release is never blocked by a patch release of fastlane.
+gem "fastlane", "~> 2.227"

@@ -1,0 +1,59 @@
+{
+    "history": [
+        {
+            "id": 5,
+            "app": "web-frontend",
+            "ring": "int",
+            "action": "rollback",
+            "from_version": "2.7.2",
+            "to_version": "2.7.1",
+            "result": "success",
+            "message": "rolled back to 2.7.1",
+            "created_at": "2026-07-29T10:38:47.905917Z"
+        },
+        {
+            "id": 4,
+            "app": "web-frontend",
+            "ring": "int",
+            "action": "seed",
+            "from_version": "2.7.1",
+            "to_version": "2.7.2",
+            "result": "success",
+            "message": "seeded 2.7.2 and healthy",
+            "created_at": "2026-07-29T10:38:47.893624Z"
+        },
+        {
+            "id": 3,
+            "app": "web-frontend",
+            "ring": "acc",
+            "action": "promote",
+            "from_version": "",
+            "to_version": "2.7.1",
+            "result": "success",
+            "message": "promoted 2.7.1 from test to acc and healthy",
+            "created_at": "2026-07-29T10:38:47.502764Z"
+        },
+        {
+            "id": 2,
+            "app": "web-frontend",
+            "ring": "test",
+            "action": "promote",
+            "from_version": "",
+            "to_version": "2.7.1",
+            "result": "success",
+            "message": "promoted 2.7.1 from int to test and healthy",
+            "created_at": "2026-07-29T10:38:47.492939Z"
+        },
+        {
+            "id": 1,
+            "app": "web-frontend",
+            "ring": "int",
+            "action": "seed",
+            "from_version": "",
+            "to_version": "2.7.1",
+            "result": "success",
+            "message": "seeded 2.7.1 and healthy",
+            "created_at": "2026-07-29T10:38:47.31428Z"
+        }
+    ]
+}

@@ -1,0 +1,95 @@
+{
+    "rings": [
+        {
+            "ring": {
+                "name": "int",
+                "label": "Integration"
+            },
+            "configured": true,
+            "current_version": "v9.1.0",
+            "previous_version": "",
+            "live_version": "v9.0.0",
+            "healthy": true,
+            "live_healthy": true,
+            "auto_promote": false,
+            "auto_promote_managed": false,
+            "updated_at": "2026-07-29T10:40:32.66826Z",
+            "can_promote_from": true,
+            "gates": {
+                "maintenance_window": false,
+                "qa_signoff": false,
+                "change_request": false,
+                "maintenance_window_open": false
+            }
+        },
+        {
+            "ring": {
+                "name": "test",
+                "label": "Test"
+            },
+            "configured": true,
+            "current_version": "v9.0.0",
+            "previous_version": "v9.1.0",
+            "live_version": "v9.0.0",
+            "healthy": false,
+            "live_healthy": false,
+            "live_health_error": "unhealthy: status 503",
+            "auto_promote": false,
+            "auto_promote_managed": false,
+            "updated_at": "2026-07-29T10:40:36.80041Z",
+            "can_promote_from": true,
+            "gates": {
+                "maintenance_window": false,
+                "qa_signoff": false,
+                "change_request": false,
+                "maintenance_window_open": false
+            }
+        },
+        {
+            "ring": {
+                "name": "acc",
+                "label": "Acceptance"
+            },
+            "configured": true,
+            "current_version": "",
+            "previous_version": "",
+            "live_version": "v9.0.0",
+            "healthy": false,
+            "live_healthy": false,
+            "live_health_error": "unhealthy: status 503",
+            "auto_promote": false,
+            "auto_promote_managed": false,
+            "updated_at": "0001-01-01T00:00:00Z",
+            "can_promote_from": false,
+            "gates": {
+                "maintenance_window": false,
+                "qa_signoff": false,
+                "change_request": false,
+                "maintenance_window_open": false
+            }
+        },
+        {
+            "ring": {
+                "name": "prod",
+                "label": "Production"
+            },
+            "configured": true,
+            "current_version": "",
+            "previous_version": "",
+            "live_version": "v9.0.0",
+            "healthy": false,
+            "live_healthy": false,
+            "live_health_error": "unhealthy: status 503",
+            "auto_promote": false,
+            "auto_promote_managed": false,
+            "updated_at": "0001-01-01T00:00:00Z",
+            "can_promote_from": false,
+            "gates": {
+                "maintenance_window": false,
+                "qa_signoff": false,
+                "change_request": false,
+                "maintenance_window_open": false
+            }
+        }
+    ]
+}

@@ -1,0 +1,7 @@
+# The permanent Play package name. It can never be changed, reused or freed,
+# not even after the app is deleted — see android/docs/PORT-PLAN.md.
+package_name("org.fictionally.ringpromoter")
+
+# The service-account key is written by ci/load-android-vault-secrets.sh and
+# passed through SUPPLY_JSON_KEY. Nothing about it is committed.
+json_key_file(ENV["SUPPLY_JSON_KEY"])
