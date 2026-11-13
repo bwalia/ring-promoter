@@ -61,11 +61,6 @@ jobs:
     defaults:
       run:
         working-directory: android
-    env:
-      # The same JDK android-release.yml builds with. There is no setup-java
-      # step on purpose: the runner is a Mac with Android Studio installed, and
-      # /usr/bin/java there is a stub with no JDK behind it.
-      JAVA_HOME: /Applications/Android Studio.app/Contents/jbr/Contents/Home
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,20 +74,45 @@ jobs:
       - name: Does this PR touch the Android app?
         id: scope
         working-directory: ${{ github.workspace }}
+        env:
+          # The base commit recorded when the pull_request event fired, NOT the
+          # live tip of the base branch.
+          #
+          # Queued behind the Go job on the single self-hosted runner, this job
+          # can start minutes after its own pull request has already merged. A
+          # comparison against the branch tip then finds that main already
+          # contains these changes, concludes nothing was touched, and skips.
+          # That is not a hypothetical: it is how this check first shipped, and
+          # the pull request it skipped was the one adding it.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git fetch -q origin "${{ github.base_ref }}"
-          if git diff --quiet "origin/${{ github.base_ref }}...HEAD" \
-               -- android/ .github/workflows/ci.yml; then
+          # Every uncertain case runs the tests. A skip has to be positively
+          # justified, because a wrong skip is silent and a wrong run only
+          # costs a minute.
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Base commit ${BASE_SHA} not available — testing anyway."
+            exit 0
+          fi
+          if git diff --quiet "$BASE_SHA" HEAD -- android/ .github/workflows/ci.yml; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No android/ changes in this PR — nothing to test."
+            echo "No android/ changes in this pull request — nothing to test."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "android/ changed since ${BASE_SHA} — running the unit tests."
           fi
+
+      # Searched for rather than hardcoded. This job's first run died in half a
+      # second on a JAVA_HOME copied from a laptop, which the runner does not
+      # have.
+      - name: Locate the Android toolchain
+        if: steps.scope.outputs.changed == 'true'
+        run: ./ci/locate-toolchain.sh
 
       # The 172 unit tests are the reason to trust a merge. PromotionRules is
       # among them: the rule that the UI never offers an illegal promotion is
