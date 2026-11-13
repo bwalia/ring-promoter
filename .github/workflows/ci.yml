@@ -1,6 +1,7 @@
 name: CI
 
-# Gates every pull request on the Go build, vet, and test suite.
+# Gates every pull request on the Go build, vet, and test suite, and on the
+# Android app's unit tests.
 # Build/test ONLY — deploy-k3s1.yml / deploy-training-k3s1.yml own images + rollout.
 #
 # Intentionally does NOT run on push to main: the PR already passed this gate,
@@ -52,3 +53,62 @@ jobs:
       - name: Coverage summary
         if: always()
         run: go tool cover -func=coverage.out | tail -1
+
+  android:
+    name: android build & test
+    runs-on: [self-hosted, mac-studio]
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android
+    env:
+      # The same JDK android-release.yml builds with. There is no setup-java
+      # step on purpose: the runner is a Mac with Android Studio installed, and
+      # /usr/bin/java there is a stub with no JDK behind it.
+      JAVA_HOME: /Applications/Android Studio.app/Contents/jbr/Contents/Home
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed for the merge-base diff below.
+          fetch-depth: 0
+
+      # Gradle on the single self-hosted runner is slow enough to be worth
+      # skipping when a PR cannot have broken it. Decided here rather than with
+      # a top-level `paths:` filter, which would gate the Go job on the same
+      # list and quietly stop testing the server.
+      - name: Does this PR touch the Android app?
+        id: scope
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch -q origin "${{ github.base_ref }}"
+          if git diff --quiet "origin/${{ github.base_ref }}...HEAD" \
+               -- android/ .github/workflows/ci.yml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No android/ changes in this PR — nothing to test."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The 172 unit tests are the reason to trust a merge. PromotionRules is
+      # among them: the rule that the UI never offers an illegal promotion is
+      # tested in exactly one place, and until now nothing ran it before main.
+      - name: Run unit tests
+        if: steps.scope.outputs.changed == 'true'
+        run: ./gradlew --no-daemon test
+
+      # Deliberately not running scripts/verify-play-readiness.sh here: it
+      # checks for the upload key and the Play service account, which only
+      # exist after the release lane loads them from Vault. On a pull request
+      # it would fail for a reason no pull request can fix.
+      - name: Test report
+        if: always() && steps.scope.outputs.changed == 'true'
+        run: |
+          set -eu
+          find app/build/reports/tests -name index.html 2>/dev/null | while read -r r; do
+            echo "report: $r"
+          done
