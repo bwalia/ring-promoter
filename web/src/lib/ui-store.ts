@@ -35,6 +35,11 @@ interface UiState {
   setShortcutsOpen: (open: boolean) => void;
   setMobileNavOpen: (open: boolean) => void;
   setPendingAction: (action: PendingAction | null) => void;
+  /** Keyword / wildcard filter on the Rings of Apps stage (see lib/app-filter).
+      Kept here, not in component state, so it survives opening an app and
+      coming back; deliberately not persisted, so a reload never hides apps. */
+  fleetQuery: string;
+  setFleetQuery: (query: string) => void;
 }
 
 export const useUiStore = create<UiState>()((set) => ({
@@ -50,4 +55,6 @@ export const useUiStore = create<UiState>()((set) => ({
   setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
   setMobileNavOpen: (mobileNavOpen) => set({ mobileNavOpen }),
   setPendingAction: (pendingAction) => set({ pendingAction }),
+  fleetQuery: "",
+  setFleetQuery: (fleetQuery) => set({ fleetQuery }),
 }));
