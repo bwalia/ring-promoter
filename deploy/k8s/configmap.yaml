@@ -86,6 +86,21 @@ data:
               # time because maxUnavailable:0 keeps the old pods serving). 12m
               # covers the cold-pull worst case and still finishes inside this
               # job's 20m timeout below, so a genuinely stuck deploy still fails.
+              # Recover a release left mid-operation by a previously killed Job
+              # (e.g. a cancelled run): Helm otherwise refuses this upgrade with
+              # "another operation (install/upgrade/rollback) is in progress"
+              # and every subsequent deploy fails until it is cleared by hand.
+              st="$(helm status jobshout --namespace "${ns}" 2>/dev/null | awk '/^STATUS:/{print $2; exit}' || true)"
+              case "$st" in
+                pending-install)
+                  echo "jobshout stuck in ${st}; uninstalling before reinstall"
+                  helm uninstall jobshout --namespace "${ns}" --wait --timeout 5m || true
+                  ;;
+                pending-upgrade|pending-rollback)
+                  echo "jobshout stuck in ${st}; rolling back to last deployed revision"
+                  helm rollback jobshout --namespace "${ns}" --wait --timeout 5m || true
+                  ;;
+              esac
               helm upgrade --install jobshout /src/deploy/helm/jobshout \
                 --namespace "${ns}" \
                 -f "/src/deploy/helm/jobshout/values-${ns}.yaml" \
@@ -164,6 +179,21 @@ data:
                 echo "git clone failed (attempt $n), retrying..."
                 sleep $((n*5))
               done
+              # Recover a release left mid-operation by a previously killed Job
+              # (e.g. a cancelled run): Helm otherwise refuses this upgrade with
+              # "another operation (install/upgrade/rollback) is in progress"
+              # and every subsequent deploy fails until it is cleared by hand.
+              st="$(helm status jobshout-com --namespace "${ns}" 2>/dev/null | awk '/^STATUS:/{print $2; exit}' || true)"
+              case "$st" in
+                pending-install)
+                  echo "jobshout-com stuck in ${st}; uninstalling before reinstall"
+                  helm uninstall jobshout-com --namespace "${ns}" --wait --timeout 5m || true
+                  ;;
+                pending-upgrade|pending-rollback)
+                  echo "jobshout-com stuck in ${st}; rolling back to last deployed revision"
+                  helm rollback jobshout-com --namespace "${ns}" --wait --timeout 5m || true
+                  ;;
+              esac
               helm upgrade --install jobshout-com /src/jobshout-com/deploy/helm/jobshout-com \
                 --namespace "${ns}" \
                 -f "/src/jobshout-com/deploy/helm/jobshout-com/values-${ns}.yaml" \
