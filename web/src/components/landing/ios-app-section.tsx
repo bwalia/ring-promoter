@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Reveal } from "@/components/landing/reveal";
 import { AppStoreBadge } from "@/components/app-store-badge";
 import { cn } from "@/lib/utils";
+import { publicSitePage } from "@/lib/public-site";
 
 const shots = [
   {
@@ -51,7 +52,7 @@ export function IosAppSection() {
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <AppStoreBadge />
             <Link
-              href="/support"
+              href={publicSitePage("/support")}
               className="text-[13px] text-neutral-400 transition-colors hover:text-neutral-100"
             >
               App support →
