@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { publicSitePage } from "@/lib/public-site";
 import {
   CalendarOff,
   FileCode2,
@@ -146,13 +147,13 @@ function Footer() {
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-neutral-500">
           <span className="font-mono text-xs">int → test → acc → prod</span>
           {/* Linked from the App Store listing and from inside the iOS app. */}
-          <Link href="/support" className="transition-colors hover:text-neutral-200">
+          <Link href={publicSitePage("/support")} className="transition-colors hover:text-neutral-200">
             Support
           </Link>
-          <Link href="/privacy" className="transition-colors hover:text-neutral-200">
+          <Link href={publicSitePage("/privacy")} className="transition-colors hover:text-neutral-200">
             Privacy
           </Link>
-          <Link href="/terms" className="transition-colors hover:text-neutral-200">
+          <Link href={publicSitePage("/terms")} className="transition-colors hover:text-neutral-200">
             Terms
           </Link>
           <a href={GITHUB} target="_blank" rel="noreferrer" className="transition-colors hover:text-neutral-200">

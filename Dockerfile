@@ -14,6 +14,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # fails a production build without that branding, and the console never serves
 # those pages, so leave them out of the embedded UI rather than fake the values.
 RUN rm -rf src/app/privacy src/app/terms src/app/support
+# ...and point the landing page's links to them at the public site instead.
+ENV PUBLIC_SITE_PAGES_URL=https://ringpromoter.com
 RUN NEXT_OUTPUT=export npx next build \
  && mkdir -p /out \
  && cp -R out/. /out/
