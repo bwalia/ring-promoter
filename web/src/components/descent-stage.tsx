@@ -87,6 +87,12 @@ export type DescentStageProps = {
   onOpenGroup?: (id: string) => void;
   /** Extra controls rendered in the stage header (e.g. "New ring"). */
   actions?: React.ReactNode;
+  /** App filter rendered under the stage title, top left. */
+  filter?: React.ReactNode;
+  /** Apps before filtering; when larger than `apps.length` the stage says so. */
+  totalApps?: number;
+  /** Shown as "Clear filter" when the filter leaves nothing to draw. */
+  onClearFilter?: () => void;
   className?: string;
 };
 
@@ -112,6 +118,9 @@ export function DescentStage({
   onSeed,
   onOpenGroup,
   actions,
+  filter,
+  totalApps,
+  onClearFilter,
   className,
 }: DescentStageProps) {
   const title = useAppTitle();
@@ -119,10 +128,16 @@ export function DescentStage({
   const ringOrder = useApps().data?.rings?.map((r) => r.name) ?? [];
   const earthRef = useRef<EarthGlobeHandle>(null);
 
-  const [hovered, setHovered] = useState<string | null>(null);
-  const [focused, setFocused] = useState<string | null>(null);
+  const [hoveredRaw, setHovered] = useState<string | null>(null);
+  const [focusedRaw, setFocused] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [linkFrom, setLinkFrom] = useState<string | null>(null);
+  const [linkFromRaw, setLinkFrom] = useState<string | null>(null);
+  // An app hidden by the filter can't stay hovered, focused or mid-link.
+  const shownSet = useMemo(() => new Set(apps), [apps]);
+  const visible = (id: string | null) => (id && shownSet.has(id) ? id : null);
+  const hovered = visible(hoveredRaw);
+  const focused = visible(focusedRaw);
+  const linkFrom = visible(linkFromRaw);
   const [layoutPref, setLayoutPref] = useState<Layout>("orbit");
   const active = focused ?? hovered;
 
@@ -216,6 +231,14 @@ export function DescentStage({
   const k = size / DESCENT_DESIGN;
   const fontU = k > 0 ? Math.max(13, Math.min(24, 12 / k)) : 16;
   const boxLeft = (areaW - size) / 2;
+  // Horizontal extent of the visible stage in design units (centre = 0), so a
+  // spoke label at 3 or 9 o'clock can be shortened to what actually fits
+  // instead of running off the left edge or under the roster rail.
+  const LABEL_EDGE_PX = 10;
+  const labelBounds = {
+    min: k > 0 ? (LABEL_EDGE_PX - boxLeft) / k - DESCENT_DESIGN / 2 : -Infinity,
+    max: k > 0 ? (areaW - LABEL_EDGE_PX - boxLeft) / k - DESCENT_DESIGN / 2 : Infinity,
+  };
   const boxTop = TOP + (areaH - size) / 2 + size * 0.02;
 
   const earthMetrics: GlobeMetrics = useMemo(
@@ -305,6 +328,7 @@ export function DescentStage({
   }).length;
 
   const n = ordered.length;
+  const filtered = totalApps !== undefined && totalApps > apps.length;
   const focusApp = focused && layout === "orbit" ? focused : null;
 
   return (
@@ -319,15 +343,17 @@ export function DescentStage({
         className="pointer-events-none absolute inset-x-0 top-0 z-40 flex flex-wrap items-start justify-between gap-2 p-3 sm:px-4"
         style={wide && layout === "orbit" ? { right: RAIL } : undefined}
       >
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-full">
           <p className="font-display text-[12px] font-semibold tracking-tight text-neutral-100 sm:text-[13px]">
             Rings of Apps
           </p>
           <p className="mt-0.5 font-mono text-[10px] tabular-nums text-neutral-500 sm:text-[11px]">
             {inProd}/{apps.length} newest in {ringOrder.at(-1) ?? "prod"}
+            {filtered && <span className="text-emerald-400/90"> · filtered</span>}
             {" · "}
             {ringOrder.length ? ringOrder.join(" → ") : "promotion rings"}
           </p>
+          {filter && <div className="mt-2.5">{filter}</div>}
         </div>
         <div className="pointer-events-auto ml-auto flex flex-wrap items-center justify-end gap-2">
           {editMode && linkFrom && (
@@ -518,6 +544,7 @@ export function DescentStage({
                     angle={spokeAngle(i, n)}
                     ringCount={ringCount}
                     fontU={fontU}
+                    labelBounds={labelBounds}
                     on={active === id || linkFrom === id}
                     deploying={deploying.has(id)}
                     reduceMotion={reduceMotion}
@@ -591,7 +618,7 @@ export function DescentStage({
                 </motion.div>
               )}
             </AnimatePresence>
-        {layout === "orbit" && (
+        {layout === "orbit" && apps.length > 0 && (
           <div
             className="pointer-events-none absolute left-3 z-30 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] leading-none text-neutral-400"
             style={{ bottom: wide ? 12 : BOTTOM - 30, right: RAIL + 12 }}
@@ -622,6 +649,30 @@ export function DescentStage({
             <span className="text-neutral-500">Earth = live users</span>
           </div>
         )}
+        {apps.length === 0 && (totalApps ?? 0) > 0 && (
+          <div
+            className="absolute inset-x-0 bottom-0 z-30 flex items-center justify-center p-6"
+            style={{ top: TOP, right: layout === "orbit" ? RAIL : 0 }}
+          >
+            <div className="max-w-xs rounded-xl border border-white/10 bg-black/70 p-5 text-center backdrop-blur-md">
+              <p className="text-sm font-medium text-neutral-100">No apps match this filter</p>
+              <p className="mt-1.5 text-xs leading-relaxed text-neutral-400">
+                Try a shorter keyword, or a wildcard such as <code className="font-mono">nebula*</code>.
+              </p>
+              {onClearFilter && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-4 h-8 border-white/15 bg-black/40 text-xs text-neutral-100 hover:bg-white/10"
+                  onClick={onClearFilter}
+                >
+                  Clear filter
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {layout === "orbit" && (
@@ -648,6 +699,7 @@ function SpokeView({
   angle,
   ringCount,
   fontU,
+  labelBounds,
   on,
   deploying,
   reduceMotion,
@@ -663,6 +715,7 @@ function SpokeView({
   angle: number;
   ringCount: number;
   fontU: number;
+  labelBounds: { min: number; max: number };
   on: boolean;
   deploying: boolean;
   reduceMotion: boolean;
@@ -688,7 +741,16 @@ function SpokeView({
     spoke.frontier < 0
       ? "no version"
       : `${spoke.newest} · ${spoke.nodes[spoke.frontier].ring}`;
-  const shortLabel = label.length > 26 ? `${label.slice(0, 25)}…` : label;
+  // Room on the label's side of the stage → how many characters fit. The
+  // display face is wide, so ~0.68em per character is a safe estimate.
+  const room =
+    anchor === "end"
+      ? lp.x - labelBounds.min
+      : anchor === "start"
+        ? labelBounds.max - lp.x
+        : 2 * Math.min(lp.x - labelBounds.min, labelBounds.max - lp.x);
+  const maxChars = Math.max(6, Math.min(26, Math.floor(room / (fontU * 0.68))));
+  const shortLabel = label.length > maxChars ? `${label.slice(0, maxChars - 1).trimEnd()}…` : label;
 
   return (
     <g

@@ -5,12 +5,15 @@ import type { NodeStatus } from "@/components/group-ring";
 import { GroupDialog } from "@/components/group-dialog";
 import { QaStatusBar } from "@/components/qa-status-bar";
 import { DescentStage } from "@/components/descent-stage";
+import { RingsAppFilter } from "@/components/rings-app-filter";
 import { Button } from "@/components/ui/button";
+import { matchesAppQuery, parseAppQuery } from "@/lib/app-filter";
 import { summarizeRings } from "@/lib/app-health";
 import {
   useAddTopologyEdge,
   useAppLocations,
   useApps,
+  useAppTitle,
   useDeployingApps,
   useGroupRings,
   useGroups,
@@ -66,6 +69,22 @@ export function FleetView() {
     deploying.has(r.app) ? "deploying" : baseStatus(r),
   );
 
+  // Keyword / wildcard filter. Health is still fetched for every app (the
+  // queries are shared with the sidebar and app pages); only what the stage
+  // draws is narrowed, so clearing the filter is instant.
+  const query = useUiStore((s) => s.fleetQuery);
+  const setQuery = useUiStore((s) => s.setFleetQuery);
+  const title = useAppTitle();
+  const parsed = parseAppQuery(query);
+  const groupNames = (app: string) =>
+    groups.filter((g) => g.apps.includes(app)).map((g) => g.name);
+  const shownIdx = known.flatMap((app, i) =>
+    matchesAppQuery(parsed, [app, title(app), ...groupNames(app)]) ? [i] : [],
+  );
+  const shownApps = shownIdx.map((i) => known[i]);
+  const shownResults = shownIdx.map((i) => appResults[i]);
+  const shownStatuses = shownIdx.map((i) => appStatuses[i]);
+
   const seedApp = (app: string) => {
     setPendingAction({ type: "seed", app });
     selectApp(app);
@@ -83,10 +102,11 @@ export function FleetView() {
       ) : (
         <DescentStage
           className="min-h-0 flex-1"
-          apps={known}
-          results={appResults}
-          statuses={appStatuses}
-          aggregate={aggregateStatuses(appStatuses)}
+          apps={shownApps}
+          totalApps={known.length}
+          results={shownResults}
+          statuses={shownStatuses}
+          aggregate={aggregateStatuses(shownStatuses)}
           deploying={deploying}
           edges={appEdges}
           groups={groups}
@@ -97,6 +117,15 @@ export function FleetView() {
           onOpen={selectApp}
           onSeed={seedApp}
           onOpenGroup={selectGroup}
+          filter={
+            <RingsAppFilter
+              value={query}
+              onChange={setQuery}
+              shown={shownApps.length}
+              total={known.length}
+            />
+          }
+          onClearFilter={() => setQuery("")}
           actions={
             <>
               <QaStatusBar compact />
