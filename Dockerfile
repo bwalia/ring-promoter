@@ -9,6 +9,11 @@ COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
+# /privacy, /terms and /support belong to the public site (GitHub Pages, built
+# by deploy-pages.yml with branding from Vault). lib/legal.ts deliberately
+# fails a production build without that branding, and the console never serves
+# those pages, so leave them out of the embedded UI rather than fake the values.
+RUN rm -rf src/app/privacy src/app/terms src/app/support
 RUN NEXT_OUTPUT=export npx next build \
  && mkdir -p /out \
  && cp -R out/. /out/
