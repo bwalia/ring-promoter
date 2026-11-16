@@ -83,7 +83,11 @@ struct AppDetailView: View {
 
 /// Why a ring needs attention, stated once at the top rather than buried in a
 /// card an operator has to scroll to.
-private struct UnhealthyRingCallout: View {
+///
+/// Internal rather than private so the Mac target's `MacAppDetailView` can lay
+/// the same component out in a panel. Visibility only — nothing about what it
+/// draws differs between the two.
+struct UnhealthyRingCallout: View {
     let ring: RingStatus
 
     var body: some View {
@@ -112,7 +116,13 @@ private struct UnhealthyRingCallout: View {
 }
 
 /// One ring: state, drift, gates, auto-promote, and its legal actions.
-private struct RingCard: View {
+///
+/// Internal rather than private for the same reason as `UnhealthyRingCallout`
+/// above: the Mac lays the rings out side by side, as the web console does on
+/// a wide screen, and reuses this card unchanged. Every promotion-legality
+/// decision therefore has exactly one implementation across all three clients,
+/// which is the part of this app that must never fork.
+struct RingCard: View {
     let ring: RingStatus
     let store: AppDetailStore
     let onAction: (ActionSheetRequest) -> Void
@@ -162,7 +172,13 @@ private struct RingCard: View {
             Image(systemName: presentation.systemImage)
                 .foregroundStyle(presentation.tint)
             Text(ring.ring.label)
+                // A ring's name is one word, so wrapping it can only ever
+                // hyphenate: a narrow card rendered "Produc-tion". It shrinks
+                // a little instead. Inert on a phone, where the card is 343pt
+                // wide and the longest name needs barely a third of it.
                 .font(.headline)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             if isProduction {
                 // A glyph, not a badge: the ring's own label already says
                 // "Production", and a second word here only competes with the

@@ -54,6 +54,23 @@ enum ConsoleSnapshot {
         .environment(router)
         .environment(focus)
 
+        // The detail pane, at the width the window actually gives it.
+        let detail = AppDetailStore(app: store.summaries.first?.name ?? "web-frontend", session: session)
+        await detail.refresh()
+        let detailPane = AppDetailPipeline(store: detail) { _ in }
+            .frame(width: 1011, alignment: .top)
+            .background(Color.rpBackground)
+            .environment(session)
+            .environment(router)
+
+        // And the same pane in a narrow window, to prove the side-by-side
+        // arrangement falls back to a stack rather than squeezing.
+        let detailNarrow = AppDetailPipeline(store: detail) { _ in }
+            .frame(width: 600, alignment: .top)
+            .background(Color.rpBackground)
+            .environment(session)
+            .environment(router)
+
         for (name, appearance) in [
             ("console-dark", NSAppearance(named: .darkAqua)),
             ("console-light", NSAppearance(named: .aqua)),
@@ -61,9 +78,14 @@ enum ConsoleSnapshot {
             guard let appearance else { continue }
             let scheme: ColorScheme = name.hasSuffix("dark") ? .dark : .light
             appearance.performAsCurrentDrawingAppearance {
+                write(shell.environment(\.colorScheme, scheme), to: "\(directory)/\(name).png")
                 write(
-                    shell.environment(\.colorScheme, scheme),
-                    to: "\(directory)/\(name).png"
+                    detailPane.environment(\.colorScheme, scheme),
+                    to: "\(directory)/\(name)-detail.png"
+                )
+                write(
+                    detailNarrow.environment(\.colorScheme, scheme),
+                    to: "\(directory)/\(name)-detail-narrow.png"
                 )
             }
         }

@@ -35,7 +35,11 @@ struct RingPromoterMacApp: App {
                 }
                 .onOpenURL { router.open($0) }
         }
-        .defaultSize(width: 1180, height: 760)
+        // 1280 is the web console's `xl` breakpoint — the width at which it
+        // switches the pipeline from a column of rings to a row of them. At
+        // this size the Mac does the same, and `PanelGrid` falls back to 2 x 2
+        // as the window narrows.
+        .defaultSize(width: 1280, height: 820)
         // Mac windows persist position and size per scene, and the operator can
         // open two at once onto different control planes.
         .commands { RingPromoterCommands(session: session, router: router, focus: focus) }

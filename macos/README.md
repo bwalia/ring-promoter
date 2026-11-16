@@ -13,9 +13,11 @@ macos/
       MacRootView.swift          sidebar in place of the tab bar
       MacSidebar.swift           the console's navigation column
       MacOverviewView.swift      the application list, as cards
+      MacAppDetailView.swift     one pipeline, rings side by side
     DesignSystem/
       ConsoleTheme.swift         the web client's tokens, in SwiftUI
       ConsoleComponents.swift    card, nav row, section label, filter box
+                                 and PanelGrid, the wrapping panel layout
       ConsoleSnapshot.swift      offscreen renderer (DEBUG only)
     Compatibility/
       PlatformModifiers.swift    SwiftUI spellings AppKit lacks
@@ -63,14 +65,19 @@ excluded and replaced:
 `DesignSystem/ScreenPreviews.swift` is also excluded — SwiftUI previews that
 name iOS preview devices.
 
-Two shared files carry a conditional rather than being forked, because each had
-exactly one platform-specific line:
+Three shared files carry a Mac-driven change rather than being forked. All
+three are inert on iOS, and the full 147-test suite is run against them:
 
 - `DesignSystem/HealthPresentation.swift` — the `Color(light:dark:)` token
   initialiser, `UIColor`'s trait provider on iOS and `NSColor`'s appearance
   provider here. **Every `rp*` colour depends on this**, so it is the one place
   the design system had to learn about a second platform.
 - `Stores/PushRegistration.swift` — `import UIKit`, for `UIApplication` alone.
+- `Features/AppDetail/AppDetailView.swift` — `RingCard` and
+  `UnhealthyRingCallout` are internal rather than private, so the Mac can lay
+  the same components out differently without restating a single promotion
+  rule; and the ring label no longer wraps, because one word can only
+  hyphenate ("Produc-tion" in a narrow panel). Both are inert at phone width.
 
 Everything else bends in `Compatibility/`, which exists so that no screen file
 needed an `#if os(macOS)` added to it. The iOS source stays the single
@@ -163,8 +170,35 @@ Added for the Mac, with nothing on iOS to mirror:
   showing "Demo mode". On iOS this is one tap away in Settings; a Mac window
   stays open for hours across several planes, so "which server am I about to
   promote on" belongs permanently on screen.
-- **An 880×560 minimum**, below which the sidebar and a ring strip cannot
+- **An 880×560 minimum**, below which the sidebar and a ring panel cannot
   both stay readable.
+
+### The detail screen
+
+`AppDetailView`'s grouped `List` is right on a phone and wrong on a Mac: macOS
+renders it as a plain full-bleed table, so rows ran to the window edges and
+"Promote to test" — a full-width button, correct at 343pt — became a 900pt
+capsule.
+
+`MacAppDetailView` is a container around the *same* `AppDetailStore` and the
+*same* `RingCard`. Not one legality check, action call or gate rule is restated,
+which matters more here than anywhere else in the app: what an operator is
+allowed to promote has exactly one implementation across all three clients.
+
+The arrangement follows `web/src/components/dashboard/pipeline.tsx`, which
+switches to `xl:flex-row` and puts the rings side by side as panels. `PanelGrid`
+is a custom `Layout` because:
+
+- `ViewThatFits` was tried first and is the wrong tool. It measures a
+  candidate's *ideal* width, and a row of flexible panels has none — it decided
+  the horizontal arrangement never fit and silently picked the vertical one at
+  every pane width.
+- Wrapping has to be balanced. A pipeline is a sequence, and four rings laid
+  out 3 + 1 orphan production on a row of its own. `PanelGrid` works out the
+  row count first and spreads panels evenly, so a narrow window gives 2 + 2.
+
+The window's default width is 1280 — the web console's own `xl` breakpoint —
+so the pipeline opens as one row and degrades to 2 x 2 as the window narrows.
 
 ## Not yet here
 

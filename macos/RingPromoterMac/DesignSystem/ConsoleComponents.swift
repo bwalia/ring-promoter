@@ -9,12 +9,19 @@ import SwiftUI
 struct ConsoleCard<Content: View>: View {
     var padding: CGFloat = 14
     var isHighlighted = false
+    /// Stretch to the height offered rather than hugging the content. Set when
+    /// cards sit side by side, so their feet line up.
+    var fillsHeight = false
     @ViewBuilder var content: Content
 
     var body: some View {
         content
             .padding(padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: fillsHeight ? .infinity : nil,
+                alignment: .topLeading
+            )
             .background(Color.rpCard, in: .rect(cornerRadius: RPRadius.lg))
             .overlay {
                 RoundedRectangle(cornerRadius: RPRadius.lg)
@@ -267,4 +274,95 @@ final class ConsoleFocus {
     private(set) var filterRequests = 0
 
     func requestFilter() { filterRequests += 1 }
+}
+
+
+/// Lays panels out in rows: as many per row as fit at `minimumItemWidth`,
+/// every panel in a row the same width, and every row as tall as its tallest
+/// panel.
+///
+/// This is what `web/src/components/dashboard/pipeline.tsx` gets from
+/// `flex flex-col gap-2 xl:flex-row`, and what SwiftUI has no stock container
+/// for. `ViewThatFits` was tried first and is the wrong tool: it measures a
+/// candidate's *ideal* width, and a row of flexible panels has no ideal width
+/// to speak of — it reported that the horizontal arrangement did not fit at
+/// any pane width and silently picked the vertical one every time.
+struct PanelGrid: Layout {
+    var minimumItemWidth: CGFloat = 236
+    var spacing: CGFloat = 12
+
+    func sizeThatFits(
+        proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) -> CGSize {
+        let width = proposal.replacingUnspecifiedDimensions(
+            by: CGSize(width: minimumItemWidth, height: 0)
+        ).width
+        let heights = rowHeights(subviews, width: width)
+        return CGSize(
+            width: width,
+            height: heights.reduce(0, +) + spacing * CGFloat(max(0, heights.count - 1))
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) {
+        let columns = columnCount(forWidth: bounds.width, count: subviews.count)
+        let itemWidth = itemWidth(in: bounds.width, columns: columns)
+        var y = bounds.minY
+        for (row, height) in rowHeights(subviews, width: bounds.width).enumerated() {
+            var x = bounds.minX
+            for index in indices(inRow: row, columns: columns, count: subviews.count) {
+                subviews[index].place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(width: itemWidth, height: height)
+                )
+                x += itemWidth + spacing
+            }
+            y += height + spacing
+        }
+    }
+
+    /// How many panels go in a row.
+    ///
+    /// Not simply "as many as fit": a pipeline is a sequence, and four rings
+    /// laid out 3 + 1 orphans production on a row of its own and breaks the
+    /// left-to-right reading. So the row count is worked out first and the
+    /// panels are then spread evenly over it — four rings in a window too
+    /// narrow for one row become 2 + 2, never 3 + 1.
+    private func columnCount(forWidth width: CGFloat, count: Int) -> Int {
+        guard count > 0 else { return 1 }
+        guard width > 0 else { return count }
+        let fitting = max(1, Int((width + spacing) / (minimumItemWidth + spacing)))
+        let rows = Int((Double(count) / Double(min(count, fitting))).rounded(.up))
+        return max(1, Int((Double(count) / Double(max(rows, 1))).rounded(.up)))
+    }
+
+    private func itemWidth(in width: CGFloat, columns: Int) -> CGFloat {
+        guard columns > 1 else { return width }
+        return (width - spacing * CGFloat(columns - 1)) / CGFloat(columns)
+    }
+
+    private func indices(inRow row: Int, columns: Int, count: Int) -> Range<Int> {
+        let start = row * columns
+        return start..<min(start + columns, count)
+    }
+
+    /// One entry per row. A row is as tall as its tallest panel measured at
+    /// the width that row will actually give it.
+    private func rowHeights(_ subviews: Subviews, width: CGFloat) -> [CGFloat] {
+        let columns = columnCount(forWidth: width, count: subviews.count)
+        let itemWidth = itemWidth(in: width, columns: columns)
+        guard columns > 0, subviews.count > 0 else { return [] }
+        return stride(from: 0, to: subviews.count, by: columns).map { start in
+            (start..<min(start + columns, subviews.count))
+                .map {
+                    subviews[$0].sizeThatFits(
+                        ProposedViewSize(width: itemWidth, height: nil)
+                    ).height
+                }
+                .max() ?? 0
+        }
+    }
 }
