@@ -52,8 +52,15 @@ android {
         // CI overrides both from the command line: the version code comes from
         // what Play has already seen, so a rebuild of the same commit never
         // collides with an uploaded bundle.
-        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = (project.findProperty("versionName") as String?) ?: "1.0"
+        //
+        // The fallbacks have to stay ahead of Play as well. 1.0 (code 1) is
+        // uploaded, and Play rejects any bundle whose version code it has
+        // already seen — so a plain `./gradlew bundleRelease` with no
+        // properties set produced a bundle that built, signed and verified
+        // cleanly and could never be uploaded. Bump these whenever a code
+        // reaches Play.
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 2
+        versionName = (project.findProperty("versionName") as String?) ?: "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
