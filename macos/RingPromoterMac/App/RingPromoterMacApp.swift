@@ -29,6 +29,9 @@ struct RingPromoterMacApp: App {
                     if let directory = ConsoleSnapshot.requestedDirectory {
                         await ConsoleSnapshot.run(writingTo: directory)
                     }
+                    if let host = ConsoleDiagnostics.requestedHost {
+                        await ConsoleDiagnostics.run(host: host)
+                    }
                     #endif
                     session.restoreLastSession()
                     await push.refreshStatus()

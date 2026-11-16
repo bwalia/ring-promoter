@@ -19,6 +19,11 @@ struct MacRootView: View {
     @Environment(Router.self) private var router
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: OverviewStore?
+    /// Raised by the sidebar's connection footer. Presented from here, the
+    /// window's own content, rather than from the toolbar-hosted
+    /// `InstanceSwitcher` — see `ConnectionFooter`.
+    @State private var isAddingInstance = false
+    @State private var isManagingInstances = false
 
     var body: some View {
         Group {
@@ -28,7 +33,11 @@ struct MacRootView: View {
                     .consoleSurface()
             case .live, .demo:
                 NavigationSplitView {
-                    MacSidebar(store: store)
+                    MacSidebar(
+                        store: store,
+                        isAddingInstance: $isAddingInstance,
+                        isManagingInstances: $isManagingInstances
+                    )
                         .navigationSplitViewColumnWidth(min: 232, ideal: 268, max: 340)
                 } detail: {
                     content
@@ -60,6 +69,12 @@ struct MacRootView: View {
         }
         .sheet(isPresented: reauthenticationBinding) {
             ReauthenticationView()
+        }
+        .sheet(isPresented: $isAddingInstance) {
+            AddInstanceView()
+        }
+        .sheet(isPresented: $isManagingInstances) {
+            ControlPlanesView(isSheet: true)
         }
         .overlay {
             if session.biometrics.isLocked, session.settings.lockOnOpen {

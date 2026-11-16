@@ -15,6 +15,10 @@ import SwiftUI
 /// 11px uppercase label, and there is no way to reach that through `List`.
 struct MacSidebar: View {
     let store: OverviewStore?
+    /// Raised by the connection footer. The sheet itself is presented by
+    /// `MacRootView`, from the window's content — see `ConnectionFooter`.
+    @Binding var isAddingInstance: Bool
+    @Binding var isManagingInstances: Bool
     @Environment(AppSession.self) private var session
     @Environment(Router.self) private var router
     @Environment(ConsoleFocus.self) private var focus
@@ -28,7 +32,10 @@ struct MacSidebar: View {
                 MacSidebarSections(store: store)
             }
             .scrollContentBackground(.hidden)
-            ConnectionFooter()
+            ConnectionFooter(
+                isAddingInstance: $isAddingInstance,
+                isManagingInstances: $isManagingInstances
+            )
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.rpSidebar)
@@ -177,39 +184,97 @@ struct MacSidebarSections: View {
     }
 }
 
-/// Which control plane the window is pointed at, pinned under the sidebar.
+/// Which control plane the window is pointed at, pinned under the sidebar —
+/// and the way to change it.
 ///
 /// On iOS this lives in the Settings tab, one tap away. A Mac window stays
 /// open for hours across several planes, so the answer to "which server am I
 /// about to promote on" belongs permanently on screen.
+///
+/// It is also a button, and that is not only for convenience. The shared
+/// `InstanceSwitcher` carries its own `.sheet` modifiers, and on this target
+/// it is hosted inside the window toolbar — a separate AppKit view tree, where
+/// a sheet attached to a toolbar item is not reliably presented. This route
+/// raises a binding instead and lets `MacRootView` present from the window's
+/// own content, which always works.
 struct ConnectionFooter: View {
+    @Binding var isAddingInstance: Bool
+    @Binding var isManagingInstances: Bool
     @Environment(AppSession.self) private var session
+    @State private var isHovering = false
 
     var body: some View {
         VStack(spacing: 0) {
             Rectangle()
                 .fill(Color.rpBorder)
                 .frame(height: 1)
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(session.isDemo ? Color.rpGate : session.instanceTint.color)
-                    .frame(width: 7, height: 7)
-                Text(session.isDemo ? "Demo mode" : session.instanceName)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.rpMutedForeground)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
+            Menu {
+                Section("Clusters") {
+                    ForEach(session.instances.instances) { instance in
+                        Button {
+                            if instance.id != session.activeInstance?.id {
+                                _ = session.activate(instance)
+                            }
+                        } label: {
+                            if instance.id == session.activeInstance?.id {
+                                Label(instance.name, systemImage: "checkmark")
+                            } else {
+                                Text(instance.name)
+                            }
+                        }
+                    }
+                }
+                Button {
+                    isAddingInstance = true
+                } label: {
+                    Label("Add a cluster…", systemImage: "plus.circle")
+                }
+                Button {
+                    isManagingInstances = true
+                } label: {
+                    Label("Manage clusters…", systemImage: "server.rack")
+                }
+                if !session.isDemo {
+                    Button {
+                        session.enterDemoMode()
+                    } label: {
+                        Label("Switch to demo mode", systemImage: "theatermasks")
+                    }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(session.isDemo ? Color.rpGate : session.instanceTint.color)
+                        .frame(width: 7, height: 7)
+                    Text(session.isDemo ? "Demo mode" : session.instanceName)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.rpMutedForeground)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(Color.rpMutedForeground)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background {
+                    RoundedRectangle(cornerRadius: RPRadius.md)
+                        .fill(isHovering ? Color.rpAccent.opacity(0.6) : Color.clear)
+                }
+                .contentShape(.rect(cornerRadius: RPRadius.md))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .onHover { isHovering = $0 }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 6)
+            .accessibilityLabel(
+                session.isDemo
+                    ? "Demo mode, no server connected. Change cluster."
+                    : "Connected to \(session.instanceName). Change cluster."
+            )
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            session.isDemo
-                ? "Demo mode, no server connected"
-                : "Connected to \(session.instanceName)"
-        )
     }
 }
 

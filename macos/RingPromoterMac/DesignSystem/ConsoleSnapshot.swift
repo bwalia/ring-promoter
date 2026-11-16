@@ -39,7 +39,10 @@ enum ConsoleSnapshot {
             VStack(spacing: 0) {
                 MacSidebarSections(store: store)
                 Spacer(minLength: 0)
-                ConnectionFooter()
+                ConnectionFooter(
+                    isAddingInstance: .constant(false),
+                    isManagingInstances: .constant(false)
+                )
             }
             .frame(width: 268, height: 900)
             .background(Color.rpSidebar)
