@@ -11,7 +11,7 @@ struct RingPromoterMacApp: App {
     @State private var session = AppSession()
     @State private var router = Router()
     @State private var push = PushRegistration()
-    @Environment(\.openWindow) private var openWindow
+    @State private var focus = ConsoleFocus()
 
     var body: some Scene {
         WindowGroup {
@@ -19,11 +19,17 @@ struct RingPromoterMacApp: App {
                 .environment(session)
                 .environment(router)
                 .environment(push)
+                .environment(focus)
                 .preferredColorScheme(session.settings.theme.colorScheme)
                 // A control plane is a dense table of rings; below this the
-                // columns collapse into something unreadable.
-                .frame(minWidth: 860, minHeight: 560)
+                // sidebar and the ring strip cannot both stay readable.
+                .frame(minWidth: 880, minHeight: 560)
                 .task {
+                    #if DEBUG
+                    if let directory = ConsoleSnapshot.requestedDirectory {
+                        await ConsoleSnapshot.run(writingTo: directory)
+                    }
+                    #endif
                     session.restoreLastSession()
                     await push.refreshStatus()
                 }
@@ -32,7 +38,7 @@ struct RingPromoterMacApp: App {
         .defaultSize(width: 1180, height: 760)
         // Mac windows persist position and size per scene, and the operator can
         // open two at once onto different control planes.
-        .commands { RingPromoterCommands(session: session, router: router) }
+        .commands { RingPromoterCommands(session: session, router: router, focus: focus) }
     }
 }
 
@@ -44,6 +50,7 @@ struct RingPromoterMacApp: App {
 struct RingPromoterCommands: Commands {
     let session: AppSession
     let router: Router
+    let focus: ConsoleFocus
 
     var body: some Commands {
         // Replaces the default "New Window" placement with navigation, which is
@@ -51,13 +58,22 @@ struct RingPromoterCommands: Commands {
         CommandGroup(after: .sidebar) {
             Divider()
             ForEach(Array(Router.Tab.allCases.enumerated()), id: \.element) { index, tab in
-                Button(tab.label) { router.tab = tab }
+                Button(tab.sidebarLabel) { router.tab = tab }
                     .keyboardShortcut(
                         KeyEquivalent(Character("\(index + 1)")),
                         modifiers: .command
                     )
                     .disabled(session.mode == .disconnected)
             }
+        }
+
+        // The web console focuses its sidebar filter on "/". A Mac expects ⌘F,
+        // and the key cap drawn on the field says so.
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Button("Filter Applications") { focus.requestFilter() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(session.mode == .disconnected)
         }
 
         CommandGroup(replacing: .help) {
