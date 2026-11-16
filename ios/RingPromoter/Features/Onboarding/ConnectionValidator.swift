@@ -71,11 +71,28 @@ struct ConnectionValidator: Sendable {
         do {
             return .success(try await client.apps())
         } catch {
-            if case .unauthorized(let message) = error {
-                return .failure(.tokenRejected(message))
+            if case .unauthorized = error {
+                return .failure(.tokenRejected(Self.rejectionAdvice(tokenLength: token.count)))
             }
             return .failure(.other(error.userMessage))
         }
+    }
+
+    /// What to say when the server returns 401 during onboarding.
+    ///
+    /// Deliberately NOT the server's own message. It answers "missing or
+    /// invalid bearer token", which is accurate, is written for whoever is
+    /// reading its logs, and leaves an operator with nowhere to go — the app
+    /// knows it sent a token, so "missing" is not even one of the two.
+    ///
+    /// The length is included because truncation is the failure this cannot
+    /// otherwise detect: a token copied from a terminal that cut the line
+    /// looks perfectly well-formed. Seeing "32 characters" next to a token you
+    /// know is 64 ends the search immediately.
+    static func rejectionAdvice(tokenLength: Int) -> String {
+        "The server is there, but it rejected this token (\(tokenLength) characters sent). "
+            + "It must be the value of RP_API_TOKEN that this server was started with — not a "
+            + "password, not a token for another cluster, and not a partial copy."
     }
 
     /// A reachable host that is not a Ring Promoter answers `/healthz` with

@@ -26,6 +26,9 @@ struct AddInstanceView: View {
     @State private var tint: InstanceTint = .blue
     @State private var requireBiometrics = true
     @State private var state: ValidationState = .idle
+    /// Repairs `TokenHygiene` made to what was pasted, shown on success so a
+    /// token that works here but not in curl is never a mystery.
+    @State private var tokenRepairs: [String] = []
     @FocusState private var focus: Field?
 
     private enum Field: Hashable { case name, url, token }
@@ -66,17 +69,38 @@ struct AddInstanceView: View {
                 Section {
                     SecureField(editing == nil ? "Bearer token" : "Unchanged", text: $token)
                         .focused($focus, equals: .token)
-                        .textContentType(.password)
+                        // Deliberately NOT .textContentType(.password). A
+                        // bearer token is not a password, and declaring it one
+                        // puts iOS AutoFill's saved-credential suggestion in
+                        // the QuickType bar directly above the field — where
+                        // one mis-tap silently replaces the token, and the
+                        // server answers that with the same opaque 401 as a
+                        // typo.
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 } header: {
                     Text("API token")
                 } footer: {
-                    Text(
-                        (editing == nil ? "" : "Leave blank to keep the saved token. ")
-                            + "Stored in the iOS Keychain, on this device only, and never "
-                            + "written to a log or shared with the widget."
-                    )
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Counted as it is typed or pasted. A token truncated
+                        // by a partial copy looks exactly like a whole one,
+                        // and this is the only place that difference is
+                        // visible before the server answers 401.
+                        if !token.isEmpty {
+                            let cleaned = TokenHygiene.clean(token)
+                            Label(
+                                cleaned.defect?.message ?? lengthNote(cleaned),
+                                systemImage: cleaned.isUsable
+                                    ? "number" : "exclamationmark.triangle.fill"
+                            )
+                            .foregroundStyle(cleaned.isUsable ? Color.secondary : Color.rpGate)
+                        }
+                        Text(
+                            (editing == nil ? "" : "Leave blank to keep the saved token. ")
+                                + "Stored in the Keychain, on this device only, and never "
+                                + "written to a log or shared with the widget."
+                        )
+                    }
                 }
 
                 Section("Colour tag") {
@@ -111,6 +135,15 @@ struct AddInstanceView: View {
                 }
                 if case .succeeded(let count, let protected) = state {
                     Section {
+                        if !tokenRepairs.isEmpty {
+                            Label(
+                                "Before connecting, the app "
+                                    + tokenRepairs.joined(separator: " and ") + ".",
+                                systemImage: "wand.and.sparkles"
+                            )
+                            .font(.subheadline)
+                            .foregroundStyle(Color.rpGate)
+                        }
                         Label(
                             "Connected. \(count) application\(count == 1 ? "" : "s") available.",
                             systemImage: "checkmark.circle.fill"
@@ -151,6 +184,14 @@ struct AddInstanceView: View {
             && (editing != nil || !token.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
+    /// "64 characters." — plus what was repaired, when anything was, so a
+    /// token that works here but not in `curl` is never a mystery.
+    private func lengthNote(_ cleaned: TokenHygiene.Cleaned) -> String {
+        let count = "\(cleaned.token.count) character\(cleaned.token.count == 1 ? "" : "s")"
+        guard !cleaned.repairs.isEmpty else { return "\(count)." }
+        return "\(count), after the app \(cleaned.repairs.joined(separator: " and "))."
+    }
+
     private var namePlaceholder: String {
         if let url = Instance.normalise(urlText: urlText) {
             return "Name (\(Instance.defaultName(for: url)))"
@@ -172,11 +213,18 @@ struct AddInstanceView: View {
 
     /// The token to validate: what was typed, or — when editing with the field
     /// left blank — the one already in the Keychain.
-    private func resolvedToken() -> String? {
+    ///
+    /// What was typed is cleaned first. A pasted token routinely arrives
+    /// wrapped in a shell's quotes or carrying the `Bearer ` prefix from a
+    /// curl example, and both come back from the server as an indistinguishable
+    /// 401. See `TokenHygiene`.
+    private func resolvedToken() -> TokenHygiene.Cleaned? {
         let typed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !typed.isEmpty { return typed }
-        guard let editing else { return nil }
-        return (try? Keychain.token(for: editing.keychainAccount)) ?? nil
+        if !typed.isEmpty { return TokenHygiene.clean(typed) }
+        guard let editing,
+              let saved = (try? Keychain.token(for: editing.keychainAccount)) ?? nil
+        else { return nil }
+        return TokenHygiene.Cleaned(token: saved, repairs: [], defect: nil)
     }
 
     private func connect() async {
@@ -184,11 +232,20 @@ struct AddInstanceView: View {
             state = .failed(.invalidURL)
             return
         }
-        guard let trimmedToken = resolvedToken(), !trimmedToken.isEmpty else {
+        guard let cleaned = resolvedToken() else {
             state = .failed(.tokenRejected("No token is saved for this cluster. Paste one."))
             focus = .token
             return
         }
+        // Named before any request: the server would answer 401 to all of
+        // these and the operator would be none the wiser.
+        if let defect = cleaned.defect {
+            state = .failed(.tokenRejected(defect.message))
+            focus = .token
+            return
+        }
+        let trimmedToken = cleaned.token
+        tokenRepairs = cleaned.repairs
         state = .checking
 
         switch await ConnectionValidator.live.validate(url: url, token: trimmedToken) {
