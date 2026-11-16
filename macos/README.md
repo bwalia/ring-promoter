@@ -19,6 +19,8 @@ macos/
       ConsoleComponents.swift    card, nav row, section label, filter box
                                  and PanelGrid, the wrapping panel layout
       ConsoleSnapshot.swift      offscreen renderer (DEBUG only)
+      ConsoleAppIcon.swift       the icon, drawn (DEBUG only)
+      ConsoleDiagnostics.swift   Keychain/network probe (DEBUG only)
     Compatibility/
       PlatformModifiers.swift    SwiftUI spellings AppKit lacks
       PlatformServices.swift     UIKit services AppKit lacks
@@ -173,6 +175,23 @@ Added for the Mac, with nothing on iOS to mirror:
 - **An 880×560 minimum**, below which the sidebar and a ring panel cannot
   both stay readable.
 
+### The app icon
+
+Drawn, not painted. `ConsoleAppIcon` is a SwiftUI view on a 1024pt canvas, and
+`--snapshot` renders it at all ten sizes macOS asks for plus the `Contents.json`
+that maps them — so every size is the same artwork and none can drift.
+
+The mark is the product's own metaphor rather than decoration: three rings with
+production lit at the centre — int, test, acc, prod — and a promotion in flight
+on the outermost one, its head leading a fading trail. Strokes are heavier than
+they need to be at 512pt because one drawing has to survive being shrunk to 32,
+where only the lit core really reads.
+
+The PNGs are committed, because the generator is `#if DEBUG` and a release
+build has to find them already there. To change the icon, edit the view and
+re-run `--snapshot`, then copy from the snapshot directory into
+`Resources/Assets.xcassets/AppIcon.appiconset/`.
+
 ### The detail screen
 
 `AppDetailView`'s grouped `List` is right on a phone and wrong on a Mac: macOS
@@ -200,6 +219,19 @@ is a custom `Layout` because:
 The window's default width is 1280 — the web console's own `xl` breakpoint —
 so the pipeline opens as one row and degrades to 2 x 2 as the window narrows.
 
+Above the pipeline sit three figures, the same shape
+`web/src/components/dashboard/overview-cards.tsx` puts across the top of its
+dashboard: what is in production, whether the rings are healthy, and how many
+report a live version other than the one deployed. Deliberately *not* "this
+server needs a production password" — that is true of every application on the
+server, so it belongs on the confirmation sheet where it changes what you do,
+not repeated across every pipeline.
+
+While any of that is loading, both panes draw `ConsoleSkeleton` blocks shaped
+like the content that is coming, which is what the web does with `<Skeleton>`.
+A spinner says only "wait"; a skeleton says what to expect and stops the pane
+jumping when it arrives.
+
 ## Not yet here
 
 Nothing below is stubbed out as if it works — each is genuinely absent:
@@ -213,9 +245,9 @@ Nothing below is stubbed out as if it works — each is genuinely absent:
   the same boundary the iOS app documents.
 - **Live Activities.** iPhone-only. The Mac equivalent would be a user
   notification, which is separate work and is not pretended at.
-- **An app icon.** The catalogue holds `AccentColor` only. The iOS
-  `AppIcon.appiconset` is excluded because macOS needs its own sizes, including
-  512×512 and 1024×1024.
 - **The web's typefaces**, as above.
+- **Activity, Settings and the Rings stage, verified by eye.** They are themed,
+  but `ImageRenderer` cannot draw a `List`, a `Form` or a `Canvas`, so unlike
+  the sidebar, the cards and the pipeline they have never been looked at.
 - **Code signing for distribution.** `CODE_SIGN_IDENTITY` is `-`, which is
   ad-hoc: fine to build and run locally, not notarised and not distributable.

@@ -24,7 +24,55 @@ enum ConsoleSnapshot {
         return arguments[arguments.index(after: flag)]
     }
 
+    /// Writes the app icon at every size macOS asks for, plus the Contents
+    /// that maps them. One drawing, scaled — see `ConsoleAppIcon`.
+    static func writeAppIcon(to directory: String) {
+        // (size in points, scale) — the full macOS set.
+        let variants: [(Int, Int)] = [
+            (16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2),
+            (256, 1), (256, 2), (512, 1), (512, 2),
+        ]
+        var images: [String] = []
+        for (size, scale) in variants {
+            let pixels = size * scale
+            let name = "icon_\(size)x\(size)\(scale == 2 ? "@2x" : "").png"
+            let renderer = ImageRenderer(
+                content: ConsoleAppIcon().frame(width: 1024, height: 1024)
+            )
+            // One 1024pt drawing rendered at the scale that lands on the
+            // pixel count this slot needs.
+            renderer.scale = CGFloat(pixels) / 1024
+            write(renderer, to: "\(directory)/\(name)")
+            images.append(
+                """
+                    {
+                      "filename" : "\(name)",
+                      "idiom" : "mac",
+                      "scale" : "\(scale)x",
+                      "size" : "\(size)x\(size)"
+                    }
+                """
+            )
+        }
+        let contents = """
+        {
+          "images" : [
+        \(images.joined(separator: ",\n"))
+          ],
+          "info" : {
+            "author" : "xcode",
+            "version" : 1
+          }
+        }
+        """
+        try? contents.write(
+            toFile: "\(directory)/Contents.json", atomically: true, encoding: .utf8
+        )
+        FileHandle.standardError.write(Data("appicon: wrote \(variants.count) sizes\n".utf8))
+    }
+
     static func run(writingTo directory: String) async -> Never {
+        writeAppIcon(to: directory)
         let session = AppSession()
         session.enterDemoMode()
         let router = Router()
@@ -98,6 +146,10 @@ enum ConsoleSnapshot {
     private static func write(_ view: some View, to path: String) {
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
+        write(renderer, to: path)
+    }
+
+    private static func write(_ renderer: ImageRenderer<some View>, to path: String) {
         guard let image = renderer.nsImage,
               let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),

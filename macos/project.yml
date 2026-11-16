@@ -49,6 +49,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.fictionally.ringpromoter
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # Drawn by `ConsoleAppIcon` and regenerated with `--snapshot`; see the
+        # macOS README. The PNGs are committed because the generator is
+        # DEBUG-only and a release build has to find them already there.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
     sources:
       # Mac-only: the app entry point, the sidebar shell, and the shims that

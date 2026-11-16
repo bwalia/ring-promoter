@@ -90,6 +90,12 @@ struct AppDetailPipeline: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if store.rings.isEmpty, store.error == nil {
+                loading
+            } else {
+                summary
+            }
+
             if let error = store.error, store.rings.isEmpty {
                 ConsoleCard(isHighlighted: true) {
                     ErrorRow(error: error) { Task { await store.refresh() } }
@@ -119,6 +125,104 @@ struct AppDetailPipeline: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 20)
+    }
+
+    /// The three answers an operator wants before scrolling: what is in
+    /// production, is it healthy, and how fresh is this. Taken straight from
+    /// `web/src/components/dashboard/overview-cards.tsx`, which puts the same
+    /// three across the top of its dashboard.
+    private var summary: some View {
+        HStack(alignment: .top, spacing: 44) {
+            ConsoleStat(label: "Production") {
+                if let version = productionVersion {
+                    ConsoleStatValue(text: version, isMonospaced: true)
+                } else {
+                    ConsoleStatValue(text: "—", tint: .rpMutedForeground)
+                }
+            }
+            ConsoleStat(label: "Ring health") {
+                let (healthy, active) = healthCount
+                if active == 0 {
+                    ConsoleStatValue(text: "—", tint: .rpMutedForeground)
+                } else {
+                    ConsoleStatValue(
+                        text: healthy == active ? "Healthy" : "\(healthy)/\(active) healthy",
+                        tint: healthy == active ? .rpHealthy : .rpUnhealthy,
+                        dot: healthy == active ? .rpHealthy : .rpUnhealthy
+                    )
+                }
+            }
+            // Deliberately not "this server needs a production password":
+            // that is true of every application on it, so it belongs on the
+            // confirmation sheet where it changes what you do, not repeated
+            // across every pipeline. Drift is per-application and is the thing
+            // worth noticing without scrolling.
+            if driftingRings > 0 {
+                ConsoleStat(label: "Version drift") {
+                    ConsoleStatValue(
+                        text: "\(driftingRings) ring\(driftingRings == 1 ? "" : "s")",
+                        tint: .rpGate, dot: .rpGate
+                    )
+                }
+                .accessibilityLabel(
+                    "\(driftingRings) ring\(driftingRings == 1 ? "" : "s") "
+                        + "reporting a different live version"
+                )
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.bottom, 2)
+    }
+
+    /// Shaped like what is coming, so the pane does not jump when it arrives.
+    /// A spinner would only say "wait".
+    private var loading: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 44) {
+                ForEach(0..<3, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 7) {
+                        ConsoleSkeleton(width: 78, height: 9)
+                        ConsoleSkeleton(width: 120, height: 20)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            ConsoleSkeleton(width: 70, height: 9)
+            PanelGrid(minimumItemWidth: minimumPanelWidth, spacing: 12) {
+                ForEach(0..<4, id: \.self) { _ in
+                    ConsoleCard(fillsHeight: true) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ConsoleSkeleton(width: 110, height: 16)
+                            ConsoleSkeleton(height: 12)
+                            ConsoleSkeleton(width: 140, height: 12)
+                            ConsoleSkeleton(height: 28, cornerRadius: 14)
+                                .padding(.top, 18)
+                        }
+                    }
+                }
+            }
+        }
+        .accessibilityLabel("Loading the pipeline")
+    }
+
+    /// Rings whose endpoint reports a version other than the one deployed.
+    private var driftingRings: Int {
+        store.rings.filter { $0.configured && $0.versionIsDrifting }.count
+    }
+
+    private var productionVersion: String? {
+        guard let prod = store.rings.first(where: { store.pipeline.isProduction($0.ring.name) }),
+              prod.configured, !prod.isEmpty
+        else { return nil }
+        return prod.currentVersion
+    }
+
+    /// Only rings that are configured *and* carry a version can be healthy or
+    /// not; an empty ring is neither, and counting it either way would be a
+    /// lie on the one figure an operator reads first.
+    private var healthCount: (healthy: Int, active: Int) {
+        let active = store.rings.filter { $0.configured && !$0.isEmpty }
+        return (active.filter(\.isHealthy).count, active.count)
     }
 
     /// Side by side when the window can hold every ring at a readable width,

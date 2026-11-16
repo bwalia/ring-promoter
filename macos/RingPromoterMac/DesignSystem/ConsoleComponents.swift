@@ -366,3 +366,99 @@ struct PanelGrid: Layout {
         }
     }
 }
+
+/// A labelled figure, from `web/src/components/dashboard/overview-cards.tsx`:
+/// an 11px uppercase label over a value set in the display face.
+///
+/// Three of these across the top of a pane is what makes it read as a console
+/// rather than a list — the answers to "what is in production", "is it
+/// healthy" and "how fresh is this" before any scrolling.
+struct ConsoleStat<Value: View>: View {
+    let label: String
+    @ViewBuilder var value: Value
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label.uppercased())
+                .font(RPFont.sectionLabel)
+                .tracking(0.7)
+                .foregroundStyle(Color.rpMutedForeground)
+            value
+                .frame(minHeight: 26, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+    }
+}
+
+/// The figure itself: the web's `.rp-stat`.
+struct ConsoleStatValue: View {
+    let text: String
+    var tint: Color = .rpForeground
+    var isMonospaced = false
+    var systemImage: String?
+    var dot: Color?
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if let dot {
+                Circle().fill(dot).frame(width: 9, height: 9)
+            }
+            if let systemImage {
+                Image(systemName: systemImage).font(.system(size: 13, weight: .semibold))
+            }
+            Text(text)
+                .font(
+                    isMonospaced
+                        ? .system(size: 20, weight: .semibold, design: .monospaced)
+                        : .system(size: 21, weight: .bold)
+                )
+                .tracking(isMonospaced ? 0 : RPFont.displayTracking(21))
+                .lineLimit(1)
+        }
+        .foregroundStyle(tint)
+    }
+}
+
+/// A placeholder while something loads, in place of a spinner.
+///
+/// The web shows `<Skeleton>` blocks shaped like the content that is coming,
+/// which tells an operator what to expect and stops the pane jumping when it
+/// arrives. A spinner says only "wait".
+struct ConsoleSkeleton: View {
+    var width: CGFloat?
+    var height: CGFloat = 16
+    var cornerRadius: CGFloat = RPRadius.sm
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var sweep = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(Color.rpAccent)
+            .frame(width: width, height: height)
+            .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+            .overlay {
+                if !reduceMotion {
+                    GeometryReader { proxy in
+                        LinearGradient(
+                            colors: [
+                                .clear, Color.rpForeground.opacity(0.07), .clear,
+                            ],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                        .frame(width: proxy.size.width * 0.5)
+                        .offset(x: sweep ? proxy.size.width : -proxy.size.width * 0.5)
+                    }
+                }
+            }
+            .clipShape(.rect(cornerRadius: cornerRadius))
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.linear(duration: 1.3).repeatForever(autoreverses: false)) {
+                    sweep = true
+                }
+            }
+            .accessibilityHidden(true)
+    }
+}

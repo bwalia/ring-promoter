@@ -79,6 +79,12 @@ struct OverviewCardStack: View {
         // nothing at all under `ImageRenderer`, which is how this pane is
         // checked.
         VStack(alignment: .leading, spacing: 18) {
+            if store.summaries.isEmpty, store.error == nil, store.lastUpdated == nil {
+                loading
+            } else if !store.summaries.isEmpty {
+                summary
+            }
+
             if let error = store.error, store.summaries.isEmpty {
                 ConsoleCard(isHighlighted: true) {
                     ErrorRow(error: error) { Task { await store.refresh() } }
@@ -139,6 +145,65 @@ struct OverviewCardStack: View {
         .padding(.vertical, 20)
         .frame(maxWidth: 980, alignment: .leading)
         .frame(maxWidth: .infinity)
+    }
+
+    /// The fleet in three figures, before any scrolling. The same shape the
+    /// web console puts across the top of a dashboard.
+    private var summary: some View {
+        HStack(alignment: .top, spacing: 44) {
+            ConsoleStat(label: "Applications") {
+                ConsoleStatValue(text: "\(store.summaries.count)", isMonospaced: true)
+            }
+            ConsoleStat(label: "Needing attention") {
+                ConsoleStatValue(
+                    text: store.troubled.isEmpty ? "None" : "\(store.troubled.count)",
+                    tint: store.troubled.isEmpty ? .rpHealthy : .rpUnhealthy,
+                    isMonospaced: !store.troubled.isEmpty,
+                    dot: store.troubled.isEmpty ? .rpHealthy : .rpUnhealthy
+                )
+            }
+            if let deploying = busyCount {
+                ConsoleStat(label: "In flight") {
+                    ConsoleStatValue(
+                        text: "\(deploying)", tint: .rpInFlight,
+                        isMonospaced: true, dot: .rpInFlight
+                    )
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.bottom, 2)
+    }
+
+    private var busyCount: Int? {
+        let count = store.summaries.filter(\.isBusy).count
+        return count == 0 ? nil : count
+    }
+
+    /// Shaped like the cards that are coming, so nothing jumps when they
+    /// arrive.
+    private var loading: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 44) {
+                ForEach(0..<2, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 7) {
+                        ConsoleSkeleton(width: 92, height: 9)
+                        ConsoleSkeleton(width: 70, height: 20)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            ConsoleSkeleton(width: 84, height: 9)
+            ForEach(0..<3, id: \.self) { _ in
+                ConsoleCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ConsoleSkeleton(width: 150, height: 16)
+                        ConsoleSkeleton(height: 42, cornerRadius: RPRadius.md)
+                    }
+                }
+            }
+        }
+        .accessibilityLabel("Loading applications")
     }
 
     private var staleBanner: some View {
