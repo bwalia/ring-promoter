@@ -1,5 +1,11 @@
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
+
 /// How a ring's state is rendered.
 ///
 /// **Colour is never the only signal.** Each state carries a distinct SF Symbol
@@ -113,12 +119,30 @@ extension Color {
         dark: Color(red: 0.78, green: 0.55, blue: 0.95)
     )
 
+    /// One colour that resolves itself per appearance, rather than two colours
+    /// the caller has to choose between. Every `rp*` token above relies on it,
+    /// so a screen never has to read the colour scheme to pick a shade.
     init(light: Color, dark: Color) {
+        #if canImport(UIKit)
         self = Color(
             uiColor: UIColor { traits in
                 traits.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
             }
         )
+        #else
+        // AppKit's equivalent: the provider is asked for the appearance in
+        // effect at draw time, which is the same contract UIColor's
+        // trait-based initialiser offers. `bestMatch` rather than comparing
+        // names directly, so the high-contrast and vibrant appearances map
+        // onto the nearest of the two defined here instead of falling through
+        // to light.
+        self = Color(
+            nsColor: NSColor(name: nil) { appearance in
+                let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                return NSColor(isDark ? dark : light)
+            }
+        )
+        #endif
     }
 }
 

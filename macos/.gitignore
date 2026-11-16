@@ -1,0 +1,5 @@
+# All generated from project.yml by xcodegen — edit the spec, not these.
+RingPromoterMac.xcodeproj/
+Config/RingPromoterMac-Info.plist
+Config/RingPromoterMac.entitlements
+build/

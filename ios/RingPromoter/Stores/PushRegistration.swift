@@ -1,6 +1,12 @@
 import Foundation
-import UIKit
 import UserNotifications
+
+// The only UIKit symbol used here is UIApplication, for APNs registration. The
+// macOS target supplies an NSApplication-backed stand-in with the same
+// signature, so this file is shared rather than forked.
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// The client half of push notifications: permission, APNs registration, and
 /// turning a delivered payload into a deep link.
