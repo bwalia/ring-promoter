@@ -50,11 +50,10 @@ struct MacSidebar: View {
             router.overviewPath = []
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "smallcircle.filled.circle")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.rpPrimaryForeground)
-                    .frame(width: 26, height: 26)
-                    .background(Color.rpPrimary, in: .rect(cornerRadius: RPRadius.md))
+                // The same artwork the Dock shows. It used to be a flat SF
+                // Symbol on a white square, which made the app appear to have
+                // two unrelated identities.
+                ConsoleBrandMark(size: 28)
                 Text("Ring Promoter")
                     .displayHeading(RPFont.bodySize)
                     .foregroundStyle(Color.rpForeground)
@@ -189,92 +188,140 @@ struct MacSidebarSections: View {
 ///
 /// On iOS this lives in the Settings tab, one tap away. A Mac window stays
 /// open for hours across several planes, so the answer to "which server am I
-/// about to promote on" belongs permanently on screen.
+/// about to promote on" belongs permanently on screen. It names the host as
+/// well as the label, because two clusters called "Production" is a thing that
+/// happens.
 ///
-/// It is also a button, and that is not only for convenience. The shared
-/// `InstanceSwitcher` carries its own `.sheet` modifiers, and on this target
-/// it is hosted inside the window toolbar — a separate AppKit view tree, where
-/// a sheet attached to a toolbar item is not reliably presented. This route
-/// raises a binding instead and lets `MacRootView` present from the window's
-/// own content, which always works.
+/// A `Button` and a `popover` rather than a `Menu`. AppKit lays a borderless
+/// menu's label out on its own terms — it centred the text and put the
+/// indicator in front of it, ignoring the padding this had — and a popover is
+/// the only way to get a row that looks like the rest of the sidebar.
+///
+/// The sheets are raised through bindings rather than presented here. The
+/// shared `InstanceSwitcher` carries its own, and on this target it is hosted
+/// inside the window toolbar, a separate AppKit view tree where a sheet
+/// attached to a toolbar item is not reliably presented.
 struct ConnectionFooter: View {
     @Binding var isAddingInstance: Bool
     @Binding var isManagingInstances: Bool
     @Environment(AppSession.self) private var session
+    @State private var isShowingSwitcher = false
     @State private var isHovering = false
+
+    private var dotColor: Color {
+        session.isDemo ? .rpGate : session.instanceTint.color
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Rectangle()
                 .fill(Color.rpBorder)
                 .frame(height: 1)
-            Menu {
-                Section("Clusters") {
-                    ForEach(session.instances.instances) { instance in
-                        Button {
-                            if instance.id != session.activeInstance?.id {
-                                _ = session.activate(instance)
-                            }
-                        } label: {
-                            if instance.id == session.activeInstance?.id {
-                                Label(instance.name, systemImage: "checkmark")
-                            } else {
-                                Text(instance.name)
-                            }
-                        }
-                    }
-                }
-                Button {
-                    isAddingInstance = true
-                } label: {
-                    Label("Add a cluster…", systemImage: "plus.circle")
-                }
-                Button {
-                    isManagingInstances = true
-                } label: {
-                    Label("Manage clusters…", systemImage: "server.rack")
-                }
-                if !session.isDemo {
-                    Button {
-                        session.enterDemoMode()
-                    } label: {
-                        Label("Switch to demo mode", systemImage: "theatermasks")
-                    }
-                }
+            Button {
+                isShowingSwitcher = true
             } label: {
-                HStack(spacing: 7) {
+                HStack(spacing: 9) {
                     Circle()
-                        .fill(session.isDemo ? Color.rpGate : session.instanceTint.color)
-                        .frame(width: 7, height: 7)
-                    Text(session.isDemo ? "Demo mode" : session.instanceName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.rpMutedForeground)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 0)
+                        .fill(dotColor)
+                        .frame(width: 8, height: 8)
+                        .overlay { Circle().strokeBorder(Color.white.opacity(0.2)) }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(session.isDemo ? "Demo mode" : session.instanceName)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.rpForeground)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(subtitle)
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.rpMutedForeground)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 4)
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Color.rpMutedForeground)
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background {
                     RoundedRectangle(cornerRadius: RPRadius.md)
-                        .fill(isHovering ? Color.rpAccent.opacity(0.6) : Color.clear)
+                        .fill(isHovering ? Color.rpAccent.opacity(0.7) : Color.clear)
                 }
                 .contentShape(.rect(cornerRadius: RPRadius.md))
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
             .onHover { isHovering = $0 }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 6)
-            .accessibilityLabel(
-                session.isDemo
-                    ? "Demo mode, no server connected. Change cluster."
-                    : "Connected to \(session.instanceName). Change cluster."
-            )
+            .padding(8)
+            .popover(isPresented: $isShowingSwitcher, arrowEdge: .trailing) {
+                switcher
+            }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            session.isDemo
+                ? "Demo mode, no server connected. Change cluster."
+                : "Connected to \(session.instanceName). Change cluster."
+        )
+    }
+
+    private var subtitle: String {
+        if session.isDemo { return "No server — bundled sample data" }
+        return session.activeInstance?.displayHost ?? "Connected"
+    }
+
+    private var switcher: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ConsoleSectionLabel("Clusters")
+                .padding(.horizontal, 6)
+                .padding(.bottom, 2)
+            ForEach(session.instances.instances) { instance in
+                ConsoleNavRow(
+                    title: instance.name,
+                    isSelected: instance.id == session.activeInstance?.id,
+                    action: {
+                        isShowingSwitcher = false
+                        if instance.id != session.activeInstance?.id {
+                            _ = session.activate(instance)
+                        }
+                    },
+                    leading: {
+                        Circle()
+                            .fill(instance.tint.color)
+                            .frame(width: 8, height: 8)
+                            .frame(width: 16)
+                    },
+                    trailing: {
+                        Text(instance.displayHost)
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.rpMutedForeground)
+                            .lineLimit(1)
+                    }
+                )
+            }
+            Divider().padding(.vertical, 5)
+            ConsoleNavRow(
+                title: "Add a cluster…",
+                action: { isShowingSwitcher = false; isAddingInstance = true },
+                leading: { Image(systemName: "plus.circle").frame(width: 16) }
+            )
+            ConsoleNavRow(
+                title: "Manage clusters…",
+                action: { isShowingSwitcher = false; isManagingInstances = true },
+                leading: { Image(systemName: "server.rack").frame(width: 16) }
+            )
+            if !session.isDemo {
+                ConsoleNavRow(
+                    title: "Switch to demo mode",
+                    action: { isShowingSwitcher = false; session.enterDemoMode() },
+                    leading: { Image(systemName: "theatermasks").frame(width: 16) }
+                )
+            }
+        }
+        .padding(8)
+        .frame(width: 290)
+        .background(Color.rpSidebar)
     }
 }
 

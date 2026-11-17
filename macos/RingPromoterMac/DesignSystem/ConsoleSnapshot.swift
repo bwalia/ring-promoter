@@ -108,7 +108,12 @@ enum ConsoleSnapshot {
         // The detail pane, at the width the window actually gives it.
         let detail = AppDetailStore(app: store.summaries.first?.name ?? "web-frontend", session: session)
         await detail.refresh()
-        let detailPane = AppDetailPipeline(store: detail) { _ in }
+        let activity = AppActivityLoader(
+            app: store.summaries.first?.name ?? "web-frontend", session: session
+        )
+        await activity.refresh()
+
+        let detailPane = AppDetailPipeline(store: detail, preloadedActivity: activity) { _ in }
             .frame(width: 1011, alignment: .top)
             .background(Color.rpBackground)
             .environment(session)
@@ -116,7 +121,7 @@ enum ConsoleSnapshot {
 
         // And the same pane in a narrow window, to prove the side-by-side
         // arrangement falls back to a stack rather than squeezing.
-        let detailNarrow = AppDetailPipeline(store: detail) { _ in }
+        let detailNarrow = AppDetailPipeline(store: detail, preloadedActivity: activity) { _ in }
             .frame(width: 600, alignment: .top)
             .background(Color.rpBackground)
             .environment(session)

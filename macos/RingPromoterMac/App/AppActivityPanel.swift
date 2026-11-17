@@ -1,0 +1,150 @@
+import SwiftUI
+
+/// What actually happened to this application, under its pipeline.
+///
+/// The web console puts a history panel on the dashboard; the phone puts it
+/// one tap away behind the toolbar menu, which is right on a phone and wasteful
+/// on a window with a thousand spare points below the rings. So the ledger is
+/// inline here: who promoted what, where it went, and what the server said
+/// when it failed.
+///
+/// `HistoryRow` is the shared component — the same rows the History screen and
+/// the Activity feed draw, including the expandable detail and the AI
+/// diagnosis. Only the container is Mac-specific.
+struct AppActivityPanel: View {
+    let app: String
+
+    @Environment(AppSession.self) private var session
+    @State private var loader: AppActivityLoader?
+    @State private var expanded: Set<Int64> = []
+
+    /// A loader that has already fetched. Only `ConsoleSnapshot` passes one:
+    /// `ImageRenderer` never runs `.task`, so without this the panel can only
+    /// ever be photographed mid-skeleton and its rows could not be checked.
+    init(app: String, preloaded: AppActivityLoader? = nil) {
+        self.app = app
+        _loader = State(initialValue: preloaded)
+    }
+
+    /// Enough to answer "what just happened"; the rest is behind "Full
+    /// history", which is the screen built for reading it.
+    private let inlineLimit = 6
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            ConsoleCard(padding: 0) {
+                VStack(spacing: 0) {
+                    if let loader {
+                        content(loader)
+                    } else {
+                        rowPadding { ConsoleSkeleton(height: 34) }
+                    }
+                }
+            }
+        }
+        .task(id: app) {
+            guard loader == nil else { return }
+            let created = AppActivityLoader(app: app, session: session)
+            loader = created
+            await created.refresh()
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            ConsoleSectionLabel("Recent activity")
+            NavigationLink(value: Route.history(app: app)) {
+                Text("Full history")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.rpMutedForeground)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open the full history for this application")
+        }
+    }
+
+    @ViewBuilder
+    private func content(_ loader: AppActivityLoader) -> some View {
+        if let error = loader.error, loader.entries.isEmpty {
+            rowPadding {
+                ErrorRow(error: error) { Task { await loader.refresh() } }
+            }
+        } else if loader.entries.isEmpty {
+            rowPadding {
+                if loader.isLoading {
+                    ConsoleSkeleton(height: 34)
+                } else {
+                    Label(
+                        "Nothing yet. Seeds, promotions and rollbacks appear here as they "
+                            + "happen.",
+                        systemImage: "clock"
+                    )
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.rpMutedForeground)
+                }
+            }
+        } else {
+            let shown = Array(loader.entries.prefix(inlineLimit))
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, entry in
+                if index > 0 {
+                    Rectangle().fill(Color.rpBorder).frame(height: 1)
+                }
+                rowPadding {
+                    HistoryRow(
+                        app: app,
+                        entry: entry,
+                        isExpanded: expanded.contains(entry.id),
+                        onToggle: { toggle(entry.id) }
+                    )
+                }
+            }
+        }
+    }
+
+    private func rowPadding<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func toggle(_ id: Int64) {
+        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+    }
+}
+
+/// Loads one application's ledger.
+///
+/// Mac-only and separate from `AppDetailStore` on purpose: the phone does not
+/// show history beside the pipeline, so putting this in the shared store would
+/// make every iPhone refresh pay for a request it never draws.
+@MainActor
+@Observable
+final class AppActivityLoader {
+    private(set) var entries: [HistoryEntry] = []
+    private(set) var isLoading = false
+    private(set) var error: APIError?
+
+    private let app: String
+    private let session: AppSession
+
+    init(app: String, session: AppSession) {
+        self.app = app
+        self.session = session
+    }
+
+    func refresh() async {
+        isLoading = true
+        defer { isLoading = false }
+        do throws(APIError) {
+            entries = try await session.api.history(app: app)
+            error = nil
+        } catch {
+            // Keep whatever is on screen: a flaky history request must not
+            // blank the ledger an operator is reading.
+            self.error = error
+            session.note(error)
+        }
+    }
+}

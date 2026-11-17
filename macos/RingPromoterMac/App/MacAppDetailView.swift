@@ -81,6 +81,8 @@ struct MacAppDetailView: View {
 /// can render them: `ImageRenderer` draws a `ScrollView` as an empty box.
 struct AppDetailPipeline: View {
     @Bindable var store: AppDetailStore
+    /// Only `ConsoleSnapshot` passes one — see `AppActivityPanel`.
+    var preloadedActivity: AppActivityLoader?
     let onAction: (ActionSheetRequest) -> Void
 
     /// Below this a ring panel stops being readable. Chosen so the four-ring
@@ -115,6 +117,11 @@ struct AppDetailPipeline: View {
             if !store.rings.isEmpty {
                 ConsoleSectionLabel("Pipeline")
                 rings
+            }
+
+            if !store.rings.isEmpty {
+                AppActivityPanel(app: store.app, preloaded: preloadedActivity)
+                    .padding(.top, 2)
             }
 
             if let updated = store.lastUpdated {
