@@ -43,31 +43,46 @@ struct AddInstanceView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    TextField(namePlaceholder, text: $name)
-                        .focused($focus, equals: .name)
-                        .textInputAutocapitalization(.words)
-                    TextField("https://ring-promoter.example.com", text: $urlText)
+                Section("Cluster") {
+                    // Label above the field rather than beside it.
+                    //
+                    // These used to carry no label at all: the placeholder was
+                    // doing the job ("Name (optional, e.g. Production)"). That
+                    // reads acceptably on a phone and falls apart on a Mac,
+                    // where SwiftUI puts a TextField's title in a leading
+                    // label column — so the placeholder text became the label,
+                    // the field sat empty beside it, and the example URL was
+                    // detected as a link and drawn in blue.
+                    //
+                    // A label above the field has no column to be placed in,
+                    // so both platforms render the same thing, and the
+                    // placeholder goes back to being an example.
+                    FormField("Name") {
+                        TextField("Name", text: $name, prompt: Text(namePlaceholder))
+                            .focused($focus, equals: .name)
+                            .textInputAutocapitalization(.words)
+                    }
+                    FormField("Server URL", footnote: urlFootnote, tint: urlFootnoteTint) {
+                        TextField(
+                            "Server URL", text: $urlText,
+                            prompt: Text("https://ring-promoter.example.com")
+                        )
                         .focused($focus, equals: .url)
                         .textContentType(.URL)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                } header: {
-                    Text("Cluster")
-                } footer: {
-                    if let url = Instance.normalise(urlText: urlText), url.scheme == "http" {
-                        Label(
-                            "This address is not HTTPS. Your token will cross the network in "
-                                + "clear text — only do this for a local development server.",
-                            systemImage: "exclamationmark.triangle.fill"
-                        )
-                        .foregroundStyle(Color.rpGate)
                     }
                 }
 
                 Section {
-                    SecureField(editing == nil ? "Bearer token" : "Unchanged", text: $token)
+                    FormField(
+                        "API token", footnote: tokenFootnote, tint: tokenFootnoteTint
+                    ) {
+                        SecureField(
+                            "API token", text: $token,
+                            prompt: Text(editing == nil ? "Paste the bearer token" : "Unchanged")
+                        )
                         .focused($focus, equals: .token)
                         // Deliberately NOT .textContentType(.password). A
                         // bearer token is not a password, and declaring it one
@@ -78,51 +93,37 @@ struct AddInstanceView: View {
                         // typo.
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                } header: {
-                    Text("API token")
-                } footer: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        // Counted as it is typed or pasted. A token truncated
-                        // by a partial copy looks exactly like a whole one,
-                        // and this is the only place that difference is
-                        // visible before the server answers 401.
-                        if !token.isEmpty {
-                            let cleaned = TokenHygiene.clean(token)
-                            Label(
-                                cleaned.defect?.message ?? lengthNote(cleaned),
-                                systemImage: cleaned.isUsable
-                                    ? "number" : "exclamationmark.triangle.fill"
-                            )
-                            .foregroundStyle(cleaned.isUsable ? Color.secondary : Color.rpGate)
-                        }
-                        Text(
-                            (editing == nil ? "" : "Leave blank to keep the saved token. ")
-                                + "Stored in the Keychain, on this device only, and never "
-                                + "written to a log or shared with the widget."
-                        )
                     }
+                } header: {
+                    Text("Authentication")
+                } footer: {
+                    Text(
+                        (editing == nil ? "" : "Leave blank to keep the saved token. ")
+                            + "Stored in the Keychain, on this device only, and never "
+                            + "written to a log or shared with the widget."
+                    )
                 }
 
                 Section("Colour tag") {
-                    Picker("Colour", selection: $tint) {
-                        ForEach(InstanceTint.allCases) { option in
-                            Label {
-                                Text(option.label)
-                            } icon: {
-                                Image(systemName: "circle.fill").foregroundStyle(option.color)
-                            }
-                            .tag(option)
-                        }
-                    }
-                    .pickerStyle(.navigationLink)
+                    // Swatches rather than a menu. Six options whose whole
+                    // point is the colour, so showing them is both faster and
+                    // more honest than a list of their names.
+                    InstanceTintPicker(selection: $tint)
                 }
 
                 Section {
-                    Toggle("Confirm production actions with Face ID", isOn: $requireBiometrics)
+                    Toggle(
+                        "Confirm production actions with \(biometryName)",
+                        isOn: $requireBiometrics
+                    )
+                    .disabled(!biometricsAvailable)
                 } footer: {
                     Text(
-                        "Anything that deploys into the last ring will ask you to prove it is "
-                            + "you. Rollbacks are never blocked."
+                        biometricsAvailable
+                            ? "Anything that deploys into the last ring will ask you to prove "
+                                + "it is you. Rollbacks are never blocked."
+                            : "This device has no biometrics or passcode set up, so this "
+                                + "cannot be switched on."
                     )
                 }
 
@@ -182,6 +183,59 @@ struct AddInstanceView: View {
     private var canSubmit: Bool {
         Instance.normalise(urlText: urlText) != nil
             && (editing != nil || !token.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
+    /// What the device actually offers, rather than "Face ID" for everyone.
+    /// A Mac with Touch ID, an iPhone SE and an iPad all got the wrong word.
+    private var biometryName: String {
+        let availability = session.biometrics.availability
+        return availability.isAvailable ? availability.label : "biometrics"
+    }
+
+    private var biometricsAvailable: Bool { session.biometrics.availability.isAvailable }
+
+    /// Says what the app will actually connect to.
+    ///
+    /// Worth showing because `Instance.normalise` does real work: it adds a
+    /// missing scheme and trims trailing slashes, and it keeps a query string,
+    /// so pasting a console URL straight from the address bar gives a base
+    /// that is not quite what you meant.
+    private var urlFootnote: String? {
+        let trimmed = urlText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = Instance.normalise(urlText: trimmed) else {
+            return "Not a usable address yet."
+        }
+        if url.scheme == "http" {
+            return "Not HTTPS — your token would cross the network in clear text. "
+                + "Only do this for a local development server."
+        }
+        if url.query() != nil {
+            return "Will connect to \(url.absoluteString) — that still carries a query "
+                + "string. You probably want just the scheme and host."
+        }
+        return "Will connect to \(url.absoluteString)"
+    }
+
+    private var urlFootnoteTint: Color? {
+        guard let url = Instance.normalise(urlText: urlText) else {
+            return urlText.trimmingCharacters(in: .whitespaces).isEmpty ? nil : .rpGate
+        }
+        return url.scheme == "http" || url.query() != nil ? .rpGate : .rpHealthy
+    }
+
+    /// Counted as it is typed or pasted. A token truncated by a partial copy
+    /// looks exactly like a whole one, and this is the only place that
+    /// difference is visible before the server answers 401.
+    private var tokenFootnote: String? {
+        guard !token.isEmpty else { return nil }
+        let cleaned = TokenHygiene.clean(token)
+        return cleaned.defect?.message ?? lengthNote(cleaned)
+    }
+
+    private var tokenFootnoteTint: Color? {
+        guard !token.isEmpty else { return nil }
+        return TokenHygiene.clean(token).isUsable ? nil : .rpGate
     }
 
     /// "64 characters." — plus what was repaired, when anything was, so a
@@ -290,6 +344,99 @@ struct AddInstanceView: View {
         } catch {
             state = .failed(.other(error.localizedDescription))
         }
+    }
+}
+
+/// One labelled field: caption above, control below, and a line of feedback
+/// under it when there is something worth saying.
+///
+/// The label sits above rather than beside because SwiftUI places a
+/// `TextField`'s title in a leading label column on macOS and inside the field
+/// as a placeholder on iOS — one declaration, two different meanings. A label
+/// above has no column to be placed in, so both platforms draw the same thing.
+private struct FormField<Content: View>: View {
+    let label: String
+    var footnote: String?
+    var tint: Color?
+    @ViewBuilder var content: Content
+
+    init(
+        _ label: String,
+        footnote: String? = nil,
+        tint: Color? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.label = label
+        self.footnote = footnote
+        self.tint = tint
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            content
+                // Without this macOS reserves a leading column for the
+                // field's own title and the row splits in two.
+                .labelsHidden()
+            if let footnote {
+                Text(footnote)
+                    .font(.caption)
+                    .foregroundStyle(tint ?? Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
+        }
+        .padding(.vertical, 3)
+        .animation(.easeInOut(duration: 0.15), value: footnote)
+    }
+}
+
+/// The colour tag, as swatches.
+///
+/// Was a menu listing six colour *names*, which is a list of words standing in
+/// for the only thing that matters. The whole purpose of the tag is to tell
+/// production from staging at a glance, so the choice should look like the
+/// result.
+private struct InstanceTintPicker: View {
+    @Binding var selection: InstanceTint
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(InstanceTint.allCases) { option in
+                Button {
+                    selection = option
+                } label: {
+                    Circle()
+                        .fill(option.color)
+                        .frame(width: 24, height: 24)
+                        .padding(3)
+                        .overlay {
+                            // A halo rather than a tick: a checkmark has to be
+                            // drawn in a colour that reads on all six, and
+                            // there is not one.
+                            Circle()
+                                .strokeBorder(
+                                    selection == option ? option.color : .clear,
+                                    lineWidth: 2
+                                )
+                        }
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(option.label)
+                .accessibilityAddTraits(
+                    selection == option ? [.isButton, .isSelected] : .isButton
+                )
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+        .animation(.easeInOut(duration: 0.15), value: selection)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Colour tag")
     }
 }
 
