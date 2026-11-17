@@ -136,6 +136,11 @@ why `MacSidebarSections` and `OverviewCardStack` are separate views: the parts
 worth looking at sit outside those wrappers and can be rendered on their own.
 It is `#if DEBUG` and unreachable without the argument.
 
+It cannot draw a `Form`, a `List` or a `Canvas` at all — they come out as an
+empty rectangle. So the sheets, the Settings tab, the Activity feed and the
+Rings stage have to be checked by eye in the running app. Rendering them was
+tried and the files came back blank; there is no point adding them back.
+
 ## The design decisions
 
 iOS puts the four destinations in a tab bar. This target puts the same four in a

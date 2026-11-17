@@ -70,18 +70,15 @@ struct MacRootView: View {
         .sheet(isPresented: reauthenticationBinding) {
             ReauthenticationView()
         }
-        // Sized here rather than inside the shared screens. A sheet is the
-        // whole display on an iPhone and a free-floating panel on a Mac, where
-        // SwiftUI sizes it to its content and gives a Form barely more room
-        // than its longest line. Setting it at the presentation site keeps the
-        // `#if os(macOS)` out of the screens entirely.
+        // No frame here. Each Form-based screen sizes itself through
+        // `rpSheetForm`, because AddInstanceView alone is opened from four
+        // places and only one of them is this file.
         .sheet(isPresented: $isAddingInstance) {
             AddInstanceView()
-                .frame(minWidth: 540, idealWidth: 580, minHeight: 600, idealHeight: 660)
         }
         .sheet(isPresented: $isManagingInstances) {
             ControlPlanesView(isSheet: true)
-                .frame(minWidth: 520, idealWidth: 560, minHeight: 440, idealHeight: 520)
+                .rpSheetFrame(width: 560, height: 520)
         }
         .overlay {
             if session.biometrics.isLocked, session.settings.lockOnOpen {
