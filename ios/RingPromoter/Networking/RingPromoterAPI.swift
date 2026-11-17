@@ -78,6 +78,10 @@ protocol RingPromoterAPI: Sendable {
     // MARK: Test kits
 
     /// Where to test a ring's current version, plus its AI test plan.
+    /// The readiness scorecard for every promotion this application can make.
+    /// See `ControlsView`.
+    func controls(app: String) async throws(APIError) -> ControlsView
+
     func testKit(app: String, ring: String) async throws(APIError) -> TestKit
     /// Ask the AI what to test. Runs server-side: a `.running` status means
     /// poll `testKit` until it resolves. `refresh` regenerates a stored plan.

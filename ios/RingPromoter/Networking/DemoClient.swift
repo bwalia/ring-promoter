@@ -268,6 +268,117 @@ actor DemoClient: RingPromoterAPI {
 
     // MARK: - Test kits
 
+    /// Scored from the demo world through the *same* `PromotionRules` the
+    /// live app uses, not from a canned fixture.
+    ///
+    /// A fixture would read convincingly and lie: demo mode exists so the
+    /// rules can be exercised, and a scorecard that disagreed with the
+    /// Promote button beside it would teach the wrong thing. `ready` here is
+    /// literally `rules.promote(...).isAllowed`.
+    func controls(app: String) async throws(APIError) -> ControlsView {
+        try requireApp(app)
+        let rings = world.rings(for: app)
+        let rules = PromotionRules(
+            pipeline: world.pipeline, prodProtected: world.apps.prodProtected
+        )
+        let hops: [HopScore] = rings.compactMap { source in
+            guard source.configured,
+                  let next = world.pipeline.next(after: source.ring.name)
+            else { return nil }
+            let target = rings.first { $0.ring.name == next.name }
+            let legality = rules.promote(from: source, rings: rings)
+            let scores = Self.demoControls(source: source, target: target)
+            let total = Self.weightedScore(scores)
+            return HopScore(
+                from: source.ring.name,
+                to: next.name,
+                toLabel: next.label,
+                version: source.isEmpty ? "" : source.currentVersion,
+                score: total,
+                ready: legality.isAllowed,
+                blockers: legality.blocker.map { [$0.explanation] } ?? [],
+                controls: scores,
+                summary: legality.isAllowed
+                    ? "promote \(source.ring.name) → \(next.name)"
+                        + "\(source.isEmpty ? "" : " (\(source.currentVersion))")"
+                        + " is ready. Score \(total)/100."
+                    : (legality.blocker?.explanation ?? "This promotion is blocked."),
+                 )
+        }
+        return ControlsView(app: app, aiEnabled: false, hops: hops)
+    }
+
+    /// The rules the demo scores against. Deliberately the few that the demo
+    /// world actually models — inventing an AppSec or ticketing control here
+    /// would put a row on screen that nothing in demo mode can ever change.
+    private static func demoControls(
+        source: RingStatus, target: RingStatus?
+    ) -> [ControlScore] {
+        var scores: [ControlScore] = [
+            ControlScore(
+                id: "source-health", label: "Source health", kind: "health", weight: 22,
+                score: source.isHealthy ? 100 : 0,
+                status: source.isHealthy ? "pass" : "fail",
+                detail: source.isHealthy
+                    ? "Source ring is live-healthy"
+                    : "\(source.ring.label) is failing its health check",
+                nextAction: source.isHealthy ? nil : "Fix \(source.ring.label) first"
+            ),
+            ControlScore(
+                id: "has-version", label: "Something to promote", kind: "state", weight: 20,
+                score: source.isEmpty ? 0 : 100,
+                status: source.isEmpty ? "fail" : "pass",
+                detail: source.isEmpty
+                    ? "Nothing is deployed in \(source.ring.label)"
+                    : "\(source.currentVersion) is deployed in \(source.ring.label)",
+                nextAction: source.isEmpty ? "Seed a version into \(source.ring.label)" : nil
+            ),
+        ]
+        guard let target else { return scores }
+        if target.gates.maintenanceWindow {
+            scores.append(
+                ControlScore(
+                    id: "maintenance-window", label: "Maintenance window", kind: "gate",
+                    weight: 18, score: target.gates.maintenanceWindowOpen ? 100 : 0,
+                    status: target.gates.maintenanceWindowOpen ? "pass" : "fail",
+                    detail: target.gates.maintenanceWindowOpen
+                        ? "A window is open on \(target.ring.label)"
+                        : "\(target.ring.label) is outside its maintenance window",
+                    nextAction: target.gates.maintenanceWindowOpen
+                        ? nil : "Open a window on \(target.ring.label)"
+                )
+            )
+        }
+        if target.gates.qaSignoff {
+            scores.append(
+                ControlScore(
+                    id: "qa-signoff", label: "QA sign-off", kind: "gate", weight: 20,
+                    score: 0, status: "warn",
+                    detail: "\(target.ring.label) requires a QA sign-off for this version",
+                    nextAction: "Record a sign-off"
+                )
+            )
+        }
+        if target.gates.changeRequest {
+            scores.append(
+                ControlScore(
+                    id: "change-request", label: "Change request", kind: "gate", weight: 20,
+                    score: 0, status: "warn",
+                    detail: "\(target.ring.label) requires a change-request reference",
+                    nextAction: "Supply a change-request code when promoting"
+                )
+            )
+        }
+        return scores
+    }
+
+    private static func weightedScore(_ scores: [ControlScore]) -> Int {
+        let weight = scores.reduce(0) { $0 + $1.weight }
+        guard weight > 0 else { return 100 }
+        let earned = scores.reduce(0) { $0 + $1.score * $1.weight }
+        return earned / weight
+    }
+
     func testKit(app: String, ring: String) async throws(APIError) -> TestKit {
         try requireApp(app)
         guard let status = world.rings(for: app).first(where: { $0.ring.name == ring }),

@@ -8,6 +8,8 @@ struct AppDetailView: View {
     @Environment(Router.self) private var router
     @State private var store: AppDetailStore?
     @State private var sheet: ActionSheetRequest?
+    @State private var controls: ControlsLoader?
+    @State private var expandedHops: Set<String> = []
 
     var body: some View {
         Group {
@@ -37,6 +39,10 @@ struct AppDetailView: View {
             if store == nil { store = AppDetailStore(app: app, session: session) }
             await store?.refresh()
         }
+        .task(id: app) {
+            if controls == nil { controls = ControlsLoader(app: app, session: session) }
+            await controls?.refresh()
+        }
         .sheet(item: $sheet) { request in
             if let store {
                 ActionSheetView(store: store, request: request) { jobID in
@@ -44,6 +50,10 @@ struct AppDetailView: View {
                 }
             }
         }
+    }
+
+    private func toggle(hop id: String) {
+        if expandedHops.contains(id) { expandedHops.remove(id) } else { expandedHops.insert(id) }
     }
 
     @ViewBuilder
@@ -58,6 +68,25 @@ struct AppDetailView: View {
                     ForEach(store.unhealthyRings) { ring in
                         UnhealthyRingCallout(ring: ring)
                     }
+                }
+            }
+
+            if let controls, !controls.view.hops.isEmpty {
+                Section {
+                    ForEach(controls.view.hops) { hop in
+                        HopScoreCard(
+                            hop: hop,
+                            isExpanded: expandedHops.contains(hop.id),
+                            onToggle: { toggle(hop: hop.id) }
+                        )
+                    }
+                } header: {
+                    Text("Deployment controls")
+                } footer: {
+                    Text(
+                        "Every rule that decides whether a promotion may happen, scored for "
+                            + "the hop in front of you. Tap a hop for the detail."
+                    )
                 }
             }
 

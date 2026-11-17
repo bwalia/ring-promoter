@@ -76,6 +76,8 @@ struct UnconfiguredClient: RingPromoterAPI {
         app: String, id: Int64
     ) async throws(APIError) -> DiagnosisResponse { throw notConnected }
 
+    func controls(app: String) async throws(APIError) -> ControlsView { throw notConnected }
+
     func testKit(app: String, ring: String) async throws(APIError) -> TestKit { throw notConnected }
 
     func planTestKit(

@@ -148,3 +148,91 @@ final class AppActivityLoader {
         }
     }
 }
+
+
+/// The readiness scorecard, under the pipeline.
+///
+/// `HopScoreCard` is the shared component — the phone draws the same cards in
+/// a `Section`. Only the panel around them is Mac-specific.
+struct DeploymentControlsPanel: View {
+    let app: String
+
+    @Environment(AppSession.self) private var session
+    @State private var loader: ControlsLoader?
+    @State private var expanded: Set<String> = []
+
+    init(app: String, preloaded: ControlsLoader? = nil) {
+        self.app = app
+        _loader = State(initialValue: preloaded)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                ConsoleSectionLabel("Deployment controls")
+                Text("scored for the hop in front of you")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.rpMutedForeground)
+            }
+            ConsoleCard(padding: 0) {
+                VStack(spacing: 0) {
+                    if let loader {
+                        content(loader)
+                    } else {
+                        row { ConsoleSkeleton(height: 48) }
+                    }
+                }
+            }
+        }
+        .task(id: app) {
+            guard loader == nil else { return }
+            let created = ControlsLoader(app: app, session: session)
+            loader = created
+            await created.refresh()
+        }
+    }
+
+    @ViewBuilder
+    private func content(_ loader: ControlsLoader) -> some View {
+        if let error = loader.error, loader.view.hops.isEmpty {
+            row { ErrorRow(error: error) { Task { await loader.refresh() } } }
+        } else if loader.view.hops.isEmpty {
+            row {
+                if loader.isLoading {
+                    ConsoleSkeleton(height: 48)
+                } else {
+                    Label(
+                        "No promotions to score — this application has a single ring.",
+                        systemImage: "checkmark.circle"
+                    )
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.rpMutedForeground)
+                }
+            }
+        } else {
+            ForEach(Array(loader.view.hops.enumerated()), id: \.element.id) { index, hop in
+                if index > 0 {
+                    Rectangle().fill(Color.rpBorder).frame(height: 1)
+                }
+                row {
+                    HopScoreCard(
+                        hop: hop,
+                        isExpanded: expanded.contains(hop.id),
+                        onToggle: { toggle(hop.id) }
+                    )
+                }
+            }
+        }
+    }
+
+    private func row<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func toggle(_ id: String) {
+        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+    }
+}

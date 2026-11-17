@@ -93,6 +93,9 @@ struct MacSidebar: View {
 struct MacSidebarSections: View {
     let store: OverviewStore?
     @Environment(Router.self) private var router
+    /// Collapsed groups, by id. Local to the window: which groups an operator
+    /// has folded away is not worth syncing to a phone.
+    @State private var collapsed: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -128,50 +131,101 @@ struct MacSidebarSections: View {
         }
     }
 
+    /// Server-side groups, each collapsible, then everything.
+    ///
+    /// The web console's sidebar is grouped this way and it is not decoration:
+    /// twenty-one applications in one alphabetical list is a list you read
+    /// rather than navigate. `OverviewStore` already loads the groups for the
+    /// Overview's filter menu, so this costs no extra request.
     @ViewBuilder
     private var applications: some View {
         if let store, !store.summaries.isEmpty {
             let shown = store.orderedSummaries
+            let grouped = groups(in: store, shown: shown)
+
+            ForEach(grouped, id: \.group.id) { entry in
+                VStack(alignment: .leading, spacing: 2) {
+                    ConsoleSectionLabel(entry.group.name) {
+                        HStack(spacing: 6) {
+                            Text("\(entry.summaries.count)")
+                                .font(RPFont.sectionLabel)
+                                .monospacedDigit()
+                                .foregroundStyle(Color.rpMutedForeground)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(Color.rpMutedForeground)
+                                .rotationEffect(.degrees(collapsed.contains(entry.group.id) ? 0 : 90))
+                        }
+                    }
+                    .contentShape(.rect)
+                    .onTapGesture { toggle(entry.group.id) }
+                    if !collapsed.contains(entry.group.id) {
+                        ForEach(entry.summaries) { summary in
+                            applicationRow(summary)
+                        }
+                    }
+                }
+            }
+
             VStack(alignment: .leading, spacing: 2) {
-                ConsoleSectionLabel("Applications") {
+                ConsoleSectionLabel(grouped.isEmpty ? "Applications" : "All applications") {
                     Text("\(shown.count)")
                         .font(RPFont.sectionLabel)
                         .monospacedDigit()
                         .foregroundStyle(Color.rpMutedForeground)
                 }
                 if shown.isEmpty {
-                    Text("No matches for “\(store.searchText)”.")
+                    Text("No matches for \u{201C}\(store.searchText)\u{201D}.")
                         .font(.system(size: 12))
                         .foregroundStyle(Color.rpMutedForeground)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                 } else {
                     ForEach(shown) { summary in
-                        ConsoleNavRow(
-                            title: summary.title,
-                            isSelected: isShowing(app: summary.name),
-                            isEmphasised: true,
-                            action: { router.show(app: summary.name) },
-                            leading: {
-                                Circle()
-                                    .fill(summary.consoleTint)
-                                    .frame(width: 7, height: 7)
-                                    .frame(width: 16)
-                            },
-                            trailing: {
-                                if summary.isBusy {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(Color.rpInFlight)
-                                        .symbolEffect(.pulse, isActive: true)
-                                }
-                            }
-                        )
-                        .accessibilityLabel("\(summary.title), \(summary.consoleStateLabel)")
+                        applicationRow(summary)
                     }
                 }
             }
         }
+    }
+
+    private func applicationRow(_ summary: AppSummary) -> some View {
+        ConsoleNavRow(
+            title: summary.title,
+            isSelected: isShowing(app: summary.name),
+            isEmphasised: true,
+            action: { router.show(app: summary.name) },
+            leading: {
+                Circle()
+                    .fill(summary.consoleTint)
+                    .frame(width: 7, height: 7)
+                    .frame(width: 16)
+            },
+            trailing: {
+                if summary.isBusy {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.rpInFlight)
+                        .symbolEffect(.pulse, isActive: true)
+                }
+            }
+        )
+        .accessibilityLabel("\(summary.title), \(summary.consoleStateLabel)")
+    }
+
+    /// Groups that still have a visible member. A group whose applications are
+    /// all filtered out disappears rather than leaving an empty heading.
+    private func groups(
+        in store: OverviewStore, shown: [AppSummary]
+    ) -> [(group: AppGroup, summaries: [AppSummary])] {
+        store.groups.compactMap { group in
+            let members = shown.filter { group.apps.contains($0.name) }
+            return members.isEmpty ? nil : (group, members)
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
     }
 
     private var isShowingAnApp: Bool {

@@ -81,6 +81,8 @@ struct MacAppDetailView: View {
 /// can render them: `ImageRenderer` draws a `ScrollView` as an empty box.
 struct AppDetailPipeline: View {
     @Bindable var store: AppDetailStore
+    /// Only `ConsoleSnapshot` passes one.
+    var preloadedControls: ControlsLoader?
     /// Only `ConsoleSnapshot` passes one — see `AppActivityPanel`.
     var preloadedActivity: AppActivityLoader?
     let onAction: (ActionSheetRequest) -> Void
@@ -120,8 +122,9 @@ struct AppDetailPipeline: View {
             }
 
             if !store.rings.isEmpty {
-                AppActivityPanel(app: store.app, preloaded: preloadedActivity)
+                DeploymentControlsPanel(app: store.app, preloaded: preloadedControls)
                     .padding(.top, 2)
+                AppActivityPanel(app: store.app, preloaded: preloadedActivity)
             }
 
             if let updated = store.lastUpdated {
