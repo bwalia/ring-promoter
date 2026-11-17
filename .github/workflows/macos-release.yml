@@ -1,0 +1,125 @@
+name: macOS Release (App Store)
+
+# Build, sign and upload the native Ring Promoter Mac app.
+#
+# Mirrors ios-release.yml, and deliberately reuses its machinery rather than
+# growing a second copy: the same self-hosted Mac Studio runner, the same
+# shared signing keychain, the same App Store Connect API key from Vault. Both
+# apps are on the same Apple team, and the keychain already holds the two
+# certificates a Mac App Store build needs —
+#
+#   Apple Distribution: balinder Walia (PAS2QUVJHC)
+#   3rd Party Mac Developer Installer: balinder Walia (PAS2QUVJHC)
+#
+# — so nothing new is minted and the per-team certificate cap is untouched.
+#
+# FIRST RUN IS THE TEST. Every precondition above was checked on the runner by
+# hand before this file was written, and the project was archived there
+# successfully: the build, the resources and the entitlements are all fine. The
+# one step never exercised end to end is signing + export + upload, because
+# over SSH codesign fails with errSecInternalComponent — the keychain is locked
+# and there is no session to unlock it. That is exactly what this workflow's
+# keychain step handles, and what android-release.yml taught us to check rather
+# than assume.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Marketing version override (blank = MARKETING_VERSION in macos/project.yml)"
+        required: false
+        default: ""
+      upload:
+        description: "Upload the signed package to App Store Connect"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  # Shares the iOS group: both lanes drive the same signing keychain, and two
+  # of them unlocking and re-locking it at once is a flaky build nobody can
+  # reproduce.
+  group: ringpromoter-apple-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: macos
+
+jobs:
+  release:
+    name: Build & ${{ inputs.upload && 'upload' || 'archive only' }}
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 90
+    env:
+      VAULT_TOKEN_FILE: /Users/balinderwalia/.secrets/acc-vault/login-token.json
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Before the build, not after it. Each blocker here fails for a reason
+      # App Review or `deliver` would otherwise find once an archive already
+      # exists.
+      - name: Verify macOS release readiness
+        run: ./scripts/verify-mac-release-readiness.sh --warn
+
+      - name: Configure build keychain
+        run: |
+          set -euo pipefail
+          # The same keychain the iOS lane uses, for the same reason: it holds
+          # the one Apple Distribution certificate for this team.
+          pass_file="$HOME/.secrets/kubepilot/keychain-password"
+          if [ ! -s "$pass_file" ]; then
+            echo "::error::$pass_file is missing. Run the iOS release lane once first — it creates the shared signing keychain."
+            exit 1
+          fi
+          kc_pass="$(cat "$pass_file")"
+          echo "::add-mask::$kc_pass"
+          {
+            echo "BUILD_KEYCHAIN_PATH=$HOME/Library/Keychains/kubepilot-signing.keychain-db"
+            echo "BUILD_KEYCHAIN_PASSWORD=$kc_pass"
+          } >> "$GITHUB_ENV"
+
+      - name: Load signing secrets from Vault
+        working-directory: ios
+        run: |
+          chmod +x ./ci/load-ios-vault-secrets.sh
+          ./ci/load-ios-vault-secrets.sh
+
+      - name: Install Ruby dependencies
+        working-directory: ios
+        run: bundle install
+
+      - name: Resolve marketing version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            v="$INPUT_VERSION"
+          else
+            v="$(sed -n 's/^ *MARKETING_VERSION: *"\{0,1\}\([^"]*\)"\{0,1\}.*/\1/p' project.yml | head -1)"
+          fi
+          echo "Resolved version: $v"
+          echo "VERSION_NAME=$v" >> "$GITHUB_ENV"
+
+      - name: Build, sign and export
+        working-directory: ios
+        env:
+          MAC_UPLOAD: ${{ inputs.upload }}
+        run: bundle exec fastlane mac release
+
+      - name: Archive the package and the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ring-promoter-macos-${{ github.run_number }}
+          if-no-files-found: ignore
+          path: |
+            macos/build/*.pkg
+            macos/build/*.xcarchive/Info.plist

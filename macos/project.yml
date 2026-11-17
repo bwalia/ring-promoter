@@ -1,0 +1,118 @@
+# Generated into RingPromoterMac.xcodeproj by `xcodegen`. Edit this, never the
+# .xcodeproj — it is git-ignored and rebuilt from here.
+#
+# The iOS project (../ios/RingPromoter.xcodeproj) is hand-maintained and is
+# deliberately NOT generated: regenerating it would discard signing, the widget
+# extension and the Live Activity configuration. This spec only reads from it.
+name: RingPromoterMac
+
+options:
+  bundleIdPrefix: org.fictionally
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_HARDENED_RUNTIME: YES
+    # Signed with a real identity rather than ad-hoc ("-").
+    #
+    # This is not cosmetic. An ad-hoc binary has no team identifier, so macOS
+    # refuses it the data-protection keychain (errSecMissingEntitlement) and
+    # falls back to the legacy one, which ties each item to the exact code
+    # signature that wrote it — every rebuild then asks the operator for their
+    # login password. See the comment in Stores/Keychain.swift.
+    #
+    # Apple Development is for running locally. Distributing to another Mac
+    # needs Developer ID Application plus notarisation, which is a different
+    # certificate.
+    # Manual, not Automatic: automatic signing asks the developer portal for a
+    # "Mac Development" profile, which needs Xcode signed into the account.
+    # The entitlements here — sandbox, network client, user-selected files —
+    # need no profile, so signing directly with the installed certificate is
+    # enough to give the app a team identifier.
+    CODE_SIGN_IDENTITY: "Apple Development"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: 2DL868X4M5
+    PROVISIONING_PROFILE_SPECIFIER: ""
+    OTHER_CODE_SIGN_FLAGS: "--timestamp=none" 
+
+targets:
+  RingPromoterMac:
+    type: application
+    platform: macOS
+    info:
+      path: Config/RingPromoterMac-Info.plist
+      properties:
+        CFBundleName: Ring Promoter
+        CFBundleDisplayName: Ring Promoter
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSHumanReadableCopyright: ""
+        CFBundleURLTypes:
+          - CFBundleURLName: org.fictionally.ringpromoter.deeplink
+            CFBundleURLSchemes: [ringpromoter]
+        # Export compliance. The app's only cryptography is HTTPS through
+        # URLSession and the system Keychain, both of which are exempt, so this
+        # is `false` — "does not use non-exempt encryption". Without the key
+        # every upload is held in App Store Connect for the same question to be
+        # answered by hand. Stated here from reading the code; change it if you
+        # disagree, because the declaration is yours.
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: Config/RingPromoterMac.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.files.user-selected.read-only: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.fictionally.ringpromoter
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # Drawn by `ConsoleAppIcon` and regenerated with `--snapshot`; see the
+        # macOS README. The PNGs are committed because the generator is
+        # DEBUG-only and a release build has to find them already there.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+    sources:
+      # Mac-only: the app entry point, the sidebar shell, and the shims that
+      # let the shared iOS views compile here.
+      - path: RingPromoterMac
+
+      # The shared app. Everything below is the SAME source the iOS app ships,
+      # read in place — there is no copy to drift.
+      - path: ../ios/RingPromoter
+        excludes:
+          # Replaced by RingPromoterMacApp.swift: @main can exist once, and
+          # @UIApplicationDelegateAdaptor has no macOS equivalent.
+          - "App/RingPromoterApp.swift"
+          # UIApplicationDelegate / UNUserNotificationCenterDelegate. Only ever
+          # referenced from the file above.
+          - "App/AppDelegate.swift"
+          # UIKit feedback generators. Replaced by the NSHapticFeedbackManager
+          # version in Compatibility/, which keeps the same call signatures.
+          - "DesignSystem/Haptics.swift"
+          # ActivityKit is iPhone-only. Replaced by a no-op with an identical
+          # surface so JobView compiles unchanged.
+          - "Stores/LiveActivityController.swift"
+          # iOS app icon sizes and an iOS AccentColor; the Mac target carries
+          # its own catalogue. Fixtures are included below.
+          - "Resources/Assets.xcassets"
+          # SwiftUI previews only, and they pull in iOS-only preview devices.
+          - "DesignSystem/ScreenPreviews.swift"
+      # Shared with the widget extension on iOS. WidgetSnapshot is referenced by
+      # AppSession, InstanceStore and OverviewStore, so it is app code, not
+      # widget code. PromotionActivityAttributes.swift is deliberately left out:
+      # it is ActivityKit, which macOS does not have.
+      - path: ../ios/SharedWidget/WidgetSnapshot.swift
+
+    resources:
+      # Demo mode reads these at runtime, so they must be in the bundle.
+      - path: ../ios/RingPromoter/Resources/Fixtures
+      - path: RingPromoterMac/Resources/Assets.xcassets

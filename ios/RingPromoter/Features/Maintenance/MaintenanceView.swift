@@ -88,8 +88,9 @@ struct MaintenanceView: View {
         .navigationTitle("Maintenance")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
-        .task {
-            if store == nil { store = AppDetailStore(app: app, session: session) }
+        // Keyed on `app`, and rebuilt rather than reused — see HistoryView.
+        .task(id: app) {
+            store = AppDetailStore(app: app, session: session)
             await load()
         }
         .overlay { if isLoading, !status.gated { ProgressView() } }

@@ -209,6 +209,14 @@ actor RingPromoterClient: RingPromoterAPI {
 
     // MARK: - Test kits
 
+    func controls(app: String) async throws(APIError) -> ControlsView {
+        try await get(ControlsView.self, path: "/api/apps/\(esc(app))/controls")
+    }
+
+    func security(app: String) async throws(APIError) -> AppSecurity {
+        try await get(AppSecurity.self, path: "/api/apps/\(esc(app))/security")
+    }
+
     func testKit(app: String, ring: String) async throws(APIError) -> TestKit {
         try await get(TestKit.self, path: "/api/apps/\(esc(app))/rings/\(esc(ring))/test-kit")
     }

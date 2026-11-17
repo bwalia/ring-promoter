@@ -42,7 +42,14 @@ struct HistoryView: View {
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
-        .task { await load() }
+        // Keyed on `app`: this view is reused when the stack swaps one
+        // application's history for another's at the same depth, and
+        // unkeyed state would leave the previous ledger on screen.
+        .task(id: app) {
+            entries = []
+            expanded = []
+            await load()
+        }
         .overlay {
             if isLoading, entries.isEmpty { ProgressView() }
         }
