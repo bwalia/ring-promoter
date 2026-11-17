@@ -140,7 +140,10 @@ struct ReauthenticationView: View {
                 }
                 Section("API token") {
                     SecureField("Bearer token", text: $token)
-                        .textContentType(.password)
+                        // Not .textContentType(.password) — see the same field
+                        // in AddInstanceView. A bearer token is not a password,
+                        // and AutoFill offering one here is a mis-tap away from
+                        // an unexplainable 401.
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 }
@@ -152,6 +155,7 @@ struct ReauthenticationView: View {
                     }
                 }
             }
+            .rpSheetForm(width: 480, height: 380)
             .navigationTitle("Token expired")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

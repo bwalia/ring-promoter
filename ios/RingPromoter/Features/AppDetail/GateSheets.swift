@@ -61,6 +61,7 @@ struct RecordSignoffView: View {
                     }
                 }
             }
+            .rpSheetForm(width: 540, height: 520)
             .navigationTitle("QA sign-off")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -156,6 +157,7 @@ struct OpenWindowView: View {
                     }
                 }
             }
+            .rpSheetForm(width: 540, height: 520)
             .navigationTitle("Open a window")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
