@@ -462,7 +462,14 @@ end
 # minting another to build a Mac app would be a way to break iOS releases.
 # ---------------------------------------------------------------------------
 platform :mac do
-  MAC_PROJECT = "../macos/RingPromoterMac.xcodeproj".freeze
+  # Absolute, derived from this file's own location. fastlane resolves a
+  # relative path differently depending on the action — `sh` runs in
+  # ios/fastlane while gym resolves against ios/ — and the first run of this
+  # lane died on exactly that: `cd ../macos` looked for ios/macos.
+  REPO_ROOT = File.expand_path("../..", __dir__).freeze
+  MAC_DIR = File.join(REPO_ROOT, "macos").freeze
+  MAC_PROJECT = File.join(MAC_DIR, "RingPromoterMac.xcodeproj").freeze
+  MAC_BUILD_DIR = File.join(MAC_DIR, "build").freeze
   MAC_SCHEME = "RingPromoterMac".freeze
 
   desc "Build, sign and (optionally) upload the Mac App Store package"
@@ -478,8 +485,11 @@ platform :mac do
        File.expand_path("~/Library/Keychains/login.keychain-db"))
     sh("security", "set-keychain-settings", kc_path)
 
-    # The project is generated, not committed.
-    sh("cd ../macos && xcodegen generate")
+    # The project is generated, not committed. Driven by flags rather than a
+    # `cd`, so it does not depend on which directory fastlane runs this from.
+    sh("xcodegen", "generate",
+       "--spec", File.join(MAC_DIR, "project.yml"),
+       "--project", MAC_DIR)
 
     # A macOS profile for the same bundle id. Profiles are regenerable and are
     # not capped, unlike certificates.
@@ -507,8 +517,8 @@ platform :mac do
       scheme: MAC_SCHEME,
       configuration: "Release",
       export_method: "app-store",
-      output_directory: "../macos/build",
-      archive_path: "../macos/build/RingPromoterMac.xcarchive",
+      output_directory: MAC_BUILD_DIR,
+      archive_path: File.join(MAC_BUILD_DIR, "RingPromoterMac.xcarchive"),
       export_team_id: team_id,
       xcargs: "MARKETING_VERSION=#{ENV.fetch('VERSION_NAME', '1.0')}",
       export_options: {

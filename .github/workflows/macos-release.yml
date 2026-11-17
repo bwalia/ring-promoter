@@ -58,6 +58,9 @@ jobs:
       VAULT_TOKEN_FILE: /Users/balinderwalia/.secrets/acc-vault/login-token.json
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
+      # xcodegen lives in Homebrew and the Actions shell is not a login shell,
+      # so it would not otherwise be on PATH.
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
