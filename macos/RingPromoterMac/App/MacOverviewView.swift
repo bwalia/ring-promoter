@@ -60,7 +60,7 @@ struct MacOverviewView: View {
     private func destination(for route: Route) -> some View {
         switch route {
         case .app(let name): MacAppDetailView(app: name)
-        case .job(let app, let id): JobView(app: app, jobID: id)
+        case .job(let app, let id): MacJobView(app: app, jobID: id)
         case .history(let app): HistoryView(app: app)
         case .maintenance(let app): MaintenanceView(app: app)
         }

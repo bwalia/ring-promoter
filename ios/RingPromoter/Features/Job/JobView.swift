@@ -217,7 +217,8 @@ struct JobOutcomeBanner: View {
 }
 
 /// One step with its status.
-private struct StepRow: View {
+/// Internal rather than private: the Mac draws the same rows in a numbered panel.
+struct StepRow: View {
     let step: JobStep
 
     private var tint: Color {
@@ -262,7 +263,8 @@ private struct StepRow: View {
 
 /// The log console: monospaced, selectable, auto-scrolling with an explicit way
 /// back to the bottom once the operator has scrolled up to read something.
-private struct LogConsole: View {
+/// Internal rather than private: the Mac puts the same console in a panel of its own.
+struct LogConsole: View {
     let job: Job
     @Binding var isFollowingTail: Bool
 
@@ -363,7 +365,8 @@ private struct LogConsole: View {
 }
 
 /// "Diagnose with AI", shown only when the server says the feature exists.
-private struct DiagnosisSection: View {
+/// Internal rather than private: the Mac shows the same diagnosis under the log.
+struct DiagnosisSection: View {
     let job: Job
     let poller: JobPoller
 
