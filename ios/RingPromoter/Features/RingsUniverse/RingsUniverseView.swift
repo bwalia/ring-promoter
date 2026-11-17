@@ -186,11 +186,6 @@ private struct RingsUniverseContent: View {
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
-            .overlay(alignment: .topLeading) {
-                DescentFilterField(text: $queryText, shown: layout.apps.count,
-                                   total: store.summaries.count)
-                    .padding(14)
-            }
         }
     }
 
@@ -343,6 +338,10 @@ private struct RingsUniverseContent: View {
                 .font(.caption)
                 .foregroundStyle(Color.rpGate)
             }
+            // One row: mode switch, the group chip when a group is open, then
+            // the text filter. The filter started life as its own overlay in
+            // the same corner and sat straight on top of the mode switch —
+            // two things claiming one position is a layout with no owner.
             HStack(spacing: 8) {
                 ModeSwitch(
                     selection: fits ? preferredMode : .lanes, orbitEnabled: fits
@@ -350,6 +349,11 @@ private struct RingsUniverseContent: View {
                 if let group = filterGroup {
                     FilterChip(name: group.name, clear: clearFilter)
                 }
+                DescentFilterField(
+                    text: $queryText,
+                    shown: layout.apps.count,
+                    total: store.summaries.count
+                )
                 Spacer(minLength: 0)
             }
         }
