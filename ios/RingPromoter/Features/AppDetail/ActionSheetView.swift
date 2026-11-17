@@ -135,6 +135,7 @@ struct ActionSheetView: View {
                 if requiresTypedConfirmation { typedConfirmationSection }
                 if let error { errorSection(error) }
             }
+            .rpSheetForm(width: 560, height: 600)
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

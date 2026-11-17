@@ -160,6 +160,7 @@ struct SettingsView: View {
                     )
                 }
             }
+            .rpGroupedForm()
             .navigationTitle("Settings")
             .sheet(isPresented: $isAddingInstance) { AddInstanceView() }
             .sheet(item: $editingInstance) { AddInstanceView(editing: $0) }
