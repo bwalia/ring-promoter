@@ -118,8 +118,14 @@ enum ConsoleSnapshot {
         )
         await controls.refresh()
 
+        let security = SecurityLoader(
+            app: store.summaries.first?.name ?? "web-frontend", session: session
+        )
+        await security.refresh()
+
         let detailPane = AppDetailPipeline(
-            store: detail, preloadedControls: controls, preloadedActivity: activity
+            store: detail, preloadedControls: controls,
+            preloadedSecurity: security, preloadedActivity: activity
         ) { _ in }
             .frame(width: 1011, alignment: .top)
             .background(Color.rpBackground)
@@ -129,7 +135,8 @@ enum ConsoleSnapshot {
         // And the same pane in a narrow window, to prove the side-by-side
         // arrangement falls back to a stack rather than squeezing.
         let detailNarrow = AppDetailPipeline(
-            store: detail, preloadedControls: controls, preloadedActivity: activity
+            store: detail, preloadedControls: controls,
+            preloadedSecurity: security, preloadedActivity: activity
         ) { _ in }
             .frame(width: 600, alignment: .top)
             .background(Color.rpBackground)

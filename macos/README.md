@@ -251,8 +251,39 @@ Nothing below is stubbed out as if it works — each is genuinely absent:
 - **Live Activities.** iPhone-only. The Mac equivalent would be a user
   notification, which is separate work and is not pretended at.
 - **The web's typefaces**, as above.
+- **Pipelines, the audit log and topology editing.** `GET /api/pipelines`,
+  `/api/pipeline-runs/*`, `/api/audit` and `/api/topology/edges` all exist on
+  the server and neither app has client code for them.
+- **History search and filtering.** The web lists every deployment, searchable;
+  the apps show the six most recent and a link to the full screen.
 - **Activity, Settings and the Rings stage, verified by eye.** They are themed,
   but `ImageRenderer` cannot draw a `List`, a `Form` or a `Canvas`, so unlike
   the sidebar, the cards and the pipeline they have never been looked at.
-- **Code signing for distribution.** `CODE_SIGN_IDENTITY` is `-`, which is
-  ad-hoc: fine to build and run locally, not notarised and not distributable.
+## Signing
+
+`CODE_SIGN_IDENTITY` is `Apple Development` against team `2DL868X4M5`, not
+ad-hoc. That is not cosmetic: an ad-hoc binary has no team identifier, so its
+code signing requirement is its own hash and changes on every rebuild — and the
+legacy macOS keychain, which ties each item to the signature that wrote it,
+then asks the operator for their login password after every build. See the
+comment in `ios/RingPromoter/Stores/Keychain.swift`.
+
+A clone without a certificate for that team will not build. Either set your own
+team in `project.yml`, or pass it per build:
+
+```sh
+xcodebuild ... CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+```
+
+Two things this does **not** give:
+
+- **The data-protection keychain.** It needs an `application-identifier`
+  entitlement, which comes from a provisioning profile, which needs the Apple
+  account added in Xcode. Until then `Keychain.swift` falls back to the legacy
+  keychain — correctly, and `--diagnose` says which one is in use.
+- **Distribution.** Running on another Mac needs *Developer ID Application*
+  plus notarisation, which is a different certificate.
+
+## Not yet here (continued)
+
+- **Code signing for distribution**, as above.

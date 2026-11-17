@@ -82,6 +82,10 @@ protocol RingPromoterAPI: Sendable {
     /// See `ControlsView`.
     func controls(app: String) async throws(APIError) -> ControlsView
 
+    /// Scan posture per ring, and the policy it is judged against.
+    /// See `AppSecurity`.
+    func security(app: String) async throws(APIError) -> AppSecurity
+
     func testKit(app: String, ring: String) async throws(APIError) -> TestKit
     /// Ask the AI what to test. Runs server-side: a `.running` status means
     /// poll `testKit` until it resolves. `refresh` regenerates a stored plan.

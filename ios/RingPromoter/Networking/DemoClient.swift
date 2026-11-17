@@ -379,6 +379,35 @@ actor DemoClient: RingPromoterAPI {
         return earned / weight
     }
 
+    /// Demo mode records no scans, so it reports exactly what a real server
+    /// with no scanners wired up reports: every required check missing, no
+    /// policy enforced.
+    ///
+    /// Inventing passing scans here would be the most tempting lie in the
+    /// whole demo — a green security panel that no CI produced — and it would
+    /// teach an operator to trust a readout that means nothing.
+    func security(app: String) async throws(APIError) -> AppSecurity {
+        try requireApp(app)
+        let required = ["sast", "sca", "secrets"]
+        let posture = world.rings(for: app)
+            .filter { $0.configured && !$0.isEmpty }
+            .map { ring in
+                SecurityEvaluation(
+                    ring: ring.ring.name,
+                    version: ring.currentVersion,
+                    guarded: false,
+                    verdict: "unknown",
+                    detail: "No scans reported for this version.",
+                    checks: required.map {
+                        SecurityCheck(kind: $0, status: "missing", detail: "no scan reported")
+                    },
+                    counts: .none,
+                    waived: 0
+                )
+            }
+        return AppSecurity(policy: .unenforced, posture: posture)
+    }
+
     func testKit(app: String, ring: String) async throws(APIError) -> TestKit {
         try requireApp(app)
         guard let status = world.rings(for: app).first(where: { $0.ring.name == ring }),

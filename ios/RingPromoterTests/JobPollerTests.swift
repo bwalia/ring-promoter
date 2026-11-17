@@ -215,6 +215,8 @@ actor ScriptedJobAPI: RingPromoterAPI {
     ) async throws(APIError) -> DiagnosisResponse { throw .notImplemented("") }
     func controls(app: String) async throws(APIError) -> ControlsView { .empty }
 
+    func security(app: String) async throws(APIError) -> AppSecurity { .empty }
+
     func testKit(app: String, ring: String) async throws(APIError) -> TestKit {
         throw .notImplemented("")
     }

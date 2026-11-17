@@ -20,6 +20,17 @@ struct AppActivityPanel: View {
 
     @Environment(AppSession.self) private var session
     @State private var loader: AppActivityLoader?
+
+    /// Seeded from `preloaded` so the very first synchronous render has it:
+    /// `ImageRenderer` captures one pass and never waits for `.task`, so
+    /// without this the panel can only be photographed empty. The `.task`
+    /// below still rebuilds the loader whenever `app` changes, which is what
+    /// stops one application's data showing under another's title.
+    init(app: String, preloaded: AppActivityLoader? = nil) {
+        self.app = app
+        self.preloaded = preloaded
+        _loader = State(initialValue: preloaded)
+    }
     @State private var expanded: Set<Int64> = []
 
 
@@ -166,6 +177,17 @@ struct DeploymentControlsPanel: View {
 
     @Environment(AppSession.self) private var session
     @State private var loader: ControlsLoader?
+
+    /// Seeded from `preloaded` so the very first synchronous render has it:
+    /// `ImageRenderer` captures one pass and never waits for `.task`, so
+    /// without this the panel can only be photographed empty. The `.task`
+    /// below still rebuilds the loader whenever `app` changes, which is what
+    /// stops one application's data showing under another's title.
+    init(app: String, preloaded: ControlsLoader? = nil) {
+        self.app = app
+        self.preloaded = preloaded
+        _loader = State(initialValue: preloaded)
+    }
     @State private var expanded: Set<String> = []
 
 
@@ -245,5 +267,89 @@ struct DeploymentControlsPanel: View {
 
     private func toggle(_ id: String) {
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+    }
+}
+
+
+/// Scan posture per ring, with the policy it is judged against.
+///
+/// `SecurityPostureCard` is the shared component — the phone stacks the same
+/// cards in a `Section`. Laid across a `PanelGrid` here for the same reason
+/// the rings are: one card per ring reads as a row, not a list.
+struct SecurityPanel: View {
+    let app: String
+    /// See `AppActivityPanel.preloaded`.
+    var preloaded: SecurityLoader?
+
+    @Environment(AppSession.self) private var session
+    @State private var loader: SecurityLoader?
+
+    /// Seeded from `preloaded` so the very first synchronous render has it:
+    /// `ImageRenderer` captures one pass and never waits for `.task`, so
+    /// without this the panel can only be photographed empty. The `.task`
+    /// below still rebuilds the loader whenever `app` changes, which is what
+    /// stops one application's data showing under another's title.
+    init(app: String, preloaded: SecurityLoader? = nil) {
+        self.app = app
+        self.preloaded = preloaded
+        _loader = State(initialValue: preloaded)
+    }
+
+    var body: some View {
+        Group {
+            if let loader, !loader.security.isSilent || loader.error != nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        ConsoleSectionLabel("Security & compliance")
+                        Text(loader.security.policy.summary)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.rpMutedForeground)
+                            .lineLimit(1)
+                    }
+                    ConsoleCard {
+                        content(loader)
+                    }
+                }
+            }
+        }
+        .task(id: app) {
+            if let preloaded {
+                loader = preloaded
+                return
+            }
+            // Keyed on `app` and rebuilt, like every other per-application
+            // view here.
+            let created = SecurityLoader(app: app, session: session)
+            loader = created
+            await created.refresh()
+        }
+    }
+
+    @ViewBuilder
+    private func content(_ loader: SecurityLoader) -> some View {
+        if let error = loader.error, loader.security.posture.isEmpty {
+            ErrorRow(error: error) { Task { await loader.refresh() } }
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                PanelGrid(minimumItemWidth: 196, spacing: 12) {
+                    ForEach(loader.security.posture) { evaluation in
+                        SecurityPostureCard(evaluation: evaluation)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .background(
+                                Color.rpBackground.opacity(0.5),
+                                in: .rect(cornerRadius: RPRadius.md)
+                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: RPRadius.md)
+                                    .strokeBorder(Color.rpBorder)
+                            }
+                    }
+                }
+                if loader.security.posture.allSatisfy(\.isUnscanned) {
+                    SecurityScanHint(app: app)
+                }
+            }
+        }
     }
 }

@@ -19,8 +19,27 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_HARDENED_RUNTIME: YES
-    CODE_SIGN_IDENTITY: "-"
-    CODE_SIGN_STYLE: Automatic
+    # Signed with a real identity rather than ad-hoc ("-").
+    #
+    # This is not cosmetic. An ad-hoc binary has no team identifier, so macOS
+    # refuses it the data-protection keychain (errSecMissingEntitlement) and
+    # falls back to the legacy one, which ties each item to the exact code
+    # signature that wrote it — every rebuild then asks the operator for their
+    # login password. See the comment in Stores/Keychain.swift.
+    #
+    # Apple Development is for running locally. Distributing to another Mac
+    # needs Developer ID Application plus notarisation, which is a different
+    # certificate.
+    # Manual, not Automatic: automatic signing asks the developer portal for a
+    # "Mac Development" profile, which needs Xcode signed into the account.
+    # The entitlements here — sandbox, network client, user-selected files —
+    # need no profile, so signing directly with the installed certificate is
+    # enough to give the app a team identifier.
+    CODE_SIGN_IDENTITY: "Apple Development"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: 2DL868X4M5
+    PROVISIONING_PROFILE_SPECIFIER: ""
+    OTHER_CODE_SIGN_FLAGS: "--timestamp=none" 
 
 targets:
   RingPromoterMac:

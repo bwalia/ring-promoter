@@ -9,6 +9,7 @@ struct AppDetailView: View {
     @State private var store: AppDetailStore?
     @State private var sheet: ActionSheetRequest?
     @State private var controls: ControlsLoader?
+    @State private var security: SecurityLoader?
     @State private var expandedHops: Set<String> = []
 
     var body: some View {
@@ -52,6 +53,11 @@ struct AppDetailView: View {
             controls = created
             await created.refresh()
         }
+        .task(id: app) {
+            let created = SecurityLoader(app: app, session: session)
+            security = created
+            await created.refresh()
+        }
         .sheet(item: $sheet) { request in
             if let store {
                 ActionSheetView(store: store, request: request) { jobID in
@@ -80,6 +86,22 @@ struct AppDetailView: View {
                 }
             }
 
+            Section {
+                ForEach(store.rings) { ring in
+                    RingCard(
+                        ring: ring,
+                        store: store,
+                        onAction: { sheet = $0 }
+                    )
+                }
+            } header: {
+                Text("Pipeline")
+            } footer: {
+                if let updated = store.lastUpdated {
+                    RelativeTimestamp(date: updated, prefix: "Updated")
+                }
+            }
+
             if let controls, !controls.view.hops.isEmpty {
                 Section {
                     ForEach(controls.view.hops) { hop in
@@ -99,19 +121,18 @@ struct AppDetailView: View {
                 }
             }
 
-            Section {
-                ForEach(store.rings) { ring in
-                    RingCard(
-                        ring: ring,
-                        store: store,
-                        onAction: { sheet = $0 }
-                    )
-                }
-            } header: {
-                Text("Pipeline")
-            } footer: {
-                if let updated = store.lastUpdated {
-                    RelativeTimestamp(date: updated, prefix: "Updated")
+            if let security, !security.security.posture.isEmpty {
+                Section {
+                    ForEach(security.security.posture) { evaluation in
+                        SecurityPostureCard(evaluation: evaluation)
+                    }
+                    if security.security.posture.allSatisfy(\.isUnscanned) {
+                        SecurityScanHint(app: app)
+                    }
+                } header: {
+                    Text("Security & compliance")
+                } footer: {
+                    Text(security.security.policy.summary)
                 }
             }
         }
