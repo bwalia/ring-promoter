@@ -27,7 +27,7 @@ warn() { printf '  \033[33mwarn\033[0m  %s\n' "$1"; }
 echo "Ring Promoter — macOS App Store readiness"
 echo
 
-echo "Signing"
+echo "Signing  (checked on this machine; CI uses the shared keychain)"
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Distribution"; then
   ok "an Apple Distribution certificate is installed"
 else
@@ -88,7 +88,7 @@ echo
 echo "Release plumbing"
 if [ -f ../.github/workflows/macos-release.yml ]; then
   ok "a macOS release workflow exists"
-  warn "it has never run — treat its first run as the test"
+  warn "it has never run end to end — treat its first run as the test"
 else
   bad "no macOS release workflow"
 fi
