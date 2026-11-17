@@ -13,7 +13,12 @@ import Testing
 /// token`, which is why the app has to tell them apart itself.
 @Suite("Pasted token hygiene")
 struct TokenHygieneTests {
-    private let valid = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
+    /// A 64-character stand-in for a real token, built rather than written
+    /// out. A literal 64-character hex string in a source file is
+    /// indistinguishable from a leaked credential to a secret scanner — this
+    /// one turned GitGuardian red on every pull request, and a scanner people
+    /// learn to ignore is worse than no scanner.
+    private let valid = String(repeating: "0123456789abcdef", count: 4)
 
     @Test("a clean token is left exactly as it is")
     func cleanTokenUntouched() {
