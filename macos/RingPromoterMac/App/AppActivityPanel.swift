@@ -13,18 +13,15 @@ import SwiftUI
 /// diagnosis. Only the container is Mac-specific.
 struct AppActivityPanel: View {
     let app: String
+    /// A loader that has already fetched. Only `ConsoleSnapshot` passes one:
+    /// `ImageRenderer` never runs `.task`, so without it the panel could only
+    /// ever be photographed mid-skeleton and its rows never checked.
+    var preloaded: AppActivityLoader?
 
     @Environment(AppSession.self) private var session
     @State private var loader: AppActivityLoader?
     @State private var expanded: Set<Int64> = []
 
-    /// A loader that has already fetched. Only `ConsoleSnapshot` passes one:
-    /// `ImageRenderer` never runs `.task`, so without this the panel can only
-    /// ever be photographed mid-skeleton and its rows could not be checked.
-    init(app: String, preloaded: AppActivityLoader? = nil) {
-        self.app = app
-        _loader = State(initialValue: preloaded)
-    }
 
     /// Enough to answer "what just happened"; the rest is behind "Full
     /// history", which is the screen built for reading it.
@@ -44,7 +41,15 @@ struct AppActivityPanel: View {
             }
         }
         .task(id: app) {
-            guard loader == nil else { return }
+            if let preloaded {
+                loader = preloaded
+                return
+            }
+            // Keyed on `app`, and rebuilt rather than reused. The sidebar
+            // jumps straight from one application to another at the same depth
+            // in the navigation stack, and SwiftUI reuses this view when it
+            // does — so creating the store only when it was nil left the
+            // previous application's data on screen under the new title.
             let created = AppActivityLoader(app: app, session: session)
             loader = created
             await created.refresh()
@@ -156,15 +161,13 @@ final class AppActivityLoader {
 /// a `Section`. Only the panel around them is Mac-specific.
 struct DeploymentControlsPanel: View {
     let app: String
+    /// See `AppActivityPanel.preloaded`.
+    var preloaded: ControlsLoader?
 
     @Environment(AppSession.self) private var session
     @State private var loader: ControlsLoader?
     @State private var expanded: Set<String> = []
 
-    init(app: String, preloaded: ControlsLoader? = nil) {
-        self.app = app
-        _loader = State(initialValue: preloaded)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -185,7 +188,15 @@ struct DeploymentControlsPanel: View {
             }
         }
         .task(id: app) {
-            guard loader == nil else { return }
+            if let preloaded {
+                loader = preloaded
+                return
+            }
+            // Keyed on `app`, and rebuilt rather than reused. The sidebar
+            // jumps straight from one application to another at the same depth
+            // in the navigation stack, and SwiftUI reuses this view when it
+            // does — so creating the store only when it was nil left the
+            // previous application's data on screen under the new title.
             let created = ControlsLoader(app: app, session: session)
             loader = created
             await created.refresh()

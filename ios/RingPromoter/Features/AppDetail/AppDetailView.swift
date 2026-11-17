@@ -35,13 +35,22 @@ struct AppDetailView: View {
                 }
             }
         }
-        .task {
-            if store == nil { store = AppDetailStore(app: app, session: session) }
-            await store?.refresh()
+        .task(id: app) {
+            // Keyed on `app`, and rebuilt rather than reused. A widget tap or
+            // a deep link for another application replaces this view's value
+            // in place — `Router.show(app:)` sets overviewPath to a one-element
+            // array — and SwiftUI reuses the view, so creating the store only
+            // when it was nil left the previous application's rings under the
+            // new title.
+            let created = AppDetailStore(app: app, session: session)
+            store = created
+            sheet = nil
+            await created.refresh()
         }
         .task(id: app) {
-            if controls == nil { controls = ControlsLoader(app: app, session: session) }
-            await controls?.refresh()
+            let created = ControlsLoader(app: app, session: session)
+            controls = created
+            await created.refresh()
         }
         .sheet(item: $sheet) { request in
             if let store {

@@ -63,9 +63,18 @@ struct MacAppDetailView: View {
                 .fixedSize()
             }
         }
-        .task {
-            if store == nil { store = AppDetailStore(app: app, session: session) }
-            await store?.refresh()
+        .task(id: app) {
+            // Keyed on `app`, and rebuilt rather than reused. The sidebar
+            // jumps straight from one application to another at the same depth
+            // in the navigation stack, and SwiftUI reuses this view when it
+            // does — so creating the store only when it was nil left the
+            // previous application's data on screen under the new title.
+            let created = AppDetailStore(app: app, session: session)
+            store = created
+            // A confirmation sheet raised for the previous application must
+            // not survive the switch.
+            sheet = nil
+            await created.refresh()
         }
         .sheet(item: $sheet) { request in
             if let store {
