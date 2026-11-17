@@ -101,6 +101,8 @@ private struct RingsUniverseContent: View {
     /// Group filter, set by tapping a group's arc or lane header.
     @State private var filterGroupID: String?
     @State private var selectedID: String?
+    /// Free-text filter, same syntax as the web console's — see `AppQuery`.
+    @State private var queryText = ""
 
     var body: some View {
         Group {
@@ -130,18 +132,26 @@ private struct RingsUniverseContent: View {
                 }
                 .refreshable { await store.refresh() }
             } else {
-                GeometryReader { geo in
-                    let fits = DescentLayout.descentFits(
-                        stageWidth: geo.size.width, spokes: layout.apps.count
-                    )
-                    let mode: DescentMode = fits ? preferredMode : .lanes
-                    Group {
-                        switch mode {
-                        case .orbit: orbit(fits: fits)
-                        case .lanes: lanes(fits: fits, width: geo.size.width)
+                GeometryReader { outer in
+                    // The fleet list needs real width to be worth its space;
+                    // below this the stage keeps all of it, as it does on a
+                    // phone.
+                    let showsList = outer.size.width >= 900
+                    HStack(spacing: 0) {
+                        stage
+                        if showsList {
+                            Rectangle()
+                                .fill(.white.opacity(0.08))
+                                .frame(width: 1)
+                            FleetSidePanel(
+                                apps: layout.apps,
+                                selectedID: selectedID,
+                                onFocus: toggleSelection,
+                                onOpen: { router.show(app: $0) }
+                            )
+                            .frame(width: 300)
                         }
                     }
-                    .frame(width: geo.size.width, height: geo.size.height)
                 }
                 .background(DescentPalette.space.ignoresSafeArea())
                 .environment(\.colorScheme, .dark)
@@ -159,6 +169,29 @@ private struct RingsUniverseContent: View {
             }
         }
         .onChange(of: filterGroupID) { _, _ in selectedID = nil }
+    }
+
+    // MARK: - Stage
+
+    private var stage: some View {
+        GeometryReader { geo in
+            let fits = DescentLayout.descentFits(
+                stageWidth: geo.size.width, spokes: layout.apps.count
+            )
+            let mode: DescentMode = fits ? preferredMode : .lanes
+            Group {
+                switch mode {
+                case .orbit: orbit(fits: fits)
+                case .lanes: lanes(fits: fits, width: geo.size.width)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .overlay(alignment: .topLeading) {
+                DescentFilterField(text: $queryText, shown: layout.apps.count,
+                                   total: store.summaries.count)
+                    .padding(14)
+            }
+        }
     }
 
     // MARK: - Data
@@ -179,6 +212,17 @@ private struct RingsUniverseContent: View {
         var summaries = store.summaries
         if let group = filterGroup {
             summaries = summaries.filter { group.contains($0.name) }
+        }
+        let query = AppQuery(queryText)
+        if !query.isEmpty {
+            summaries = summaries.filter { summary in
+                // Matched against the same fields the web console uses: the
+                // id, the display title, and every group the app is in.
+                let groups = store.groups
+                    .filter { $0.contains(summary.name) }
+                    .map(\.name)
+                return query.matches([summary.name, summary.title] + groups)
+            }
         }
         return DescentApp.ordered(summaries: summaries, groups: store.groups, order: ringOrder)
     }
@@ -1153,5 +1197,192 @@ private struct AccessibleFleetList: View {
                 .accessibilityIdentifier("spoke-\(app.id)")
             }
         }
+    }
+}
+
+/// The stage's free-text filter, over the top-left of the orbit.
+///
+/// Same query syntax as the web console's — `nebula*`, `*api`, `-test` — and
+/// the same `AppQuery` behind it, so a filter learned in one client works in
+/// the other. The count beside it is the thing that stops a mistyped glob
+/// looking like an outage: "3 of 21" is obviously a filter, an empty stage is
+/// not.
+private struct DescentFilterField: View {
+    @Binding var text: String
+    let shown: Int
+    let total: Int
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.55))
+            TextField("Filter apps — nebula*, *api, -test", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(.white)
+                .focused($isFocused)
+                .frame(width: 210)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !text.isEmpty {
+                Text("\(shown) of \(total)")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(shown == 0 ? Color.rpGate : .white.opacity(0.6))
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear the filter")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.45), in: .rect(cornerRadius: 9))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9)
+                .strokeBorder(.white.opacity(isFocused ? 0.3 : 0.14))
+        }
+        .accessibilityLabel("Filter applications")
+    }
+}
+
+/// Every application beside the stage, nearest first.
+///
+/// The web console lists them sorted by time-to-first-byte, which is a more
+/// useful order than alphabetical on a wall display: the slowest thing is the
+/// one about to become a problem, and it sits at the bottom where it is easy
+/// to find. Clicking a row focuses that spoke on the stage rather than leaving
+/// the page, which is what "click to focus" means there too.
+private struct FleetSidePanel: View {
+    let apps: [DescentApp]
+    let selectedID: String?
+    let onFocus: (String) -> Void
+    let onOpen: (String) -> Void
+
+    private var sorted: [DescentApp] {
+        apps.sorted { lhs, rhs in
+            switch (ttfb(lhs), ttfb(rhs)) {
+            // An app with no reading is not fast, it is unknown — those go
+            // last rather than pretending to be the quickest.
+            case let (l?, r?): return l == r ? lhs.title < rhs.title : l < r
+            case (nil, _?): return false
+            case (_?, nil): return true
+            case (nil, nil): return lhs.title < rhs.title
+            }
+        }
+    }
+
+    private func ttfb(_ app: DescentApp) -> Int? {
+        app.spoke.nodes.compactMap(\.ttfbMs).min()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Applications")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                Text("\(apps.count) · sorted by TTFB · click to focus")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(sorted) { app in
+                        FleetSideRow(
+                            app: app,
+                            ttfbMs: ttfb(app),
+                            isSelected: selectedID == app.id,
+                            onFocus: { onFocus(app.id) },
+                            onOpen: { onOpen(app.id) }
+                        )
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 14)
+            }
+            .scrollContentBackground(.hidden)
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Applications, sorted by time to first byte")
+    }
+}
+
+private struct FleetSideRow: View {
+    let app: DescentApp
+    let ttfbMs: Int?
+    let isSelected: Bool
+    let onFocus: () -> Void
+    let onOpen: () -> Void
+
+    @State private var isHovering = false
+
+    private var newest: DescentLayout.SpokeNode? {
+        app.spoke.nodes.last { $0.fresh && $0.version != nil }
+    }
+
+    var body: some View {
+        Button(action: onFocus) {
+            HStack(alignment: .top, spacing: 8) {
+                Circle()
+                    .fill(app.status.tint)
+                    .frame(width: 7, height: 7)
+                    .padding(.top, 5)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(app.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    HStack(spacing: 5) {
+                        Text(app.status.label)
+                            .foregroundStyle(app.status.tint)
+                        if let ttfbMs {
+                            Text("\(ttfbMs)ms TTFB")
+                                .monospacedDigit()
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                        if let newest, let version = newest.version {
+                            Text("\(version) · \(newest.ring)")
+                                .foregroundStyle(.white.opacity(0.55))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    .font(.system(size: 10, design: .monospaced))
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .background {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(
+                        isSelected
+                            ? .white.opacity(0.14)
+                            : (isHovering ? .white.opacity(0.07) : .clear)
+                    )
+            }
+            .contentShape(.rect(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
+        }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { onOpen() })
+        .accessibilityLabel("\(app.title), \(app.sentence)")
+        .accessibilityHint("Focuses this spoke. Double tap twice to open it.")
     }
 }
