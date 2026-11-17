@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { AppStoreBadge } from "@/components/app-store-badge";
+import { SponsoredBy } from "@/components/sponsored-by";
 import { APP_NAME, GITHUB_URL, LAST_UPDATED } from "@/lib/legal";
 
 /**
@@ -236,6 +237,9 @@ function LegalFooter() {
             GitHub ↗
           </a>
         </div>
+      </div>
+      <div className="mx-auto max-w-3xl px-4 pb-8 sm:px-6">
+        <SponsoredBy className="text-neutral-500" linkClassName="text-neutral-300 hover:text-neutral-100" />
       </div>
     </footer>
   );

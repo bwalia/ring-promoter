@@ -7,6 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SponsoredBy } from "@/components/sponsored-by";
 import { VersionLabel } from "@/components/version-label";
 import { useBuildInfo } from "@/lib/queries";
 import { absoluteTime, isZeroTime, timeAgo } from "@/lib/time";
@@ -23,7 +24,7 @@ export function AppFooter() {
   const now = useNow(30_000);
 
   return (
-    <footer className="flex h-9 shrink-0 items-center gap-3 border-t px-3 text-xs text-muted-foreground md:gap-5 md:px-4">
+    <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-1.5 text-xs text-muted-foreground md:gap-x-5 md:px-4">
       <span className="shrink-0 font-medium text-foreground/70">
         Ring Promoter
       </span>
@@ -67,6 +68,11 @@ export function AppFooter() {
           />
         </>
       )}
+
+      <SponsoredBy
+        className="ml-auto shrink-0"
+        linkClassName="text-foreground/80 hover:text-foreground"
+      />
     </footer>
   );
 }

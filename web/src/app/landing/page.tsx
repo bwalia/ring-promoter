@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { SponsoredBy } from "@/components/sponsored-by";
 import { publicSitePage } from "@/lib/public-site";
 import {
   CalendarOff,
@@ -163,6 +164,9 @@ function Footer() {
             Console
           </Link>
         </div>
+      </div>
+      <div className="mx-auto max-w-6xl px-4 pb-8 sm:px-6">
+        <SponsoredBy className="text-neutral-500" linkClassName="text-neutral-300 hover:text-neutral-100" />
       </div>
     </footer>
   );

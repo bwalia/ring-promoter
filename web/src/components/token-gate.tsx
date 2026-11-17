@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CircleDot, Loader2, Plus } from "lucide-react";
 import { ClusterDot, clusterHost, useSwitchCluster } from "@/components/clusters";
+import { SponsoredBy } from "@/components/sponsored-by";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
@@ -127,6 +128,11 @@ export function TokenGate() {
             <Plus aria-hidden className="size-4" /> Add another cluster
           </Button>
         </div>
+
+        <SponsoredBy
+          className="text-center text-muted-foreground"
+          linkClassName="text-foreground/80 hover:text-foreground"
+        />
       </div>
     </div>
   );
