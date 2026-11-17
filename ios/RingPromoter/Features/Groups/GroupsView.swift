@@ -172,6 +172,7 @@ private struct EditGroupView: View {
                     }
                 }
             }
+            .rpSheetForm(width: 540, height: 560)
             .navigationTitle(group == nil ? "New group" : "Edit group")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

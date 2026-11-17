@@ -161,6 +161,7 @@ struct AddInstanceView: View {
                     }
                 }
             }
+            .rpSheetForm(width: 580, height: 640)
             .navigationTitle(editing == nil ? "Add cluster" : "Edit cluster")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

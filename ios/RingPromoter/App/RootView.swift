@@ -155,6 +155,7 @@ struct ReauthenticationView: View {
                     }
                 }
             }
+            .rpSheetForm(width: 480, height: 380)
             .navigationTitle("Token expired")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
