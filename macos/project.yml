@@ -57,6 +57,13 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: org.fictionally.ringpromoter.deeplink
             CFBundleURLSchemes: [ringpromoter]
+        # Export compliance. The app's only cryptography is HTTPS through
+        # URLSession and the system Keychain, both of which are exempt, so this
+        # is `false` — "does not use non-exempt encryption". Without the key
+        # every upload is held in App Store Connect for the same question to be
+        # answered by hand. Stated here from reading the code; change it if you
+        # disagree, because the declaration is yours.
+        ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: Config/RingPromoterMac.entitlements
       properties:

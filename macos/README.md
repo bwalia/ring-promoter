@@ -259,6 +259,44 @@ Nothing below is stubbed out as if it works — each is genuinely absent:
 - **Activity, Settings and the Rings stage, verified by eye.** They are themed,
   but `ImageRenderer` cannot draw a `List`, a `Form` or a `Canvas`, so unlike
   the sidebar, the cards and the pipeline they have never been looked at.
+## Submitting to the App Store
+
+Run the preflight first; it reports what is actually missing rather than
+what a build log will complain about later:
+
+```sh
+cd macos && ./scripts/verify-mac-release-readiness.sh
+```
+
+Two of its blockers need the Apple account and cannot be done from a script:
+an **Apple Distribution** certificate and a **macOS provisioning profile**.
+The app currently has neither — `security find-identity` shows only an Apple
+Development certificate, which the App Store will not accept.
+
+The shortest honest path for a *first* macOS submission is Xcode, because it
+creates both interactively:
+
+1. `cd macos && xcodegen generate && open RingPromoterMac.xcodeproj`
+2. Xcode → Settings → Accounts → add the Apple ID, select the team.
+3. Set the target's signing to **Automatic**; Xcode will create the
+   distribution certificate and the profile.
+4. Product → Archive, then **Distribute App → App Store Connect**.
+
+Before that upload can be submitted, in App Store Connect:
+
+- There must be a record for the **macOS platform** of
+  `org.fictionally.ringpromoter`. A native Mac app is not automatically
+  covered by the iOS record — check whether macOS can be added as a platform
+  to the existing app or whether it needs its own.
+- Any pending agreements must be accepted. Nobody can do that on your behalf.
+- Mac screenshots and a macOS description are required.
+
+**There is no `macos-release.yml`.** The iOS and Android lanes exist because
+they were built against working credentials; writing a third one blind is how
+`android-release.yml` came to be committed in a state that would have failed on
+the first step of its first release. It is worth building once a distribution
+certificate exists, so its first run can be a test rather than a guess.
+
 ## Signing
 
 `CODE_SIGN_IDENTITY` is `Apple Development` against team `2DL868X4M5`, not
