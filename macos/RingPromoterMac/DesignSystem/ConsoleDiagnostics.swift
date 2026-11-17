@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import Security
 
 /// Exercises the two things a Mac build can break that a phone build cannot,
 /// and prints what actually happened:
@@ -36,6 +37,30 @@ enum ConsoleDiagnostics {
             }
         } catch {
             print("  FAILED: \(error)")
+        }
+
+        // Which of macOS's two keychains the app is actually using, and
+        // whether the other one would even accept it. The legacy file-based
+        // keychain ties each item to the exact code signature that wrote it,
+        // so every rebuild of an ad-hoc binary is a stranger to yesterday's
+        // item and macOS asks the operator to vouch for it.
+        print("\n— Keychain kind —")
+        let dpQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "org.fictionally.ringpromoter.diagnostic",
+            kSecAttrAccount as String: "data-protection-probe",
+            kSecValueData as String: Data("probe".utf8),
+            kSecUseDataProtectionKeychain as String: true,
+        ]
+        SecItemDelete(dpQuery as CFDictionary)
+        let status = SecItemAdd(dpQuery as CFDictionary, nil)
+        if status == errSecSuccess {
+            SecItemDelete(dpQuery as CFDictionary)
+            print("  data-protection keychain: available (no ACL prompts)")
+        } else {
+            let text = SecCopyErrorMessageString(status, nil) as String? ?? "unknown"
+            print("  data-protection keychain: REFUSED, OSStatus \(status) — \(text)")
+            print("  so the app is on the legacy keychain, which prompts per signature.")
         }
 
         guard let host else {
