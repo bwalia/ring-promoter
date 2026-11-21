@@ -467,6 +467,70 @@ data:
           acc:  { target_env: acc,  health_url: "http://workstation-opsapi-dashboard.acc.svc.cluster.local:8039/login", links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
           prod: { target_env: prod, health_url: "https://opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api } ] }
 
+      # ── daybook-demo + daybook-demo-ui — the Daybook demo back office ──
+      #
+      # Daybook (daybook.co.uk) is the brand that sells OpsAPI's AI tax returns to UK
+      # accountancy practices; this is its public demo: stock OpsAPI (PROJECT_CODE=
+      # tax_copilot) with fictional practices and clients, read-only login, reset
+      # every 30 minutes. PUBLIC repo bwalia/opsapi, same shape as workstation-opsapi
+      # (+ -ui) above and for the same reasons: GITHUB deployer, because helm is not
+      # the whole deploy (DNS, wslproxy vhost, Postgres + ExternalSecrets, migrations,
+      # seeding every demo workspace, reset/self-heal CronJobs, checks).
+      #
+      # Release `daybook-demo` (API) and `daybook-demo-dashboard` in the shared ring
+      # namespaces int/test/acc/prod; every k8s name is prefixed daybook-demo-.
+      # Secrets: WSLVault daybook-demo/<ring>/config and daybook-demo/<ring>/login
+      # (bwalia/opsapi devops/daybook-demo/seed-vault-daybook.sh), via ESO
+      # wslvault-backend. A merge to main seeds int with the new release (deploy-k3s.yml
+      # seed job, alongside workstation-opsapi). int → test → acc auto-promote when
+      # healthy; acc → prod is by hand (production password), like jobshout.
+      #
+      # The VERSION is the same release tag as workstation-opsapi (bwalia/opsapi:<tag>,
+      # nothing rebuilt for the API). The dashboard bakes its API URL in, so a promote
+      # BUILDS that release for the target ring. Promote the API first, then the UI.
+      # Health is the public URL (prod pods may land where the overlay doesn't reach).
+      - name: daybook-demo
+        display_name: "Daybook demo (API)"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: opsapi
+          workflow: deploy-daybook-demo.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: "-"
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  auto_promote: true,  health_url: "https://int-demo-api.daybook.co.uk/ready",  health_version_field: version, links: [ { label: "Daybook demo int", url: "https://int-demo.daybook.co.uk/" }, { label: "API", url: "https://int-demo-api.daybook.co.uk/", kind: api } ] }
+          test: { target_env: test, auto_promote: true,  health_url: "https://test-demo-api.daybook.co.uk/ready", health_version_field: version, links: [ { label: "Daybook demo test", url: "https://test-demo.daybook.co.uk/" }, { label: "API", url: "https://test-demo-api.daybook.co.uk/", kind: api } ] }
+          acc:  { target_env: acc,  auto_promote: false, health_url: "https://acc-demo-api.daybook.co.uk/ready",  health_version_field: version, links: [ { label: "Daybook demo acc", url: "https://acc-demo.daybook.co.uk/" }, { label: "API", url: "https://acc-demo-api.daybook.co.uk/", kind: api } ] }
+          prod: { target_env: prod, health_url: "https://demo-api.daybook.co.uk/ready", health_version_field: version, links: [ { label: "Daybook demo", url: "https://demo.daybook.co.uk/" }, { label: "API", url: "https://demo-api.daybook.co.uk/", kind: api }, { label: "daybook.co.uk", url: "https://daybook.co.uk/demos/" } ] }
+
+      - name: daybook-demo-ui
+        display_name: "Daybook demo (dashboard)"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: opsapi
+          workflow: deploy-daybook-dashboard.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: VERSION
+          mode_input: "-"
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  auto_promote: true,  health_url: "https://int-demo.daybook.co.uk/login",  links: [ { label: "Daybook demo int", url: "https://int-demo.daybook.co.uk/" } ] }
+          test: { target_env: test, auto_promote: true,  health_url: "https://test-demo.daybook.co.uk/login", links: [ { label: "Daybook demo test", url: "https://test-demo.daybook.co.uk/" } ] }
+          acc:  { target_env: acc,  auto_promote: false, health_url: "https://acc-demo.daybook.co.uk/login",  links: [ { label: "Daybook demo acc", url: "https://acc-demo.daybook.co.uk/" } ] }
+          prod: { target_env: prod, health_url: "https://demo.daybook.co.uk/login", links: [ { label: "Daybook demo", url: "https://demo.daybook.co.uk/" } ] }
+
       # ── joyai-opsapi — Joy AI's own OpsAPI (Portfolio Lab) ──
       #
       # Release `joyai-opsapi` in namespace joyai-<ring>: the stock bwalia/opsapi
