@@ -62,9 +62,12 @@ func newGHServer(t *testing.T, f *ghFake) *httptest.Server {
 	mux.HandleFunc("/repos/o/r/actions/workflows/wf.yml/runs", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		omit := f.omitRun
+		dispatched := f.dispatched
 		f.mu.Unlock()
 		resp := ghRunsResponse{}
-		if !omit {
+		// Like GitHub, the run is only listed once it has been dispatched: the
+		// deployer lists runs before dispatching and never follows one of those.
+		if !omit && dispatched {
 			resp.WorkflowRuns = []ghRun{{
 				ID:        42,
 				Status:    "queued",
@@ -252,11 +255,15 @@ func TestGitHub_Deploy_RunNeverAppears(t *testing.T) {
 type flakyDoer struct {
 	failN int
 	calls int
+	posts int // POST attempts (dispatches), counted separately from the GET polls
 	inner httpDoer
 }
 
 func (f *flakyDoer) Do(req *http.Request) (*http.Response, error) {
 	f.calls++
+	if req.Method == http.MethodPost {
+		f.posts++
+	}
 	if f.calls <= f.failN {
 		return nil, fmt.Errorf("net/http: TLS handshake timeout")
 	}
@@ -302,8 +309,8 @@ func TestGitHub_Deploy_GivesUpAfterMaxRetries(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "TLS handshake timeout") {
 		t.Fatalf("expected transport error after exhausting retries, got %v", err)
 	}
-	if flaky.calls != 3 { // 1 initial + 2 retries
-		t.Fatalf("expected exactly 3 dispatch attempts, got %d", flaky.calls)
+	if flaky.posts != 3 { // 1 initial + 2 retries
+		t.Fatalf("expected exactly 3 dispatch attempts, got %d", flaky.posts)
 	}
 }
 

@@ -164,6 +164,18 @@ func (e *Executor) Start(ctx context.Context, spec executor.Spec) (executor.Exec
 	// the skew to tolerate clock differences with GitHub's servers.
 	since := time.Now().Add(-e.cfg.ClockSkew)
 
+	// The skew window alone can match the wrong run: a fast workflow's previous
+	// dispatch (the ring before, seconds ago) is still inside it. On 2026-11-22
+	// daybook-website's acc deploy latched onto test's 49-second run, health-
+	// checked acc before acc had deployed, and recorded a failure. So note the
+	// runs that exist before dispatching and never pick one of those. If the
+	// list can't be read, fall back to the time window alone.
+	existing, lerr := e.dispatchRunIDs(ctx)
+	if lerr != nil {
+		e.log.Warn("github deploy: could not list runs before dispatch; matching by time only",
+			"app", spec.App, "ring", spec.Ring, "err", lerr)
+	}
+
 	e.log.Info("github deploy: dispatching workflow",
 		"app", spec.App, "ring", spec.Ring, "env", env, "version", version,
 		"workflow", e.cfg.Workflow, "ref", e.cfg.Ref)
@@ -172,7 +184,7 @@ func (e *Executor) Start(ctx context.Context, spec executor.Spec) (executor.Exec
 		return nil, fmt.Errorf("dispatch workflow: %w", err)
 	}
 
-	run, err := e.findRun(ctx, since)
+	run, err := e.findRun(ctx, since, existing)
 	if err != nil {
 		return nil, fmt.Errorf("locate dispatched run: %w", err)
 	}
@@ -323,11 +335,34 @@ func (e *Executor) dispatch(ctx context.Context, env, version string) error {
 	return nil
 }
 
-// findRun polls the workflow's run list until a workflow_dispatch run created
-// at/after `since` appears, returning the newest such run.
-func (e *Executor) findRun(ctx context.Context, since time.Time) (Run, error) {
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/actions/workflows/%s/runs?event=workflow_dispatch&per_page=20",
+// dispatchRunsEndpoint lists the workflow's most recent workflow_dispatch runs.
+func (e *Executor) dispatchRunsEndpoint() string {
+	return fmt.Sprintf("%s/repos/%s/%s/actions/workflows/%s/runs?event=workflow_dispatch&per_page=20",
 		e.cfg.APIBaseURL, e.cfg.Owner, e.cfg.Repo, url.PathEscape(e.cfg.Workflow))
+}
+
+// dispatchRunIDs returns the IDs of the workflow's recent workflow_dispatch runs.
+func (e *Executor) dispatchRunIDs(ctx context.Context) (map[int64]bool, error) {
+	resp, err := e.do(ctx, http.MethodGet, e.dispatchRunsEndpoint(), nil)
+	if err != nil {
+		return nil, err
+	}
+	var runs RunsResponse
+	if err := decode(resp, &runs); err != nil {
+		return nil, err
+	}
+	ids := make(map[int64]bool, len(runs.WorkflowRuns))
+	for _, r := range runs.WorkflowRuns {
+		ids[r.ID] = true
+	}
+	return ids, nil
+}
+
+// findRun polls the workflow's run list until a workflow_dispatch run created
+// at/after `since`, and not in `existing` (runs seen before the dispatch),
+// appears, returning the newest such run.
+func (e *Executor) findRun(ctx context.Context, since time.Time, existing map[int64]bool) (Run, error) {
+	endpoint := e.dispatchRunsEndpoint()
 
 	deadline := time.Now().Add(e.cfg.RunLookupTimeout)
 	// Poll a little faster than the run poll while we wait for the run to appear.
@@ -350,7 +385,7 @@ func (e *Executor) findRun(ctx context.Context, since time.Time) (Run, error) {
 			return Run{}, derr
 		}
 		for _, r := range runs.WorkflowRuns {
-			if r.CreatedAt.Before(since) {
+			if r.CreatedAt.Before(since) || existing[r.ID] {
 				continue
 			}
 			if !found || r.CreatedAt.After(latest.CreatedAt) || (r.CreatedAt.Equal(latest.CreatedAt) && r.ID > latest.ID) {
