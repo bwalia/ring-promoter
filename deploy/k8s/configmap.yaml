@@ -531,6 +531,40 @@ data:
           acc:  { target_env: acc,  auto_promote: false, health_url: "https://acc-demo.daybook.co.uk/login",  links: [ { label: "Daybook demo acc", url: "https://acc-demo.daybook.co.uk/" } ] }
           prod: { target_env: prod, health_url: "https://demo.daybook.co.uk/login", links: [ { label: "Daybook demo", url: "https://demo.daybook.co.uk/" } ] }
 
+      # ── daybook-website — daybook.co.uk (bwalia/daybook-website, private) ──
+      #
+      # The Daybook marketing site: a static Next.js export served by nginx in a pod
+      # (bwalia/daybook-website:<sha7>), release daybook-website in namespace
+      # daybook-website-<ring> (prod: daybook-website). GITHUB deployer: the repo's
+      # deploy.yml builds on its own ARC runners (arc-r-daybook-website) and runs
+      # helm with values-<ring>.yaml. Dispatched with TARGET_ENV=<ring> and
+      # IMAGE_TAG=<version>; a merge to main builds the image and SEEDS int.
+      # int → test → acc auto-promote when healthy; acc → prod is by hand
+      # (production password), like daybook-demo. Health is the public URL and is
+      # version-verified: /api/health reports APP_VERSION, set from image.tag.
+      # The edge sends every host to k3s1 traefik-edge (rule daybook-website-pod in
+      # bwalia/opsapi .github/wslproxy/data).
+      - name: daybook-website
+        display_name: "Daybook website"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: daybook-website
+          workflow: deploy.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: "-"
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  auto_promote: true,  health_url: "https://int.daybook.co.uk/api/health",  health_version_field: version, links: [ { label: "Daybook site int", url: "https://int.daybook.co.uk/" } ] }
+          test: { target_env: test, auto_promote: true,  health_url: "https://test.daybook.co.uk/api/health", health_version_field: version, links: [ { label: "Daybook site test", url: "https://test.daybook.co.uk/" } ] }
+          acc:  { target_env: acc,  auto_promote: false, health_url: "https://acc.daybook.co.uk/api/health",  health_version_field: version, links: [ { label: "Daybook site acc", url: "https://acc.daybook.co.uk/" } ] }
+          prod: { target_env: prod, health_url: "https://daybook.co.uk/api/health", health_version_field: version, links: [ { label: "daybook.co.uk", url: "https://daybook.co.uk/" } ] }
+
       # ── joyai-opsapi — Joy AI's own OpsAPI (Portfolio Lab) ──
       #
       # Release `joyai-opsapi` in namespace joyai-<ring>: the stock bwalia/opsapi
