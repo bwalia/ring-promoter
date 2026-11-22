@@ -1100,65 +1100,47 @@ data:
       # wslproxy-k3s1 moved to its own instance, https://rp.wslproxy.com,
       # owned by bwalia/wslproxy deploy/ring-promoter/ (2026-09-24).
 
-      # ── academy (Workstation Academy) — REGISTERED BUT DISABLED ──────────────
-      # Uncomment the block below to enable. It is commented out for one reason
-      # only: the github deployer is a HARD boot requirement, not a soft one —
-      # with the app registered and no token the process exits at startup with
-      #   fatal: app "academy" uses the github deployer but env RP_GITHUB_TOKEN is empty
-      # and the whole control plane (jobshout, beacon, opsapi…) goes down with it.
-      # Verified on 2026-09-08: enabling it crash-looped the new pod; only
-      # maxUnavailable:0 kept the old one serving.
+      # academy (Workstation Academy) — the learner-facing Next.js site.
       #
-      # RP_GITHUB_TOKEN IS on secret/ring-promoter here now — the fishers and
-      # gullycricket apps above are dispatched with it — so the reason below is
-      # no longer the blocker it was. What is still unchecked is whether that
-      # token carries actions:write on the PRIVATE bwalia/workstation-academy;
-      # if it does not, every academy promote fails on an unauthenticated
-      # dispatch, which is the failure the note below describes.
+      # GITHUB deployer: bwalia/workstation-academy is PRIVATE, so the k8sjob
+      # deployer's unauthenticated `git clone` would 401. Dispatching the repo's own
+      # deploy-k3s.yml reuses the path that builds the image, syncs secrets, publishes
+      # DNS and registers the edge vhosts. RP_GITHUB_TOKEN (already on
+      # secret/ring-promoter — beacon, sysops, workstation-opsapi... use it) needs
+      # actions:write on bwalia/workstation-academy; without it only academy
+      # promotions fail, the control plane is unaffected.
       #
-      # TO ENABLE — add the key, then uncomment:
-      #   kubectl -n workstation-ring-promoter patch secret ring-promoter \
-      #     --type merge -p '{"stringData":{"RP_GITHUB_TOKEN":"<PAT>"}}'
-      #   kubectl -n workstation-ring-promoter rollout restart deploy/ring-promoter
-      # The PAT needs actions:write on bwalia/workstation-academy (private repo).
-      # The ring-system and fictionally instances already carry such a token.
-      # # academy (Workstation Academy) — the learner-facing Next.js site.
-      # #
-      # # GITHUB deployer, not k8sjob, for one hard reason: bwalia/workstation-academy
-      # # is a PRIVATE repo, so the unauthenticated `git clone` every k8sjob app uses
-      # # returns 401. Dispatching the repo's own deploy-k3s.yml instead reuses the
-      # # deploy path that already builds the image, syncs the environment's secrets,
-      # # publishes DNS and registers the edge vhost — none of which a bare `helm
-      # # upgrade` from a Job would do.
-      # #
-      # # Input mapping for deploy-k3s.yml's workflow_dispatch schema (its names differ
-      # # from the wslproxy defaults ENV/DEPLOY_BRANCH/DEPLOY_MODE):
-      # #   TARGET_ENV      <- RP_TARGET_ENV   (int|test|acc|prod)
-      # #   IMAGE_TAG       <- RP_VERSION      (the tag being promoted)
-      # #   DEPLOYMENT_TYPE <- deploy_mode     ("deploy": promotion moves an image that
-      # #                                       already exists, it never rebuilds)
-      # #
-      # # REQUIRES the RP_GITHUB_TOKEN key on secret/ring-promoter in this namespace —
-      # # it is NOT there yet, and the pod marks it optional, so until it is added
-      # # every academy promote fails on an unauthenticated dispatch.
-      # - name: academy
-      #   display_name: "Workstation Academy"
-      #   location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
-      #   deployer: github
-      #   github:
-      #     owner: bwalia
-      #     repo: workstation-academy
-      #     workflow: deploy-k3s.yml
-      #     ref: main
-      #     env_input: TARGET_ENV
-      #     version_input: IMAGE_TAG
-      #     mode_input: DEPLOYMENT_TYPE
-      #     deploy_mode: deploy
-      #     token_env: RP_GITHUB_TOKEN
-      #     poll_interval: 20s
-      #     run_lookup_timeout: 90s
-      #   rings:
-      #     int:  { target_env: int,  health_url: "http://academy-web.int.svc.cluster.local:80/api/health" }
-      #     test: { target_env: test, health_url: "http://academy-web.test.svc.cluster.local:80/api/health" }
-      #     acc:  { target_env: acc,  health_url: "http://academy-web.acc.svc.cluster.local:80/api/health" }
-      #     prod: { target_env: prod, health_url: "http://academy-web.prod.svc.cluster.local:80/api/health" }
+      # VERSIONS ARE GIT TAGS (vX.Y.Z). Pushing a tag deploys it to int; promoting
+      # dispatches deploy-k3s.yml with IMAGE_TAG=<tag>, which checks out that tag in
+      # every job.
+      #
+      # deploy_mode is build-and-deploy, NOT deploy: each academy env pulls from its
+      # OWN registry (int-/test-/acc-spectoncr, spectoncr for prod), so an image
+      # built for int does not exist where test pulls from. Rebuilding the same tag
+      # per ring gives identical code under the same version name. (deploy-only
+      # left the test migrate Job waiting on a missing image, 2026-11-22.)
+      #
+      # Health: public URLs, like workstation-opsapi — /api/health is the app's
+      # own liveness (DB + last sync), served through the edge the users hit.
+      # Prod serves the apex AND www.
+      - name: academy
+        display_name: "Workstation Academy"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: workstation-academy
+          workflow: deploy-k3s.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: build-and-deploy
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "https://int.workstation.academy/api/health",  links: [ { label: "Academy int",  url: "https://int.workstation.academy/" } ] }
+          test: { target_env: test, health_url: "https://test.workstation.academy/api/health", links: [ { label: "Academy test", url: "https://test.workstation.academy/" } ] }
+          acc:  { target_env: acc,  health_url: "https://acc.workstation.academy/api/health",  links: [ { label: "Academy acc",  url: "https://acc.workstation.academy/" } ] }
+          prod: { target_env: prod, health_url: "https://workstation.academy/api/health", links: [ { label: "Academy", url: "https://workstation.academy/" }, { label: "Academy (www)", url: "https://www.workstation.academy/" } ] }
