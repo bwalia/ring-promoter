@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { activeCluster, useAuthStore } from "@/lib/stores";
 import type {
   AppGroup,
@@ -56,14 +57,31 @@ export class ApiError extends Error {
   }
 }
 
+// Every request is bounded. A hung connection (edge proxy stall, laptop
+// waking from sleep, flaky Wi-Fi) must surface as a clear error the operator
+// can act on — never as a spinner that turns forever and a button that stays
+// disabled. Mutations only enqueue a job (202 in milliseconds), so they get
+// the same generous bound as reads.
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const auth = useAuthStore.getState();
   const { token, activeId } = auth;
   const baseUrl = activeCluster(auth).url;
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
+  // Honor a caller's own signal (e.g. react-query cancelling a stale fetch)
+  // as well as the timeout.
+  const callerSignal = init?.signal;
+  if (callerSignal) {
+    if (callerSignal.aborted) timeout.abort();
+    else callerSignal.addEventListener("abort", () => timeout.abort(), { once: true });
+  }
   let res: Response;
   try {
     res = await fetch(baseUrl + path, {
       ...init,
+      signal: timeout.signal,
       headers: {
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -71,9 +89,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       },
     });
   } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    clearTimeout(timer);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      // Cancelled by the caller: propagate as-is so react-query ignores it.
+      if (callerSignal?.aborted) throw err;
+      const mutating = (init?.method ?? "GET").toUpperCase() !== "GET";
+      throw new ApiError(
+        0,
+        `${host(baseUrl)} did not answer within ${REQUEST_TIMEOUT_MS / 1000}s. ` +
+          (mutating
+            ? // The request may have arrived even though the answer didn't:
+              // never claim nothing happened.
+              "The operation may still have started — check the job status on this page before trying again."
+            : "Check your connection; this view will keep retrying."),
+      );
+    }
     throw new ApiError(0, unreachableMessage(baseUrl));
   }
+  clearTimeout(timer);
 
   let body: unknown;
   try {
@@ -87,6 +120,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // switched cluster since, when the 401 is about a token no longer in use.
     if (res.status === 401 && useAuthStore.getState().activeId === activeId) {
       useAuthStore.getState().signOut();
+      // Say why the console just jumped to the token screen; otherwise an
+      // operator mid-promotion only sees their dialog vanish.
+      toast.error("Signed out", {
+        id: "signed-out",
+        description:
+          "The server rejected this browser's access token (it may have been rotated). Paste the current token to continue.",
+      });
     }
     const message =
       body && typeof body === "object" && "error" in body
@@ -101,6 +141,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  * Why a fetch to another cluster threw. Browsers hide the reason (DNS, TLS,
  * CORS and mixed content all look the same), so name the likely ones.
  */
+function host(baseUrl: string): string {
+  return baseUrl ? baseUrl.replace(/^https?:\/\//, "") : "The server";
+}
+
 export function unreachableMessage(baseUrl: string): string {
   if (!baseUrl) return "Could not reach the server. Is it running?";
   const host = baseUrl.replace(/^https?:\/\//, "");

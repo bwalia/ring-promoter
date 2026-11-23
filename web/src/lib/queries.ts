@@ -211,7 +211,7 @@ const FINISHED_CARD_WINDOW_MS = 15 * 60 * 1000;
  */
 export function useActiveJob(app: string | null) {
   const queryClient = useQueryClient();
-  const { data: jobs } = useJobs();
+  const { data: jobs, isError: jobsError } = useJobs();
   const dismissed = useJobsStore((s) => s.dismissed);
   const dismissKey = useJobsStore((s) => s.dismiss);
   const now = useNow(60_000);
@@ -256,9 +256,18 @@ export function useActiveJob(app: string | null) {
     !dismissed.includes(jobKey(job)) &&
     (!isTerminal(job) || seenRunning.has(jobKey(job)) || finishedRecently);
 
+  const running = !!job && !isTerminal(job);
   return {
     job: visible ? job : undefined,
-    running: !!job && !isTerminal(job),
+    running,
+    // Why actions are held, in words — every disabled deploy button shows it.
+    // A failing jobs poll is called out: the "running" state may then be out
+    // of date, and the operator should know it is a connection problem.
+    busyReason: running
+      ? `${job!.action === "promote" ? "A promotion" : job!.action === "seed" ? "A deploy" : `A ${job!.action}`}` +
+        `${job!.ring ? ` to ${job!.ring}` : ""} is already running for this app — wait for it to finish.` +
+        (jobsError ? " (Lost contact with the server; retrying…)" : "")
+      : undefined,
     dismiss: () => job && dismissKey(jobKey(job)),
   };
 }
@@ -469,11 +478,20 @@ export function useRemoveTopologyEdge() {
 }
 
 /** Whether prod deploys need a password, and which ring is "prod" (the last). */
-export function useProdProtection() {
+/**
+ * Whether deploying into production needs the password, and which ring that
+ * is. Fails SAFE: until /api/apps has answered (first load, or a refresh
+ * error), production is assumed protected and the last of the app's own rings
+ * is assumed to be production — so the password field is shown rather than
+ * hidden. Hiding it would let the request go out without a password and come
+ * back as a 403 the operator has no field to fix.
+ */
+export function useProdProtection(rings?: RingView[]) {
   const { data } = useApps();
+  const fallbackRing = rings?.[rings.length - 1]?.ring.name;
   return {
-    prodProtected: !!data?.prod_protected,
-    prodRing: data?.rings?.[data.rings.length - 1]?.name,
+    prodProtected: data ? !!data.prod_protected : true,
+    prodRing: data?.rings?.[data.rings.length - 1]?.name ?? fallbackRing,
   };
 }
 

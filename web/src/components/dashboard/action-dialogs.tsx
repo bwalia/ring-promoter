@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -62,6 +62,7 @@ import {
   useAppTitle,
 } from "@/lib/queries";
 import { useUiStore } from "@/lib/ui-store";
+import { ApiError } from "@/lib/api";
 import type { AppVersion, RingView } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { GateChecklist, SecurityGateCheck, gatesActive } from "@/components/dashboard/gate-controls";
@@ -112,6 +113,8 @@ export function ActionDialogs({
         onClose={close}
       />
       <RollbackDialog
+        // Remount per open so a previous attempt's error never greets the next.
+        key={pending?.type === "rollback" ? pending.ring : "none"}
         app={app}
         rings={rings}
         ring={pending?.type === "rollback" ? pending.ring : null}
@@ -143,37 +146,63 @@ function SeedDialog({
   );
   const [version, setVersion] = useState("");
   const [password, setPassword] = useState("");
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const [forcePassword, setForcePassword] = useState(false);
   const [crCode, setCrCode] = useState("");
   const [srCode, setSrCode] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const seed = useSeedMutation(app);
   const versionsQuery = useVersions(app);
-  const { prodProtected, prodRing } = useProdProtection();
+  const { prodProtected, prodRing } = useProdProtection(rings);
 
   const target = configured.find((r) => r.ring.name === ring);
   const replaces = target?.current_version;
-  const needsPassword = prodProtected && ring === prodRing;
+  const needsPassword = (prodProtected && ring === prodRing) || forcePassword;
   const needsCrCode = !!target?.gates?.change_request;
   const needsOverride = gateBlocks(target);
 
+  // Like Promote: the submit button is never a dead end — a click either
+  // sends or explains what is missing.
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ring || !version.trim() || seed.isPending) return;
-    if (needsOverride && !overrideReason.trim()) return;
+    if (seed.isPending) return;
+    const pw = passwordRef.current?.value || password;
+    const missing = !ring
+      ? "Choose a ring."
+      : !version.trim()
+        ? "Choose the version to deploy."
+        : needsCrCode && !crCode.trim()
+          ? "Enter the change-request code required for this ring."
+          : needsOverride && !overrideReason.trim()
+            ? "Give a reason for overriding the Grafana no-go."
+            : needsPassword && !pw
+              ? "Enter the production password to deploy to Production."
+              : null;
+    if (missing) {
+      setError(missing);
+      if (needsPassword && !pw && version.trim()) passwordRef.current?.focus();
+      return;
+    }
     setError(null);
     seed.mutate(
       {
         ring,
         version: version.trim(),
-        password: needsPassword ? password : undefined,
+        password: needsPassword ? pw : undefined,
         crCode: crCode.trim() || undefined,
         srCode: srCode.trim() || undefined,
         overrideReason: needsOverride ? overrideReason.trim() : undefined,
       },
       {
         onSuccess: onClose,
-        onError: (err) => setError(err.message),
+        onError: (err) => {
+          setError(err.message);
+          if (isProdPasswordError(err)) {
+            setForcePassword(true);
+            requestAnimationFrame(() => passwordRef.current?.select());
+          }
+        },
       },
     );
   };
@@ -277,26 +306,22 @@ function SeedDialog({
               id="seed-prod-password"
               value={password}
               onChange={setPassword}
+              inputRef={passwordRef}
             />
           )}
 
-          {error && <p className="text-sm text-status-critical">{error}</p>}
+          <FormError message={error} />
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={seed.isPending}
+            >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={
-                !ring ||
-                !version.trim() ||
-                (needsPassword && !password) ||
-                (needsCrCode && !crCode.trim()) ||
-                (needsOverride && !overrideReason.trim()) ||
-                seed.isPending
-              }
-            >
+            <Button type="submit" disabled={seed.isPending}>
               {seed.isPending && (
                 <Loader2 aria-hidden className="size-4 animate-spin" />
               )}
@@ -427,8 +452,12 @@ function PromoteDialog({
 }) {
   const title = useAppTitle();
   const promote = usePromoteMutation(app);
-  const { prodProtected, prodRing } = useProdProtection();
+  const { prodProtected, prodRing } = useProdProtection(rings);
   const [password, setPassword] = useState("");
+  const passwordRef = useRef<HTMLInputElement>(null);
+  // Set when the server says a production password is needed even though the
+  // console didn't think so — the field then appears so it can be supplied.
+  const [forcePassword, setForcePassword] = useState(false);
   const [crCode, setCrCode] = useState("");
   const [srCode, setSrCode] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
@@ -437,7 +466,7 @@ function PromoteDialog({
   const source = i >= 0 ? rings[i] : undefined;
   const target = i >= 0 ? rings[i + 1] : undefined;
   const toProd = target?.ring.name === prodRing;
-  const needsPassword = toProd && prodProtected;
+  const needsPassword = (toProd && prodProtected) || forcePassword;
   const version = source?.current_version ?? "";
   // A change-request-gated target needs a code before we even try — every other
   // gate (window / sign-off) is enforced server-side and surfaced as an error.
@@ -446,22 +475,47 @@ function PromoteDialog({
   // this dialog at all means the operator went through the ring's details sheet.
   const needsOverride = gateBlocks(target);
 
-  const confirm = (e: React.MouseEvent) => {
-    if (!fromRing) return;
+  // The Promote button is never silently disabled: a click always either
+  // sends the request or says exactly what is still missing.
+  const submit = (e: React.FormEvent) => {
     // Keep the dialog open so a wrong password / closed gate can be corrected.
     e.preventDefault();
+    if (!fromRing || promote.isPending) return;
+    // Read the field itself as well as React state: a browser password
+    // manager can fill the input without firing a change event.
+    const pw = passwordRef.current?.value || password;
+    if (needsPassword && !pw) {
+      setError("Enter the production password to promote to Production.");
+      passwordRef.current?.focus();
+      return;
+    }
+    if (needsCrCode && !crCode.trim()) {
+      setError("Enter the change-request code required for this ring.");
+      return;
+    }
+    if (needsOverride && !overrideReason.trim()) {
+      setError("Give a reason for overriding the Grafana no-go.");
+      return;
+    }
     setError(null);
     promote.mutate(
       {
         fromRing,
-        password: needsPassword ? password : undefined,
+        password: needsPassword ? pw : undefined,
         crCode: crCode.trim() || undefined,
         srCode: srCode.trim() || undefined,
         overrideReason: needsOverride ? overrideReason.trim() : undefined,
       },
       {
         onSuccess: onClose,
-        onError: (err) => setError(err.message),
+        onError: (err) => {
+          setError(err.message);
+          if (isProdPasswordError(err)) {
+            setForcePassword(true);
+            // Focus once the field has rendered.
+            requestAnimationFrame(() => passwordRef.current?.select());
+          }
+        },
       },
     );
   };
@@ -469,6 +523,9 @@ function PromoteDialog({
   return (
     <AlertDialog open={!!fromRing} onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent>
+        {/* A real form so Enter in the password field submits, like every
+            other password prompt the operator has ever used. */}
+        <form onSubmit={submit} className="contents">
         <AlertDialogHeader>
           <AlertDialogTitle>
             Promote to {target?.ring.label ?? "the next ring"}?
@@ -528,33 +585,56 @@ function PromoteDialog({
             id="promote-prod-password"
             value={password}
             onChange={setPassword}
+            inputRef={passwordRef}
             autoFocus
           />
         )}
 
         {/* Rendered for every failure (not only password ones): the dialog
             stays open on error, so the reason must be visible inside it. */}
-        {error && <p className="text-sm text-status-critical">{error}</p>}
+        <FormError message={error} />
 
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={
-              (needsPassword && !password) ||
-              (needsCrCode && !crCode.trim()) ||
-              (needsOverride && !overrideReason.trim()) ||
-              promote.isPending
-            }
-            onClick={confirm}
-          >
+          <AlertDialogCancel type="button" disabled={promote.isPending}>
+            Cancel
+          </AlertDialogCancel>
+          <Button type="submit" disabled={promote.isPending}>
             {promote.isPending && (
               <Loader2 aria-hidden className="size-4 animate-spin" />
             )}
-            {needsOverride ? "Override and promote" : "Promote"}
-          </AlertDialogAction>
+            {promote.isPending
+              ? "Starting…"
+              : needsOverride
+                ? "Override and promote"
+                : `Promote to ${target?.ring.label ?? "next ring"}`}
+          </Button>
         </AlertDialogFooter>
+        </form>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+/** The server's 403 for a missing or wrong production password. */
+function isProdPasswordError(err: Error): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 403 &&
+    /production password/i.test(err.message)
+  );
+}
+
+/** Inline, announced error for a dialog that stays open on failure. */
+function FormError({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <p
+      role="alert"
+      className="flex items-start gap-2 rounded-md bg-status-critical/10 p-2.5 text-sm text-status-critical"
+    >
+      <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+      <span className="min-w-0 break-words">{message}</span>
+    </p>
   );
 }
 
@@ -571,13 +651,21 @@ function AutoPromoteDialog({
   const title = useAppTitle();
   const autoPromote = useAutoPromoteMutation(app);
   const [password, setPassword] = useState("");
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const confirm = (e: React.MouseEvent) => {
+  const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (autoPromote.isPending) return;
+    const pw = passwordRef.current?.value || password;
+    if (!pw) {
+      setError("Enter the production password to enable this.");
+      passwordRef.current?.focus();
+      return;
+    }
     setError(null);
     autoPromote.mutate(
-      { ring, enabled: true, password },
+      { ring, enabled: true, password: pw },
       {
         onSuccess: onClose,
         onError: (err) => setError(err.message),
@@ -588,6 +676,7 @@ function AutoPromoteDialog({
   return (
     <AlertDialog open onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent>
+        <form onSubmit={submit} className="contents">
         <AlertDialogHeader>
           <AlertDialogTitle>Auto-promote to Production?</AlertDialogTitle>
           <AlertDialogDescription asChild>
@@ -611,22 +700,24 @@ function AutoPromoteDialog({
           id="auto-prod-password"
           value={password}
           onChange={setPassword}
-          error={error}
+          inputRef={passwordRef}
           autoFocus
         />
 
+        <FormError message={error} />
+
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={!password || autoPromote.isPending}
-            onClick={confirm}
-          >
+          <AlertDialogCancel type="button" disabled={autoPromote.isPending}>
+            Cancel
+          </AlertDialogCancel>
+          <Button type="submit" disabled={autoPromote.isPending}>
             {autoPromote.isPending && (
               <Loader2 aria-hidden className="size-4 animate-spin" />
             )}
             Enable
-          </AlertDialogAction>
+          </Button>
         </AlertDialogFooter>
+        </form>
       </AlertDialogContent>
     </AlertDialog>
   );
@@ -646,6 +737,25 @@ function RollbackDialog({
   const title = useAppTitle();
   const rollback = useRollbackMutation(app);
   const view = rings.find((r) => r.ring.name === ring);
+  const [error, setError] = useState<string | null>(null);
+
+  const confirm = (e: React.MouseEvent) => {
+    // Stay open until the server accepts, so a failure is shown here rather
+    // than in a toast after the dialog has already gone.
+    e.preventDefault();
+    if (!ring || rollback.isPending) return;
+    setError(null);
+    rollback.mutate(
+      { ring },
+      {
+        onSuccess: () => {
+          setError(null);
+          onClose();
+        },
+        onError: (err) => setError(err.message),
+      },
+    );
+  };
 
   return (
     <AlertDialog open={!!ring} onOpenChange={(o) => !o && onClose()}>
@@ -673,14 +783,17 @@ function RollbackDialog({
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
+        <FormError message={error} />
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={rollback.isPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             className="bg-status-critical text-white hover:bg-status-critical/90"
-            onClick={() =>
-              ring && rollback.mutate({ ring }, { onSuccess: onClose })
-            }
+            disabled={rollback.isPending}
+            onClick={confirm}
           >
+            {rollback.isPending && (
+              <Loader2 aria-hidden className="size-4 animate-spin" />
+            )}
             Roll back
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -697,13 +810,13 @@ function ProdPasswordField({
   id,
   value,
   onChange,
-  error,
+  inputRef,
   autoFocus,
 }: {
   id: string;
   value: string;
   onChange: (v: string) => void;
-  error?: string | null;
+  inputRef?: React.Ref<HTMLInputElement>;
   autoFocus?: boolean;
 }) {
   return (
@@ -711,14 +824,18 @@ function ProdPasswordField({
       <Label htmlFor={id}>Production password</Label>
       <Input
         id={id}
+        ref={inputRef}
         type="password"
         autoComplete="off"
         autoFocus={autoFocus}
         value={value}
+        // onInput as well as onChange: some password managers fill the field
+        // with only one of the two events.
         onChange={(e) => onChange(e.target.value)}
+        onInput={(e) => onChange(e.currentTarget.value)}
         placeholder="Required to deploy to production"
       />
-      {error && <p className="text-sm text-status-critical">{error}</p>}
+      <p className="text-xs text-muted-foreground">Press Enter to confirm.</p>
     </div>
   );
 }

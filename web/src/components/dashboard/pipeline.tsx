@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  Loader2,
   Undo2,
 } from "lucide-react";
 import { RelativeTime } from "@/components/relative-time";
@@ -65,7 +66,7 @@ export function Pipeline({
   isPending: boolean;
 }) {
   const setPendingAction = useUiStore((s) => s.setPendingAction);
-  const { running } = useActiveJob(app);
+  const { running, busyReason } = useActiveJob(app);
   // Ring whose details sheet shows. Data is looked up fresh from `rings` on
   // every render so an open sheet keeps up with live refreshes. Closing only
   // flips `detailsOpen` — the ring itself is kept so the sheet still has
@@ -117,6 +118,7 @@ export function Pipeline({
                   view={view}
                   next={i < rings.length - 1 ? rings[i + 1] : undefined}
                   busy={running}
+                  busyReason={busyReason}
                   onOpenDetails={() => {
                     setDetailsRing(view.ring.name);
                     setDetailsOpen(true);
@@ -154,6 +156,7 @@ export function Pipeline({
                   : undefined
               }
               busy={running}
+              busyReason={busyReason}
               onOpenChange={setDetailsOpen}
             />
           )}
@@ -169,12 +172,14 @@ function RingCard({
   view,
   next,
   busy,
+  busyReason,
   onOpenDetails,
 }: {
   app: string;
   view: RingView;
   next?: RingView;
   busy: boolean;
+  busyReason?: string;
   onOpenDetails: () => void;
 }) {
   const setPendingAction = useUiStore((s) => s.setPendingAction);
@@ -202,7 +207,11 @@ function RingCard({
   // sheet — deliberately one click away from the quick action.
   const noGo = gateBlocks(next);
   const promoteDisabled = busy || !view.can_promote_from || inSync || noGo;
-  const promoteHint = !view.current_version
+  // Every reason the button can be disabled has a matching hint, checked in
+  // the same order — a greyed-out button must never claim it is ready.
+  const promoteHint = busy
+    ? (busyReason ?? "Another operation is running for this app")
+    : !view.current_version
     ? "Nothing to promote — seed a version first"
     : !view.can_promote_from
       ? "Target ring not available"
@@ -308,6 +317,9 @@ function RingCard({
                     setPendingAction({ type: "promote", app, fromRing: ring.name })
                   }
                 >
+                  {busy && (
+                    <Loader2 aria-hidden className="size-4 animate-spin" />
+                  )}
                   Promote to {next.ring.label}
                 </Button>
               </span>
@@ -331,7 +343,9 @@ function RingCard({
               Seed
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Deploy a specific version here</TooltipContent>
+          <TooltipContent>
+            {busy ? busyReason : "Deploy a specific version here"}
+          </TooltipContent>
         </Tooltip>
       </div>
     </div>
@@ -345,6 +359,7 @@ function RingDetailsSheet({
   view,
   next,
   busy,
+  busyReason,
   onOpenChange,
 }: {
   app: string;
@@ -352,6 +367,7 @@ function RingDetailsSheet({
   view: RingView;
   next?: RingView;
   busy: boolean;
+  busyReason?: string;
   onOpenChange: (open: boolean) => void;
 }) {
   const setPendingAction = useUiStore((s) => s.setPendingAction);
@@ -587,6 +603,23 @@ function RingDetailsSheet({
         </div>
 
         <SheetFooter>
+          {/* Disabled buttons in a sheet have no tooltip — say why in text. */}
+          {busy && (
+            <p
+              role="status"
+              className="flex items-start gap-2 rounded-md bg-muted px-2.5 py-2 text-xs text-muted-foreground"
+            >
+              <Loader2 aria-hidden className="mt-0.5 size-3.5 shrink-0 animate-spin" />
+              {busyReason}
+            </p>
+          )}
+          {!busy && next && !view.can_promote_from && (
+            <p className="rounded-md bg-muted px-2.5 py-2 text-xs text-muted-foreground">
+              {view.current_version
+                ? `${next.ring.label} can't be promoted into from here right now.`
+                : "Nothing to promote — seed a version first."}
+            </p>
+          )}
           {next && (
             // Unlike the card's Promote, this one stays enabled on a no-go: the
             // sheet is the deliberate path, and the dialog it opens collects the
