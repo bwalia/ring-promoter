@@ -1063,6 +1063,37 @@ data:
         rings:
           int: { target_env: int, health_url: "http://pintopets.int.svc.cluster.local/api/v1/health", health_version_field: version, links: [ { label: "PintoPets int (VPN)", url: "https://int.pintopets.app/" } ] }
 
+      # ── source-ai — Source AI Agent for Source Supplies (bwalia/source-ai) ──
+      # GITHUB deployer. deploy-k3s.yml (repo bwalia/source-ai) does Cloudflare CNAMEs + wslproxy
+      # vhosts for the ring's four hosts (<ring>-source-ai[-api|-ops|-files].fictionally.org; prod
+      # without the prefix), builds the ring's opsapi dashboard image, generates the ring Secret
+      # source-ai-config once, then helm upgrades release source-ai in the ring namespace (agent,
+      # ServiceChannel MCP, NebulaDB, its own opsapi + Postgres + S3 + dashboard).
+      # A push to main builds bwalia/source-ai-agent:<sha7> and SEEDS int. /health reports
+      # APP_VERSION. Every ring is behind the Workstation VPN access profile (prod too, until opsapi
+      # has SMTP for sign-in codes), so health is checked on the in-cluster Service.
+      - name: source-ai
+        display_name: "Source AI Agent"
+        location: { lat: 51.3365, lng: -0.7497, city: Camberley, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: source-ai
+          workflow: deploy-k3s.yml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: deploy
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 20s
+          run_lookup_timeout: 90s
+        rings:
+          int: { target_env: int, health_url: "http://source-ai-agent.int.svc.cluster.local:8700/health", health_version_field: version, links: [ { label: "Orders screen (int, VPN)", url: "https://int-source-ai.fictionally.org/" }, { label: "opsapi dashboard (int)", url: "https://int-source-ai-ops.fictionally.org/" } ] }
+          test: { target_env: test, health_url: "http://source-ai-agent.test.svc.cluster.local:8700/health", health_version_field: version, links: [ { label: "Orders screen (test, VPN)", url: "https://test-source-ai.fictionally.org/" }, { label: "opsapi dashboard (test)", url: "https://test-source-ai-ops.fictionally.org/" } ] }
+          acc: { target_env: acc, health_url: "http://source-ai-agent.acc.svc.cluster.local:8700/health", health_version_field: version, links: [ { label: "Orders screen (acc, VPN)", url: "https://acc-source-ai.fictionally.org/" }, { label: "opsapi dashboard (acc)", url: "https://acc-source-ai-ops.fictionally.org/" } ] }
+          prod: { target_env: prod, health_url: "http://source-ai-agent.prod.svc.cluster.local:8700/health", health_version_field: version, links: [ { label: "Orders screen (prod, VPN)", url: "https://source-ai.fictionally.org/" }, { label: "opsapi dashboard (prod)", url: "https://source-ai-ops.fictionally.org/" } ] }
+
       # wslproxy edge / VM CI — github deployer on THIS instance
       # (rp.workstation.co.uk). Dispatches bwalia/wslproxy
       # deploy-single-environment.yml (int|test|acc|prod=lon1+lon2).
