@@ -1,4 +1,4 @@
-# RBAC for the k8sjob deployer used by the `jobshout` app (deploy/k8s/configmap.yaml).
+# RBAC for the k8sjob deployer (deploy/k8s/configmap.yaml): jobshout, the shop and workstation-opsapi.
 #
 # Two identities are involved:
 #
@@ -246,3 +246,71 @@ spec:
       remoteRef:
         key: ring-promoter/deploy-keys/workstation-website
         property: GIT_SSH_KEY
+---
+# --- 4. workstation-opsapi runner: its OWN ServiceAccount (least privilege) ---
+# The workstation-opsapi k8sjob Jobs (image bwalia/rp-deployer, entrypoint
+# overridden in configmap.yaml) clone bwalia/opsapi at the release and run its
+# devops/ring-promoter/deploy-opsapi.sh: helm upgrade of the workstation-opsapi
+# release (chart devops/helm-charts/diytaxreturn-lapis) into a ring namespace.
+# Kinds are exactly what that chart renders for values-workstation-<env>.yaml
+# (Deployments, Services, ConfigMaps, Secrets, Ingresses, CronJobs, a PDB, the
+# ExternalSecret, and the pre-upgrade migrate hook Job), plus read-only
+# pods/logs/events/replicasets for rollout status. As for the shop, Secrets
+# cannot be narrowed to the release's own, so this is "secrets in the bound
+# namespace" — which is why only int is bound until the other rings move.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rp-deploy-workstation-opsapi
+  namespace: ring-exec
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rp-deploy-workstation-opsapi
+  labels: { app.kubernetes.io/part-of: ring-promoter }
+rules:
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-workstation-opsapi
+  namespace: int
+subjects:
+  - { kind: ServiceAccount, name: rp-deploy-workstation-opsapi, namespace: ring-exec }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-workstation-opsapi }
+# test/acc/prod: add the same RoleBinding in that namespace when its ring moves
+# to k8sjob (configmap.yaml: workstation-opsapi rings.<ring>.deployer).
+# The read-only GitHub deploy key for the PRIVATE bwalia/opsapi (registered on
+# the repo as "rp-deployer k8sjob (ring-exec) read-only") is the Secret
+# rp-deploy-opsapi-key in ring-exec, key GIT_SSH_KEY, which the Job reads as env
+# (env_from_secrets). It is made BY HAND, not here and not from wslvault, so this
+# file never holds it and `kubectl apply` never touches it. To rotate: make a new
+# ed25519 key, add its .pub read-only on the repo, delete the old deploy key, and
+#   kubectl -n ring-exec create secret generic rp-deploy-opsapi-key \
+#     --from-file=GIT_SSH_KEY=<private key file> --dry-run=client -o yaml | kubectl apply -f -

@@ -377,7 +377,7 @@ data:
 
       # ── workstation-opsapi + workstation-opsapi-ui — OpsAPI on *.workstation.co.uk ──
       #
-      # PUBLIC repo bwalia/opsapi. Two apps, one product: the API (Lua/Lapis,
+      # PRIVATE repo bwalia/opsapi (since 2026-11). Two apps, one product: the API (Lua/Lapis,
       # *-opsapi.workstation.co.uk) and its dashboard (Next.js,
       # *-opsapi-ui.workstation.co.uk), each deployed by the repo's own
       # workflow, the same way sysops and gullycricket are.
@@ -411,6 +411,16 @@ data:
       # wslproxy edge reaches every ring wherever its pods land.
       #
       # Needs RP_GITHUB_TOKEN to be allowed to dispatch workflows in bwalia/opsapi.
+      #
+      # K8SJOB, ring by ring (int first; the others stay on the workflow until
+      # they move, each needing its RoleBinding in rbac.yaml). The Job clones
+      # opsapi at the promoted release and runs that release's
+      # devops/ring-promoter/deploy-opsapi.sh: the same helm upgrade, migrate
+      # hook, ESO wait and config-only restart as deploy-k3s.yml, in about a
+      # minute and with no GitHub runner or API calls. It does NOT touch DNS or
+      # the wslproxy vhost; those exist for every ring, and the workflow (manual
+      # dispatch) still re-creates them if one is ever lost. Releases older than
+      # the script fail fast with a clear message: promote a newer one.
       - name: workstation-opsapi
         display_name: "Workstation OpsAPI"
         location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
@@ -427,6 +437,41 @@ data:
           token_env: RP_GITHUB_TOKEN
           poll_interval: 20s
           run_lookup_timeout: 90s
+        k8sjob:
+          namespace: ring-exec
+          image: docker.io/bwalia/rp-deployer:0.1.0   # for its toolchain: helm 4, kubectl, git, ssh, jq, curl
+          service_account: rp-deploy-workstation-opsapi
+          env_from_secrets: [rp-deploy-opsapi-key]
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              case "${RP_VERSION:-}" in ""|*[!A-Za-z0-9._-]*) echo "bad version '${RP_VERSION:-}'" >&2; exit 2 ;; esac
+              W="$(mktemp -d)"
+              (umask 077; printf '%s\n' "$GIT_SSH_KEY" > "$W/key"); unset GIT_SSH_KEY
+              export GIT_SSH_COMMAND="ssh -i $W/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/ssh/ssh_known_hosts -o ConnectTimeout=20"
+              echo "clone opsapi @ ${RP_VERSION}"
+              n=0
+              until git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$RP_VERSION" --filter=blob:none --sparse \
+                    git@github.com:bwalia/opsapi.git "$W/src"; do
+                n=$((n + 1)); [ "$n" -lt 5 ] || { echo "git clone failed 5 times" >&2; exit 1; }
+                echo "git clone failed (attempt $n), retrying..."; rm -rf "$W/src"; sleep $((n * 5))
+              done
+              cd "$W/src"
+              git sparse-checkout set devops/helm-charts/diytaxreturn-lapis devops/ring-promoter
+              S=devops/ring-promoter/deploy-opsapi.sh
+              [ -f "$S" ] || { echo "release ${RP_VERSION} predates cluster deploys (no $S): promote a newer release" >&2; exit 1; }
+              exec sh "$S"
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - { key: node-role.kubernetes.io/edge, operator: DoesNotExist }
+          resources: { cpu_request: 100m, memory_request: 128Mi, memory_limit: 512Mi }
+          timeout: 35m          # helm 20m (migrate hook) + rollout 10m, as the workflow
+          retries: 0
+          ttl_after_finished: 1h
         rings:
           int:  { target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://int-opsapi.workstation.co.uk/swagger", kind: docs } ] }
           test: { target_env: test, health_url: "https://test-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
