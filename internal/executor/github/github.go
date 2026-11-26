@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/example/ring-promoter/internal/executor"
@@ -91,6 +92,10 @@ type Config struct {
 	// RetryBackoff is the base linear backoff between transport-error retries
 	// (attempt N waits N*RetryBackoff; default 2s).
 	RetryBackoff time.Duration
+	// RateLimitMaxWait is the longest a request waits for an exhausted API
+	// quota to reset before failing with the reset time (default 65m, which
+	// covers GitHub's hourly window: a deploy in flight outlives a dry quota).
+	RateLimitMaxWait time.Duration
 }
 
 // Executor implements executor.Executor for GitHub Actions.
@@ -98,7 +103,18 @@ type Executor struct {
 	log  *slog.Logger
 	http HTTPDoer
 	cfg  Config
+
+	etags etagCache
+
+	refsMu   sync.Mutex
+	refs     []Ref
+	refsTime time.Time
 }
+
+// refsTTL is how long a listing of branches and tags is reused. Opening a
+// deploy dialog lists them (up to six requests); there is no need to spend
+// those again for every dialog opened in the same minute.
+const refsTTL = 60 * time.Second
 
 // New returns a GitHub Actions executor, filling defaults.
 func New(log *slog.Logger, cfg Config, client HTTPDoer) *Executor {
@@ -141,6 +157,9 @@ func New(log *slog.Logger, cfg Config, client HTTPDoer) *Executor {
 	}
 	if cfg.RetryBackoff <= 0 {
 		cfg.RetryBackoff = 2 * time.Second
+	}
+	if cfg.RateLimitMaxWait <= 0 {
+		cfg.RateLimitMaxWait = 65 * time.Minute
 	}
 	return &Executor{log: log, http: client, cfg: cfg}
 }
@@ -425,9 +444,16 @@ func (e *Executor) findRun(ctx context.Context, since time.Time, existing map[in
 // gullycricket acc deploy that had in fact succeeded — the workflow was green
 // and the pods were running the new image, while the promoter recorded a
 // failure and left its stored version behind the cluster.
+//
+// Rate limiting is handled apart from all of that: GitHub refused the request
+// without doing anything, so any method waits for the reset and asks again
+// (see ratelimit.go), and the wait does not use up the retries.
 func (e *Executor) do(ctx context.Context, method, endpoint string, body []byte) (*http.Response, error) {
 	var lastErr error
 	for attempt := 0; ; attempt++ {
+		if err := e.waitForQuota(ctx, method, endpoint); err != nil {
+			return nil, err
+		}
 		var rdr io.Reader
 		if body != nil {
 			rdr = bytes.NewReader(body)
@@ -442,11 +468,35 @@ func (e *Executor) do(ctx context.Context, method, endpoint string, body []byte)
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
+		cached, haveCached := etagEntry{}, false
+		if method == http.MethodGet {
+			if cached, haveCached = e.etags.get(endpoint); haveCached {
+				req.Header.Set("If-None-Match", cached.etag)
+			}
+		}
 
 		resp, err := e.http.Do(req)
+		if err == nil {
+			now := time.Now()
+			if until, limited := rateLimitedUntil(resp, now); limited {
+				resp.Body.Close()
+				// A reset already past by our clock (skew) must still pause,
+				// or this would spin against GitHub.
+				if floor := now.Add(rateLimitFloor); until.Before(floor) {
+					until = floor
+				}
+				sharedRateLimits.block(e.cfg.Token, until)
+				attempt-- // waiting for the quota is not a failed attempt
+				continue
+			}
+		}
 		switch {
 		case err != nil:
 			lastErr = err
+		case resp.StatusCode == http.StatusNotModified && haveCached:
+			// Free: GitHub does not count a 304 against the quota.
+			resp.Body.Close()
+			return cached.replay(req), nil
 		case retriableStatus(method, resp.StatusCode):
 			// Take the message out before dropping the response: it is the
 			// only thing that says what GitHub was unhappy about, and it is
@@ -454,6 +504,9 @@ func (e *Executor) do(ctx context.Context, method, endpoint string, body []byte)
 			lastErr = apiError("github api", resp)
 			resp.Body.Close()
 		default:
+			if method == http.MethodGet {
+				resp = e.etags.remember(endpoint, resp)
+			}
 			return resp, nil
 		}
 
@@ -468,6 +521,24 @@ func (e *Executor) do(ctx context.Context, method, endpoint string, body []byte)
 			return nil, serr
 		}
 	}
+}
+
+// waitForQuota holds a request while the token's quota is known to be spent,
+// up to RateLimitMaxWait; past that it fails saying when the quota resets.
+func (e *Executor) waitForQuota(ctx context.Context, method, endpoint string) error {
+	now := time.Now()
+	until := sharedRateLimits.blockedUntil(e.cfg.Token, now)
+	if until.IsZero() {
+		return nil
+	}
+	wait := until.Sub(now)
+	if wait > e.cfg.RateLimitMaxWait {
+		return rateLimitError(until, now)
+	}
+	e.log.Warn("github api rate limit exhausted; waiting for the quota to reset",
+		"method", method, "endpoint", endpoint,
+		"resets_at", until.UTC().Format(time.RFC3339), "wait", wait.Round(time.Second).String())
+	return sleep(ctx, wait)
 }
 
 // retriableStatus says whether an answer from GitHub is worth asking again
@@ -500,6 +571,11 @@ func (e *Executor) ListRefs(ctx context.Context) ([]Ref, error) {
 	if e.cfg.Token == "" {
 		return nil, fmt.Errorf("github deployer: no API token configured")
 	}
+	e.refsMu.Lock()
+	defer e.refsMu.Unlock()
+	if e.refs != nil && time.Since(e.refsTime) < refsTTL {
+		return append([]Ref(nil), e.refs...), nil
+	}
 	branches, err := e.listRefs(ctx, "branches", "branch")
 	if err != nil {
 		return nil, fmt.Errorf("list branches: %w", err)
@@ -508,7 +584,9 @@ func (e *Executor) ListRefs(ctx context.Context) ([]Ref, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list tags: %w", err)
 	}
-	return append(branches, tags...), nil
+	refs := append(branches, tags...)
+	e.refs, e.refsTime = refs, time.Now()
+	return append([]Ref(nil), refs...), nil
 }
 
 // listRefs pages through /repos/{owner}/{repo}/{branches|tags}.
