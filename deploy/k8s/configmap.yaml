@@ -793,6 +793,46 @@ data:
         rings:
           prod: { target_env: prod, health_url: "https://workstation-website.s3.eu-west-2.amazonaws.com/version.json", health_version_field: version, links: [ { label: "S3 copy", url: "http://workstation-website.s3-website.eu-west-2.amazonaws.com/en/" }, { label: "Export runs", url: "https://github.com/bwalia/workstation-website/actions/workflows/deploy-s3.yaml" } ] }
 
+      # ── tenthmatrix-website — www.tenthmatrix.com (bwalia/tenthmatrix) ──
+      #
+      # Same model as workstation-website. GITHUB deployer: build-and-deploy.yaml
+      # dispatched with TARGET_ENV=<ring>, IMAGE_TAG=<version> and
+      # DEPLOYMENT_TYPE=deploy. The version is the image tag: the git SHA (7) a
+      # merge built and pushed (tm-frontend:<sha7>), so every ring runs the
+      # exact same artefact. A merge to main SEEDS int (seed-ring-promoter job);
+      # promote int -> test -> acc -> prod from here (prod needs the prod
+      # password). The run lookup only matches workflow_dispatch runs, so the
+      # push run of the same workflow is never mistaken for the deploy.
+      #
+      # int/test/acc: /api/health on the public ring host reports APP_VERSION
+      # (tm-chart sets it from image.tag). prod is different from Workstation:
+      # www.tenthmatrix.com IS the S3 static export (k3s release tm-prod only
+      # serves /api/chat). A prod promotion rolls tm-prod, then exports the same
+      # commit to the tenthmatrix-website bucket and writes /version.json last,
+      # so the prod ring health-checks that file. The export runs inside the
+      # deploy (10-30 min), within operation_timeout.
+      - name: tenthmatrix-website
+        display_name: "TenthMatrix Website"
+        location: { lat: 51.5074, lng: -0.1278, city: London, region: GB }
+        deployer: github
+        github:
+          owner: bwalia
+          repo: tenthmatrix
+          workflow: build-and-deploy.yaml
+          ref: main
+          env_input: TARGET_ENV
+          version_input: IMAGE_TAG
+          mode_input: DEPLOYMENT_TYPE
+          deploy_mode: deploy
+          token_env: RP_GITHUB_TOKEN
+          poll_interval: 30s
+          run_lookup_timeout: 90s
+        rings:
+          int:  { target_env: int,  health_url: "https://int.tenthmatrix.com/api/health", health_version_field: version, links: [ { label: "Website int", url: "https://int.tenthmatrix.com/en" } ] }
+          test: { target_env: test, health_url: "https://test.tenthmatrix.com/api/health", health_version_field: version, links: [ { label: "Website test", url: "https://test.tenthmatrix.com/en" } ] }
+          acc:  { target_env: acc,  health_url: "https://acc.tenthmatrix.com/api/health", health_version_field: version, links: [ { label: "Website acc", url: "https://acc.tenthmatrix.com/en" } ] }
+          prod: { target_env: prod, health_url: "https://tenthmatrix-website.s3.eu-west-2.amazonaws.com/version.json", health_version_field: version, links: [ { label: "Website", url: "https://www.tenthmatrix.com/en/" }, { label: "Deploy runs", url: "https://github.com/bwalia/tenthmatrix/actions/workflows/build-and-deploy.yaml" } ] }
+
       # ── fishers + gullycricket — the club-sports app, one stack per brand ──
       #
       # One repo (PUBLIC bwalia/fishers), one pipeline, two registered apps. A
