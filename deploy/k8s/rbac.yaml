@@ -257,7 +257,7 @@ spec:
 # ExternalSecret, and the pre-upgrade migrate hook Job), plus read-only
 # pods/logs/events/replicasets for rollout status. As for the shop, Secrets
 # cannot be narrowed to the release's own, so this is "secrets in the bound
-# namespace" — which is why only int is bound until the other rings move.
+# namespace" — which is why a namespace is bound only once its ring moves (int, test).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -304,7 +304,16 @@ metadata:
 subjects:
   - { kind: ServiceAccount, name: rp-deploy-workstation-opsapi, namespace: ring-exec }
 roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-workstation-opsapi }
-# test/acc/prod: add the same RoleBinding in that namespace when its ring moves
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rp-deploy-workstation-opsapi
+  namespace: test
+subjects:
+  - { kind: ServiceAccount, name: rp-deploy-workstation-opsapi, namespace: ring-exec }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rp-deploy-workstation-opsapi }
+# acc/prod: add the same RoleBinding in that namespace when its ring moves
 # to k8sjob (configmap.yaml: workstation-opsapi rings.<ring>.deployer).
 # The read-only GitHub deploy key for the PRIVATE bwalia/opsapi (registered on
 # the repo as "rp-deployer k8sjob (ring-exec) read-only") is the Secret
