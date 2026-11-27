@@ -439,7 +439,7 @@ data:
           token_env: RP_GITHUB_TOKEN
           poll_interval: 20s
           run_lookup_timeout: 90s
-        k8sjob:
+        k8sjob: &workstation_opsapi_k8sjob   # also the UI's (workstation-opsapi-ui)
           namespace: ring-exec
           image: docker.io/bwalia/rp-deployer:0.1.0   # for its toolchain: helm 4, kubectl, git, ssh, jq, curl
           service_account: rp-deploy-workstation-opsapi
@@ -460,7 +460,7 @@ data:
                 echo "git clone failed (attempt $n), retrying..."; rm -rf "$W/src"; sleep $((n * 5))
               done
               cd "$W/src"
-              git sparse-checkout set devops/helm-charts/diytaxreturn-lapis devops/ring-promoter
+              git sparse-checkout set devops/helm-charts/diytaxreturn-lapis devops/helm-charts/opsapi-dashboard devops/ring-promoter
               S=devops/ring-promoter/deploy-opsapi.sh
               [ -f "$S" ] || { echo "release ${RP_VERSION} predates cluster deploys (no $S): promote a newer release" >&2; exit 1; }
               exec sh "$S"
@@ -480,11 +480,14 @@ data:
           acc:  { deployer: k8sjob, target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
           prod: { deployer: k8sjob, target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://opsapi.workstation.co.uk/swagger", kind: docs } ] }
 
-      # The dashboard is built per ring (its API URL is baked into the Next.js
-      # bundle), so a promote BUILDS the release tag for the target ring:
-      # deploy-workstation-dashboard.yml checks out VERSION and deploys it. The
-      # workflow has no mode input. Promote the API first, then this, with the
-      # same release.
+      # K8SJOB, ring by ring (int first): each merge builds ONE dashboard image
+      # for every ring (bwalia/opsapi-dashboard:<release>, deploy-k3s.yml's
+      # dashboard-image job). Its API URL is a placeholder that each pod swaps
+      # for its ring's apiUrl at start, so a promote only helm-upgrades. Releases
+      # built before that have no such image: the Job stops at the Docker Hub
+      # check. Rings without `deployer: k8sjob` use the workflow below, which
+      # builds the release for that ring (no mode input). Promote the API first,
+      # then this, with the same release.
       #
       # Health: int/test/acc probe the in-cluster Service directly (port 8039).
       # The public /login URL can briefly redirect-loop at the wslproxy edge
@@ -508,8 +511,12 @@ data:
           token_env: RP_GITHUB_TOKEN
           poll_interval: 20s
           run_lookup_timeout: 90s
+        # The same Job as workstation-opsapi (that block's anchor): with RP_APP set
+        # to this app, the release's deploy-opsapi.sh helm-upgrades the
+        # workstation-opsapi-dashboard release with bwalia/opsapi-dashboard:<release>.
+        k8sjob: *workstation_opsapi_k8sjob
         rings:
-          int:  { target_env: int,  health_url: "http://workstation-opsapi-dashboard.int.svc.cluster.local:8039/login", links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api } ] }
+          int:  { deployer: k8sjob, target_env: int,  health_url: "http://workstation-opsapi-dashboard.int.svc.cluster.local:8039/login", links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api } ] }
           test: { target_env: test, health_url: "http://workstation-opsapi-dashboard.test.svc.cluster.local:8039/login", links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
           acc:  { target_env: acc,  health_url: "http://workstation-opsapi-dashboard.acc.svc.cluster.local:8039/login", links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
           prod: { target_env: prod, health_url: "https://opsapi-ui.workstation.co.uk/login", links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api } ] }
