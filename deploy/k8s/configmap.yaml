@@ -410,16 +410,18 @@ data:
       # .svc.cluster.local:80/ready times out while the pod is Running). The
       # wslproxy edge reaches every ring wherever its pods land.
       #
-      # Needs RP_GITHUB_TOKEN to be allowed to dispatch workflows in bwalia/opsapi.
+      # The workflow fallback needs RP_GITHUB_TOKEN allowed to dispatch in bwalia/opsapi.
       #
-      # K8SJOB, ring by ring: int and test are on it; acc/prod stay on the workflow
-      # until they move, each needing its RoleBinding in rbac.yaml. The Job clones
+      # K8SJOB on every ring (rings.<ring>.deployer; each ring namespace has its
+      # RoleBinding in rbac.yaml). Delete a ring's `deployer: k8sjob` to send it
+      # back to the workflow. The Job clones
       # opsapi at the promoted release and runs that release's
       # devops/ring-promoter/deploy-opsapi.sh: the same helm upgrade, migrate
       # hook, ESO wait and config-only restart as deploy-k3s.yml, in about a
       # minute and with no GitHub runner or API calls. It does NOT touch DNS or
-      # the wslproxy vhost; those exist for every ring, and the workflow (manual
-      # dispatch) still re-creates them if one is ever lost. Releases older than
+      # the wslproxy vhost; those exist for every ring, the dashboard's deploys
+      # still re-push the WSL Proxy domains, and the workflow (manual dispatch)
+      # re-creates DNS if a record is ever lost. Releases older than
       # the script fail fast with a clear message: promote a newer one.
       - name: workstation-opsapi
         display_name: "Workstation OpsAPI"
@@ -475,8 +477,8 @@ data:
         rings:
           int:  { deployer: k8sjob, target_env: int,  health_url: "https://int-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://int-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://int-opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://int-opsapi.workstation.co.uk/swagger", kind: docs } ] }
           test: { deployer: k8sjob, target_env: test, health_url: "https://test-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://test-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://test-opsapi.workstation.co.uk/", kind: api } ] }
-          acc:  { target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
-          prod: { target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://opsapi.workstation.co.uk/swagger", kind: docs } ] }
+          acc:  { deployer: k8sjob, target_env: acc,  health_url: "https://acc-opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://acc-opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://acc-opsapi.workstation.co.uk/", kind: api } ] }
+          prod: { deployer: k8sjob, target_env: prod, health_url: "https://opsapi.workstation.co.uk/ready", health_version_field: version, links: [ { label: "OpsAPI UI", url: "https://opsapi-ui.workstation.co.uk/" }, { label: "OpsAPI", url: "https://opsapi.workstation.co.uk/", kind: api }, { label: "OpsAPI docs", url: "https://opsapi.workstation.co.uk/swagger", kind: docs } ] }
 
       # The dashboard is built per ring (its API URL is baked into the Next.js
       # bundle), so a promote BUILDS the release tag for the target ring:
